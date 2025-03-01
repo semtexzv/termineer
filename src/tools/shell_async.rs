@@ -231,8 +231,8 @@ pub fn execute_shell_async(command_to_run: String, sender: Sender<ToolMessage>, 
                     }
                 }
                 
-                // Small delay to avoid spinning the CPU
-                thread::sleep(std::time::Duration::from_millis(50));
+                // Smaller delay to be more responsive to keyboard interrupts while avoiding CPU spin
+                thread::sleep(std::time::Duration::from_millis(10));
             }
         },
         Err(e) => {

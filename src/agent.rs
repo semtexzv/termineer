@@ -107,8 +107,8 @@ impl Agent {
                 // Try to enable raw mode just for keyboard check
                 raw_mode_enabled = terminal::enable_raw_mode().is_ok();
                 
-                // Check for keyboard input with a short poll time
-                if raw_mode_enabled && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false) {
+                // Check for keyboard input with a longer poll time to ensure we don't miss Ctrl+C keypresses
+                if raw_mode_enabled && event::poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
                     if let Ok(Event::Key(key)) = event::read() {
                         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
                             // User pressed Ctrl+C
@@ -238,8 +238,8 @@ impl Agent {
                     break;
                 },
                 Err(TryRecvError::Empty) => {
-                    // No message available right now, wait a bit
-                    thread::sleep(std::time::Duration::from_millis(50));
+                    // Shorter sleep to ensure more frequent keyboard event checks
+                    thread::sleep(std::time::Duration::from_millis(10));
                 },
                 Err(TryRecvError::Disconnected) => {
                     // Channel disconnected, command must be done
