@@ -6,7 +6,14 @@ use std::thread;
 
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
-use crate::tools::async_executor::ToolMessage;
+
+/// Message types for asynchronous tool execution
+pub enum ToolMessage {
+    /// A line of output from the tool
+    Line(String),
+    /// Completion signal with final result
+    Complete(ToolResult),
+}
 
 /// Executes a shell command with streaming output that can be interrupted
 pub fn execute_shell_async(command_to_run: String, sender: Sender<ToolMessage>, interrupt_flag: Arc<Mutex<bool>>, silent_mode: bool) {

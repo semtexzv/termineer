@@ -17,8 +17,7 @@ use crate::conversation::{parse_assistant_response, print_assistant_response, pr
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::prompts::{generate_minimal_system_prompt, ToolDocOptions};
 use crate::tools::ToolExecutor;
-use crate::tools::async_executor::{ToolMessage};
-use crate::tools::shell_async::execute_shell_async;
+use crate::tools::shell_async::{execute_shell_async, ToolMessage};
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
