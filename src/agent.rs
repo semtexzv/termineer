@@ -83,7 +83,6 @@ impl Agent {
         
         // Buffer of lines to reduce the frequency of LLM interruption checks
         let mut line_buffer = String::new();
-        let mut line_count = 0;
         
         // Track time between interruption checks (to prevent excessive API calls)
         let mut last_check_time = std::time::Instant::now();
@@ -139,7 +138,6 @@ impl Agent {
                     // Add to line buffer for batched interruption checks
                     line_buffer.push_str(&line);
                     line_buffer.push('\n');
-                    line_count += 1;
                     
                     // Check for interruption every 2 seconds
                     if !interrupting && !line_buffer.is_empty() && last_check_time.elapsed() > min_check_interval {
@@ -211,7 +209,6 @@ impl Agent {
                             
                             // Reset buffer after check
                             line_buffer.clear();
-                            line_count = 0;
                         }
                     }
                     
@@ -244,7 +241,7 @@ impl Agent {
         
         // Now that all output processing is complete, restore terminal mode
         if raw_mode_enabled {
-            let _ = crossterm::terminal::disable_raw_mode();
+            let _ = terminal::disable_raw_mode();
             
             // Safe to print interruption message now that terminal mode is normalized
             // and all subprocess output has been processed
