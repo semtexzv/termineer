@@ -124,6 +124,8 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
 
         // Process normal user query
         if !user_input.is_empty() {
+            // Process the query and handle any errors
+            // Note: The printing of responses is now handled directly in the agent
             if let Err(e) = process_user_query(&mut client, user_input, false) {
                 println!("\nError: {}\n", e);
             }
@@ -162,19 +164,12 @@ fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Erro
         }
     }
 
-    // Process the query
+    // Process the query - printing is now handled in the agent
     let result = process_user_query(&mut client, query, false);
 
-    // Print the output of the query
-    match &result {
-        Ok((_, output)) => {
-            if !output.is_empty() {
-                println!("{}", output);
-            }
-        },
-        Err(e) => {
-            eprintln!("Error processing query: {}", e);
-        }
+    // Only log errors, actual response output is handled in the agent
+    if let Err(e) = &result {
+        eprintln!("Error processing query: {}", e);
     }
 
     // Only care about success/error, not the actual result values

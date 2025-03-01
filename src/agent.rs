@@ -224,6 +224,19 @@ impl Agent {
         
         // If tools are not enabled, or no tool was found, handle as a regular response
         if !self.config.enable_tools || parsed.tool_name.is_none() {
+            // In interactive mode, print the response here
+            if !self.tool_executor.is_silent() {
+                // Print token usage stats if available
+                if let Some(usage) = &response.usage {
+                    println!();
+                    print_token_stats(usage);
+                    println!();
+                }
+                
+                // Print the assistant's response
+                print_assistant_response(&assistant_message);
+            }
+            
             self.conversation.push(Message::text(
                 "assistant",
                 assistant_message.clone(),
