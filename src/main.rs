@@ -22,50 +22,25 @@ use agent::{Agent, process_user_query};
 use config::{ArgResult, Config};
 use prompts::{generate_minimal_system_prompt, ToolDocOptions};
 
-/// Read a line of input from the user
+/// Read a line of input from the user using standard terminal input
 fn read_line() -> Result<String, Box<dyn std::error::Error>> {
-    use crossterm::event::{self, Event, KeyCode};
-    
-    let mut input = String::new();
-
     // Print the prompt
     print!("> ");
     io::stdout().flush()?;
-
-    loop {
-        if event::poll(std::time::Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Enter => {
-                        print!("\r\n");
-                        io::stdout().flush()?;
-                        break;
-                    }
-                    KeyCode::Backspace if !input.is_empty() => {
-                        input.pop();
-                        print!("\x08 \x08");
-                        io::stdout().flush()?;
-                    }
-                    KeyCode::Char(c) => {
-                        input.push(c);
-                        print!("{}", c);
-                        io::stdout().flush()?;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
+    
+    // Use standard readline functionality
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    
+    // Trim the trailing newline
+    let input = input.trim_end().to_string();
+    
     Ok(input)
 }
 
 /// Run in interactive mode with a conversation UI
 fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     use constants::{FORMAT_BOLD, FORMAT_RESET};
-    
-    // Enable raw mode globally
-    terminal::enable_raw_mode()?;
     
     let mut client = Agent::new(config.clone());
 
@@ -164,9 +139,6 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
     print!("Goodbye!\r\n");
     io::stdout().flush()?;
     
-    // Disable raw mode before exiting
-    terminal::disable_raw_mode()?;
-    
     Ok(())
 }
 
@@ -226,7 +198,7 @@ fn print_usage() {
 }
 
 /// Main entry point
-/// This application now uses raw mode for terminal input/output globally
+/// This application uses normal terminal mode, with raw mode only enabled in the shell tool when needed
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file if exists
     let _ = dotenvy::dotenv();
@@ -260,9 +232,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::io::stderr().flush()?;
         }
     }
-
-    // Ensure raw mode is disabled when exiting
-    let _ = terminal::disable_raw_mode();
 
     Ok(())
 }

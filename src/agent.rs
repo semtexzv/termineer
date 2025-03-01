@@ -123,12 +123,12 @@ impl Agent {
                             // Store the reason as user interruption
                             interrupting = true;
                             interruption_reason_str = Some("User interrupted command with Ctrl+C".to_string());
+
+                            // Restore terminal mode before printing
+                            let _ = terminal::disable_raw_mode();
                             
                             // Print message immediately
                             if !silent_mode {
-                                // Restore terminal mode before printing
-                                let _ = terminal::disable_raw_mode();
-                                
                                 println!("\n🛑 User interrupted command with Ctrl+C");
                             }
                         }

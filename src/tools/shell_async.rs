@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use std::thread;
-
+use crossterm::terminal::disable_raw_mode;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
 
@@ -143,6 +143,8 @@ pub fn execute_shell_async(command_to_run: String, sender: Sender<ToolMessage>, 
                             stdout_line_count, stdout, 
                             stderr_line_count, stderr
                         );
+                        
+                        disable_raw_mode().expect("Failed to disable raw mode");
                         
                         // Send completion message
                         let success = status.success();
