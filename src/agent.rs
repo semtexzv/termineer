@@ -95,36 +95,49 @@ impl Agent {
         }
 
         // Setup for handling keyboard interrupts from user
-        let raw_mode_result = if !silent_mode {
-            terminal::enable_raw_mode()
-        } else {
-            // Don't enable raw mode in silent mode
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "Silent mode"))
-        };
-        let raw_mode_enabled = raw_mode_result.is_ok();
+        // We only enable raw mode during the short polling window for keyboard events
+        // This ensures normal terminal output behavior most of the time
+        let mut raw_mode_enabled;
         
         // Loop to receive output and check for interruption
         loop {
-            // Check for keyboard input if raw mode is enabled (with shorter poll time)
-            if raw_mode_enabled && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                        // User pressed Ctrl+C - just set flags, don't change terminal mode or print
-                        // This prevents race conditions with subprocess output
-                        
-                        // Set interrupt flag
-                        {
-                            let mut flag = interrupt_flag_main.lock().unwrap();
-                            *flag = true;
+            // Briefly enable raw mode only during the keyboard check window
+            // This minimizes the time spent in raw mode to avoid output formatting issues
+            if !silent_mode {
+                // Try to enable raw mode just for keyboard check
+                raw_mode_enabled = terminal::enable_raw_mode().is_ok();
+                
+                // Check for keyboard input with a short poll time
+                if raw_mode_enabled && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false) {
+                    if let Ok(Event::Key(key)) = event::read() {
+                        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                            // User pressed Ctrl+C
+                            
+                            // Set interrupt flag
+                            {
+                                let mut flag = interrupt_flag_main.lock().unwrap();
+                                *flag = true;
+                            }
+                            
+                            // Store the reason as user interruption
+                            interrupting = true;
+                            interruption_reason_str = Some("User interrupted command with Ctrl+C".to_string());
+                            
+                            // Print message immediately
+                            if !silent_mode {
+                                // Restore terminal mode before printing
+                                let _ = terminal::disable_raw_mode();
+                                
+                                println!("\n🛑 User interrupted command with Ctrl+C");
+                            }
                         }
-                        
-                        // Store the reason as user interruption
-                        interrupting = true;
-                        interruption_reason_str = Some("User interrupted command with Ctrl+C".to_string());
-                        
-                        // Don't print anything yet - will print after terminal mode is restored
-                        // Don't disable raw mode yet - will cause inconsistent output formatting
                     }
+                }
+                
+                // Always restore normal terminal mode after keyboard check
+                if raw_mode_enabled {
+                    let _ = terminal::disable_raw_mode();
+                    // No need to set raw_mode_enabled to false as we'll reassign it on next iteration
                 }
             }
             
@@ -238,16 +251,8 @@ impl Agent {
         // Wait for command thread to finish first - ensures all output is complete
         let _ = cmd_thread.join();
         
-        // Now that all output processing is complete, restore terminal mode
-        if raw_mode_enabled {
-            let _ = terminal::disable_raw_mode();
-            
-            // Safe to print interruption message now that terminal mode is normalized
-            // and all subprocess output has been processed
-            if interrupting && !silent_mode && interruption_reason_str.as_ref().map_or(false, |r| r.contains("Ctrl+C")) {
-                println!("🛑 User interrupted command with Ctrl+C");
-            }
-        }
+        // Since we're managing terminal mode during the event polling cycle,
+        // we don't need to restore it here. It's always in normal mode at this point.
         
         // Properly finish the partial tool result if it exists
         if has_partial_result {
