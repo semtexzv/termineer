@@ -6,6 +6,7 @@ use crate::agent::Agent;
 use crate::constants;
 use crate::session;
 use std::error::Error;
+use std::io::{self, Write};
 
 /// Handle a command from the user
 pub fn handle_command(
@@ -25,14 +26,18 @@ pub fn handle_command(
         "help" => display_help(),
         "clear" => {
             client.clear_conversation();
-            println!("Conversation history cleared.");
+            print!("Conversation history cleared.\r\n");
+            io::stdout().flush()?;
         },
         "system" => handle_system_command(client, args)?,
         "model" => handle_model_command(client, args)?,
         "tools" => handle_tools_command(client, args)?,
         "thinking" => handle_thinking_command(client, args)?,
         "session" => handle_session_command(client, args)?,
-        _ => println!("Unknown command. Type /help for available commands."),
+        _ => {
+            print!("Unknown command. Type /help for available commands.\r\n");
+            io::stdout().flush()?;
+        },
     }
     
     Ok(())
@@ -41,19 +46,22 @@ pub fn handle_command(
 /// Display help information
 fn display_help() {
     let help_text = constants::format_template(constants::HELP_TEMPLATE);
-    println!("{}", help_text);
+    print!("{}\r\n", help_text);
+    io::stdout().flush().unwrap();
 }
 
 /// Handle the /system command
 fn handle_system_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        println!("Usage: /system YOUR SYSTEM PROMPT TEXT");
+        print!("Usage: /system YOUR SYSTEM PROMPT TEXT\r\n");
+        io::stdout().flush()?;
         return Ok(());
     }
     
     let system_prompt = args.join(" ");
     client.set_system_prompt(system_prompt);
-    println!("System prompt set.");
+    print!("System prompt set.\r\n");
+    io::stdout().flush()?;
     
     Ok(())
 }
@@ -61,14 +69,16 @@ fn handle_system_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dy
 /// Handle the /model command
 fn handle_model_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        println!("Usage: /model MODEL_NAME");
-        println!("Examples: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307");
+        print!("Usage: /model MODEL_NAME\r\n");
+        print!("Examples: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307\r\n");
+        io::stdout().flush()?;
         return Ok(());
     }
     
     let model_name = args[0].to_string();
     client.set_model(model_name);
-    println!("Model changed.");
+    print!("Model changed.\r\n");
+    io::stdout().flush()?;
     
     Ok(())
 }
@@ -76,20 +86,26 @@ fn handle_model_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn
 /// Handle the /tools command
 fn handle_tools_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        println!("Usage: /tools on|off");
+        print!("Usage: /tools on|off\r\n");
+        io::stdout().flush()?;
         return Ok(());
     }
     
     match args[0].to_lowercase().as_str() {
         "on" | "enable" | "true" => {
             client.enable_tools(true);
-            println!("Tools enabled. The assistant will use tools automatically based on your request.");
+            print!("Tools enabled. The assistant will use tools automatically based on your request.\r\n");
+            io::stdout().flush()?;
         },
         "off" | "disable" | "false" => {
             client.enable_tools(false);
-            println!("Tools disabled.");
+            print!("Tools disabled.\r\n");
+            io::stdout().flush()?;
         },
-        _ => println!("Usage: /tools on|off"),
+        _ => {
+            print!("Usage: /tools on|off\r\n");
+            io::stdout().flush()?;
+        },
     }
     
     Ok(())
@@ -98,16 +114,18 @@ fn handle_tools_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn
 /// Handle the /thinking command
 fn handle_thinking_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        println!("Usage: /thinking NUMBER");
+        print!("Usage: /thinking NUMBER\r\n");
+        io::stdout().flush()?;
         return Ok(());
     }
     
     if let Ok(budget) = args[0].parse::<usize>() {
         client.set_thinking_budget(budget);
-        println!("Thinking budget set to {} tokens.", budget);
+        print!("Thinking budget set to {} tokens.\r\n", budget);
     } else {
-        println!("Invalid number format. Usage: /thinking NUMBER");
+        print!("Invalid number format. Usage: /thinking NUMBER\r\n");
     }
+    io::stdout().flush()?;
     
     Ok(())
 }
@@ -115,14 +133,15 @@ fn handle_thinking_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<
 /// Handle the session command and its subcommands
 fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        println!("Usage: /session <command> [args]");
-        println!("Available commands:");
-        println!("  list    - List sessions in current directory");
-        println!("  all     - List sessions from all directories");
-        println!("  save    - Save current session (e.g., /session save my_session)");
-        println!("  load    - Load a session (e.g., /session load my_session)");
-        println!("  delete  - Delete a session (e.g., /session delete my_session)");
-        println!("  resume  - Resume the last session");
+        print!("Usage: /session <command> [args]\r\n");
+        print!("Available commands:\r\n");
+        print!("  list    - List sessions in current directory\r\n");
+        print!("  all     - List sessions from all directories\r\n");
+        print!("  save    - Save current session (e.g., /session save my_session)\r\n");
+        print!("  load    - Load a session (e.g., /session load my_session)\r\n");
+        print!("  delete  - Delete a session (e.g., /session delete my_session)\r\n");
+        print!("  resume  - Resume the last session\r\n");
+        io::stdout().flush()?;
         return Ok(());
     }
     
@@ -133,16 +152,16 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
             match session::list_sessions(client) {
                 Ok(sessions) => {
                     if sessions.is_empty() {
-                        println!("No saved sessions found.");
+                        print!("No saved sessions found.\r\n");
                     } else {
-                        println!("\nAvailable sessions:");
+                        print!("\r\nAvailable sessions:\r\n");
                         for (i, session) in sessions.iter().enumerate() {
                             // Format timestamp as date/time
                             let dt = chrono::DateTime::from_timestamp(session.timestamp as i64, 0)
                                 .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                                 .unwrap_or_else(|| "Unknown date".to_string());
 
-                            println!("{}. {} (ID: {}, created: {}, messages: {})",
+                            print!("{}. {} (ID: {}, created: {}, messages: {})\r\n",
                                      i + 1,
                                      session.name,
                                      session.id,
@@ -150,10 +169,14 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
                                      session.metadata.message_count);
                         }
 
-                        println!("\nTip: You can load a session with: /session load <name or ID>");
+                        print!("\r\nTip: You can load a session with: /session load <name or ID>\r\n");
                     }
+                    io::stdout().flush()?;
                 }
-                Err(e) => println!("Error listing sessions: {}", e),
+                Err(e) => {
+                    print!("Error listing sessions: {}\r\n", e);
+                    io::stdout().flush()?;
+                },
             }
         }
         
@@ -161,12 +184,12 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
             match session::list_all_sessions(client) {
                 Ok(all_sessions) => {
                     if all_sessions.is_empty() {
-                        println!("No saved sessions found in any directory.");
+                        print!("No saved sessions found in any directory.\r\n");
                     } else {
-                        println!("\nSessions from all directories:");
+                        print!("\r\nSessions from all directories:\r\n");
 
                         for (dir_name, sessions) in all_sessions {
-                            println!("\nDirectory: {}", dir_name);
+                            print!("\r\nDirectory: {}\r\n", dir_name);
 
                             for (i, session) in sessions.iter().enumerate() {
                                 // Format timestamp as date/time
@@ -174,7 +197,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
                                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                                     .unwrap_or_else(|| "Unknown date".to_string());
 
-                                println!("  {}. {} (ID: {}, created: {})",
+                                print!("  {}. {} (ID: {}, created: {})\r\n",
                                          i + 1,
                                          session.name,
                                          session.id,
@@ -182,8 +205,12 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
                             }
                         }
                     }
+                    io::stdout().flush()?;
                 }
-                Err(e) => println!("Error listing all sessions: {}", e),
+                Err(e) => {
+                    print!("Error listing all sessions: {}\r\n", e);
+                    io::stdout().flush()?;
+                },
             }
         }
         
@@ -192,54 +219,59 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
                 let name = args[1].to_string();
                 match session::save_session(client, &name) {
                     Ok(session_id) => {
-                        println!("Session '{}' saved with ID: {}", name, session_id);
-                        println!("You can load it later with: /session load {}", session_id);
+                        print!("Session '{}' saved with ID: {}\r\n", name, session_id);
+                        print!("You can load it later with: /session load {}\r\n", session_id);
                     }
-                    Err(e) => println!("Error saving session: {}", e),
+                    Err(e) => print!("Error saving session: {}\r\n", e),
                 }
             } else {
-                println!("Usage: /session save <SESSION_NAME>");
+                print!("Usage: /session save <SESSION_NAME>\r\n");
             }
+            io::stdout().flush()?;
         }
         
         "load" => {
             if args.len() > 1 {
                 let session_id_or_name = args[1].to_string();
                 match session::load_session(client, &session_id_or_name) {
-                    Ok(_) => println!("Session loaded successfully"),
-                    Err(e) => println!("Error loading session: {}", e),
+                    Ok(_) => print!("Session loaded successfully\r\n"),
+                    Err(e) => print!("Error loading session: {}\r\n", e),
                 }
             } else {
-                println!("Usage: /session load <SESSION_ID_OR_NAME>");
-                println!("Tip: You can also load by name");
-                println!("Use '/session list' to see available sessions");
+                print!("Usage: /session load <SESSION_ID_OR_NAME>\r\n");
+                print!("Tip: You can also load by name\r\n");
+                print!("Use '/session list' to see available sessions\r\n");
             }
+            io::stdout().flush()?;
         }
         
         "delete" => {
             if args.len() > 1 {
                 let session_id_or_name = args[1].to_string();
                 match session::delete_session(client, &session_id_or_name) {
-                    Ok(_) => println!("Session deleted successfully"),
-                    Err(e) => println!("Error deleting session: {}", e),
+                    Ok(_) => print!("Session deleted successfully\r\n"),
+                    Err(e) => print!("Error deleting session: {}\r\n", e),
                 }
             } else {
-                println!("Usage: /session delete <SESSION_ID_OR_NAME>");
-                println!("Tip: You can also delete by name");
-                println!("Use '/session list' to see available sessions");
+                print!("Usage: /session delete <SESSION_ID_OR_NAME>\r\n");
+                print!("Tip: You can also delete by name\r\n");
+                print!("Use '/session list' to see available sessions\r\n");
             }
+            io::stdout().flush()?;
         }
         
         "resume" => {
             match session::load_last_session(client) {
-                Ok(_) => println!("Last session resumed successfully"),
-                Err(e) => println!("Error resuming last session: {}", e),
+                Ok(_) => print!("Last session resumed successfully\r\n"),
+                Err(e) => print!("Error resuming last session: {}\r\n", e),
             }
+            io::stdout().flush()?;
         }
         
         _ => {
-            println!("Unknown session command: {}", subcommand);
-            println!("Available commands: list, all, save, load, delete, resume");
+            print!("Unknown session command: {}\r\n", subcommand);
+            print!("Available commands: list, all, save, load, delete, resume\r\n");
+            io::stdout().flush()?;
         }
     }
     

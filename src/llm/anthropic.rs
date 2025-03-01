@@ -48,6 +48,8 @@ struct MessageResponse {
     content: Vec<Content>,
     model: String,
     usage: Option<TokenUsage>,
+    stop_reason: Option<String>,
+    stop_sequence: Option<String>,
 }
 
 /// Implementation of LLM provider for Anthropic
@@ -140,11 +142,16 @@ impl Backend for Anthropic {
         stop_sequences: Option<&[String]>,
         thinking_budget: Option<usize>,
         cache_points: Option<&BTreeSet<usize>>,
+        max_tokens: Option<usize>,
     ) -> Result<LlmResponse, LlmError> {
+        // Default max tokens if not provided
+        let default_max_tokens = 32768; // Large default for Claude's capabilities
+        let tokens = max_tokens.unwrap_or(default_max_tokens);
+        
         // Create the message request
         let request = MessageRequest {
             model: self.model.clone(),
-            max_tokens: 32768, // Large default for Claude's capabilities
+            max_tokens: tokens,
             messages: messages.to_vec(),
             system: system.map(|s| s.to_string()),
             stop_sequences: stop_sequences.map(|s| s.to_vec()),
@@ -171,10 +178,12 @@ impl Backend for Anthropic {
         // Send the request
         let response: MessageResponse = self.send_api_request(json)?;
         
-        // Convert to LlmResponse
+        // Convert to LlmResponse with stop information
         Ok(LlmResponse {
             content: response.content,
             usage: response.usage,
+            stop_reason: response.stop_reason,
+            stop_sequence: response.stop_sequence,
         })
     }
     

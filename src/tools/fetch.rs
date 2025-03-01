@@ -233,8 +233,9 @@ fn summarize_text(text: &str, length: &SummaryLength) -> Result<String, String> 
         MessageInfo::User,
     );
     
-    // Send to the model
-    let response = match backend.send_message(&[message], None, None, None, None) {
+    // Send to the model - use 1000 tokens max for summaries to keep them concise
+    let max_tokens = Some(1000);
+    let response = match backend.send_message(&[message], None, None, None, None, max_tokens) {
         Ok(response) => response,
         Err(e) => return Err(format!("Summarization failed: {}", e)),
     };

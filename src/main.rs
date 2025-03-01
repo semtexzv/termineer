@@ -4,6 +4,7 @@
 
 use std::env;
 use std::io::{self, Write};
+use crossterm::terminal;
 
 mod agent;
 mod commands;
@@ -23,18 +24,38 @@ use prompts::{generate_minimal_system_prompt, ToolDocOptions};
 
 /// Read a line of input from the user
 fn read_line() -> Result<String, Box<dyn std::error::Error>> {
-    // Simply use standard readline for simplicity
+    use crossterm::event::{self, Event, KeyCode};
+    
     let mut input = String::new();
 
     // Print the prompt
     print!("> ");
     io::stdout().flush()?;
 
-    // Read input
-    io::stdin().read_line(&mut input)?;
-
-    // Trim newline
-    input = input.trim_end().to_string();
+    loop {
+        if event::poll(std::time::Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Enter => {
+                        print!("\r\n");
+                        io::stdout().flush()?;
+                        break;
+                    }
+                    KeyCode::Backspace if !input.is_empty() => {
+                        input.pop();
+                        print!("\x08 \x08");
+                        io::stdout().flush()?;
+                    }
+                    KeyCode::Char(c) => {
+                        input.push(c);
+                        print!("{}", c);
+                        io::stdout().flush()?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 
     Ok(input)
 }
@@ -42,6 +63,9 @@ fn read_line() -> Result<String, Box<dyn std::error::Error>> {
 /// Run in interactive mode with a conversation UI
 fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     use constants::{FORMAT_BOLD, FORMAT_RESET};
+    
+    // Enable raw mode globally
+    terminal::enable_raw_mode()?;
     
     let mut client = Agent::new(config.clone());
 
@@ -64,30 +88,31 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
     // Attempt to resume last session if requested
     if config.resume_last_session {
         match session::load_last_session(&mut client) {
-            Ok(_) => println!("Successfully resumed last session"),
-            Err(e) => println!("Note: Could not resume last session: {}", e),
+            Ok(_) => print!("Successfully resumed last session\r\n"),
+            Err(e) => print!("Note: Could not resume last session: {}\r\n", e),
         }
+        io::stdout().flush()?;
     }
 
     // Application header with consistent formatting
-    println!("{}AI Assistant Console Interface{}", FORMAT_BOLD, FORMAT_RESET);
-    println!("Type your message and press Enter to chat with the assistant");
-    println!("Type '/help' for available commands or '/exit' to quit");
+    print!("{}AI Assistant Console Interface{}\r\n", FORMAT_BOLD, FORMAT_RESET);
+    print!("Type your message and press Enter to chat with the assistant\r\n");
+    print!("Type '/help' for available commands or '/exit' to quit\r\n");
 
     if client.config.enable_tools {
-        println!("Tools are ENABLED. The assistant will use tools automatically based on your request.");
+        print!("Tools are ENABLED. The assistant will use tools automatically based on your request.\r\n");
     } else {
-        println!("Tools are DISABLED. Use /tools on to enable them.");
+        print!("Tools are DISABLED. Use /tools on to enable them.\r\n");
     }
 
     // Display token optimization settings
-    println!("\nToken optimization settings:");
-    println!(
-        "- Thinking budget: {} tokens",
+    print!("\r\nToken optimization settings:\r\n");
+    print!(
+        "- Thinking budget: {} tokens\r\n",
         client.config.thinking_budget
     );
-    println!(
-        "- System prompt: {}",
+    print!(
+        "- System prompt: {}\r\n",
         if client.config.system_prompt.is_some() {
             "custom"
         } else if client.config.use_minimal_prompt {
@@ -96,13 +121,15 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
             "standard"
         }
     );
-    println!();
+    print!("\r\n");
+    io::stdout().flush()?;
 
     loop {
         let user_input = match read_line() {
             Ok(input) => input,
             Err(e) => {
-                println!("Input error: {}", e);
+                print!("Input error: {}\r\n", e);
+                io::stdout().flush()?;
                 continue;
             }
         };
@@ -117,7 +144,8 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
         // Handle commands
         if user_input.starts_with('/') {
             if let Err(e) = commands::handle_command(&mut client, user_input) {
-                println!("Command error: {}", e);
+                print!("Command error: {}\r\n", e);
+                io::stdout().flush()?;
             }
             continue;
         }
@@ -127,12 +155,18 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
             // Process the query and handle any errors
             // Note: The printing of responses is now handled directly in the agent
             if let Err(e) = process_user_query(&mut client, user_input, false) {
-                println!("\nError: {}\n", e);
+                print!("\r\nError: {}\r\n\r\n", e);
+                io::stdout().flush()?;
             }
         }
     }
 
-    println!("Goodbye!");
+    print!("Goodbye!\r\n");
+    io::stdout().flush()?;
+    
+    // Disable raw mode before exiting
+    terminal::disable_raw_mode()?;
+    
     Ok(())
 }
 
@@ -159,9 +193,10 @@ fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Erro
     // Attempt to resume last session if requested
     if config.resume_last_session {
         match session::load_last_session(&mut client) {
-            Ok(_) => println!("Successfully resumed last session"),
-            Err(e) => println!("Note: Could not resume last session: {}", e),
+            Ok(_) => print!("Successfully resumed last session\r\n"),
+            Err(e) => print!("Note: Could not resume last session: {}\r\n", e),
         }
+        io::stdout().flush()?;
     }
 
     // Process the query - printing is now handled in the agent
@@ -169,7 +204,9 @@ fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Erro
 
     // Only log errors, actual response output is handled in the agent
     if let Err(e) = &result {
-        eprintln!("Error processing query: {}", e);
+        // Use stderr for error messages in non-interactive mode
+        eprint!("Error processing query: {}\r\n", e);
+        std::io::stderr().flush()?;
     }
 
     // Only care about success/error, not the actual result values
@@ -183,10 +220,13 @@ fn print_usage() {
     // Create usage text using template
     let usage_text = format_template(USAGE_TEMPLATE);
 
-    eprintln!("{}", usage_text);
+    // Use stderr for usage output
+    eprint!("{}\r\n", usage_text);
+    std::io::stderr().flush().unwrap();
 }
 
 /// Main entry point
+/// This application now uses raw mode for terminal input/output globally
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file if exists
     let _ = dotenvy::dotenv();
@@ -195,7 +235,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = match Config::from_env() {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprint!("Error: {}\r\n", e);
+            std::io::stderr().flush()?;
             return Ok(());
         }
     };
@@ -215,9 +256,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_usage();
         }
         Err(e) => {
-            eprintln!("{}", e);
+            eprint!("{}\r\n", e);
+            std::io::stderr().flush()?;
         }
     }
+
+    // Ensure raw mode is disabled when exiting
+    let _ = terminal::disable_raw_mode();
 
     Ok(())
 }

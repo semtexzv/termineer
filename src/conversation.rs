@@ -2,6 +2,7 @@
 //!
 //! This module handles parsing of LLM responses and formatting for display.
 
+use std::io::{self, Write};
 use crate::constants::{
     FORMAT_GRAY, FORMAT_RESET,
     TOOL_START, TOOL_END,
@@ -10,13 +11,14 @@ use crate::llm::TokenUsage;
 
 /// Formats and prints assistant's response to the console with consistent styling
 pub fn print_assistant_response(text: &str) {
-    println!("{}", text);
+    print!("{}\r\n", text);
+    io::stdout().flush().unwrap();
 }
 
 /// Prints token usage statistics in a consistent format
 pub fn print_token_stats(usage: &TokenUsage) {
-    println!(
-        "{}[{} in / {} out] ({} read, {} written){}",
+    print!(
+        "{}[{} in / {} out] ({} read, {} written){}\r\n",
         FORMAT_GRAY,
         usage.input_tokens,
         usage.output_tokens,
@@ -24,6 +26,7 @@ pub fn print_token_stats(usage: &TokenUsage) {
         usage.cache_creation_input_tokens,
         FORMAT_RESET
     );
+    io::stdout().flush().unwrap();
 }
 
 /// Parsed response from the assistant

@@ -14,6 +14,12 @@ pub struct LlmResponse {
     
     /// Usage statistics, if available
     pub usage: Option<TokenUsage>,
+    
+    /// The stop sequence that terminated the response, if any
+    pub stop_sequence: Option<String>,
+    
+    /// The reason the response was stopped (e.g., "max_tokens", "stop_sequence")
+    pub stop_reason: Option<String>,
 }
 
 /// Token usage statistics

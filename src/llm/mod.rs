@@ -22,6 +22,7 @@ pub trait Backend {
         stop_sequences: Option<&[String]>,
         thinking_budget: Option<usize>,
         cache_points: Option<&BTreeSet<usize>>,
+        max_tokens: Option<usize>, // Maximum tokens to generate in the response
     ) -> Result<LlmResponse, LlmError>;
     
     /// Get the provider name

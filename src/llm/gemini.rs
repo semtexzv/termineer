@@ -209,6 +209,7 @@ impl Backend for Gemini {
         stop_sequences: Option<&[String]>,
         _thinking_budget: Option<usize>,
         _cache_points: Option<&BTreeSet<usize>>,
+        max_tokens: Option<usize>,
     ) -> Result<LlmResponse, LlmError> {
         // Convert messages to Gemini format
         let mut gemini_contents: Vec<GeminiContent> = Vec::new();
@@ -227,12 +228,15 @@ impl Backend for Gemini {
             }
         });
         
+        // Default max tokens if not provided
+        let default_max_tokens = 8192; // Default max output size
+        
         // Create the Gemini request
         let request = GeminiRequest {
             contents: gemini_contents,
             generation_config: Some(GenerationConfig {
                 temperature: None, // Use default
-                max_output_tokens: Some(8192), // Default max output size
+                max_output_tokens: max_tokens.or(Some(default_max_tokens)), // Use provided or default
                 stop_sequences: stop_sequences.map(|s| s.to_vec()),
             }),
             system_instruction,
@@ -261,6 +265,9 @@ impl Backend for Gemini {
             .collect::<Vec<String>>()
             .join("");
         
+        // Keep a clone of content_text for stop sequence detection later
+        let content_text_for_detection = content_text.clone();
+        
         // Convert to our content format
         let content = vec![Content::Text { text: content_text }];
         
@@ -272,10 +279,32 @@ impl Backend for Gemini {
             cache_read_input_tokens: 0, // Not available in Gemini
         });
         
-        // Convert to LlmResponse
+        // Get finish reason from the candidate
+        let stop_reason = candidate.finish_reason.clone();
+        
+        // Determine if a stop sequence was triggered
+        // Gemini doesn't directly tell us which stop sequence was triggered,
+        // so we need to infer it from the response and the stop sequences
+        let stop_sequence = if stop_reason.as_deref() == Some("STOP_SEQUENCE") {
+            // If stopped due to stop sequence, try to determine which one
+            if let Some(sequences) = stop_sequences {
+                // Find the first stop sequence that matches the end of the content_text
+                sequences.iter()
+                    .find(|&seq| content_text_for_detection.ends_with(seq))
+                    .cloned()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+        // Convert to LlmResponse with stop information
         Ok(LlmResponse {
             content,
             usage,
+            stop_reason,
+            stop_sequence,
         })
     }
     
