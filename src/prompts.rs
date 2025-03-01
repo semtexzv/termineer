@@ -102,6 +102,15 @@ drwxr-x---+ 89 mhornicky  primarygroup   2848 Feb 27 21:59 ..
 -rw-r--r--   1 mhornicky  primarygroup    127 Feb 27 13:44 .env
 -rw-r--r--@  1 mhornicky  primarygroup    175 Feb 27 10:48 .env.example
 {TOOL_RESULT_END}
+
+Long-running commands can be interrupted in two ways:
+1. **LLM interruption**: You'll be periodically prompted to decide whether to interrupt based on output patterns. When interrupting, provide a concise reason with:
+   `<interrupt>Your one-sentence reason here</interrupt>`
+
+2. **User interruption**: Users can press Ctrl+C to manually stop the command
+
+Use intelligent interruption to avoid wasting time on commands that have already provided sufficient information.
+
 When to use:
 - Explore directories and file structures
 - Run build commands, tests, or package managers
@@ -354,9 +363,9 @@ pub fn generate_system_prompt(options: &ToolDocOptions) -> String {
 pub fn generate_minimal_system_prompt(options: &ToolDocOptions) -> String {
     let mut prompt = String::from("You are an AI assistant with software engineering expertise. First research thoroughly, then plan carefully before acting. You have these tools:\n\n");
     
-    // Add shell tool (minimal)
+    // Add shell tool (minimal) with interruption info
     if options.include_shell {
-        prompt.push_str("- {TOOL_START}shell [command]{TOOL_END} - Execute shell commands\n");
+        prompt.push_str("- {TOOL_START}shell [command]{TOOL_END} - Execute shell commands (interruption possible with <interrupt>reason</interrupt>)\n");
     }
     
     // Add read tool (minimal)

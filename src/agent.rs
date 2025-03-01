@@ -5,6 +5,11 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread;
+use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::terminal;
 
 use crate::config::Config;
 use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START};
@@ -12,6 +17,8 @@ use crate::conversation::{parse_assistant_response, print_assistant_response, pr
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::prompts::{generate_minimal_system_prompt, ToolDocOptions};
 use crate::tools::ToolExecutor;
+use crate::tools::async_executor::{ToolMessage};
+use crate::tools::shell_async::execute_shell_async;
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -21,6 +28,12 @@ pub struct MessageResult {
     /// Not directly accessed but kept for future usage analytics
     #[allow(dead_code)]
     pub token_usage: Option<TokenUsage>,
+}
+
+/// Result of checking if the LLM wants to interrupt a streaming command
+struct InterruptionCheck {
+    pub interrupted: bool,
+    pub reason: Option<String>,
 }
 
 /// Agent for interacting with LLM backends
@@ -35,6 +48,359 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Execute a shell command with streaming output and interruption capability
+    fn execute_streaming_shell(&mut self, command: &str) -> Result<MessageResult, Box<dyn std::error::Error>> {
+        use std::sync::mpsc::TryRecvError;
+        
+        // Extract the command from the tool content and make it owned data (String)
+        let command_str = command.to_string();
+        let parts: Vec<&str> = command_str.trim().splitn(2, char::is_whitespace).collect();
+        let cmd_args = if parts.len() > 1 { parts[1].to_string() } else { String::new() };
+        
+        // Flag to track if the command should be interrupted
+        let interrupt_flag = Arc::new(Mutex::new(false));
+        let interrupt_flag_thread = Arc::clone(&interrupt_flag);
+        let interrupt_flag_main = Arc::clone(&interrupt_flag);
+        
+        // Setup channel for streaming output
+        let (tx, rx) = std::sync::mpsc::channel();
+        
+        // Start the shell command in a separate thread
+        let silent_mode = self.tool_executor.is_silent();
+        let cmd_thread = thread::spawn(move || {
+            execute_shell_async(cmd_args.clone(), tx, interrupt_flag_thread, silent_mode);
+        });
+        
+        // Buffer to collect output for the conversation history
+        let mut full_output = String::new();
+        let mut result_message = String::new();
+        let mut success = true;
+        
+        // Flag to track if we're in the process of interrupting
+        let mut interrupting = false;
+        // Store the reason for interruption if provided
+        let mut interruption_reason_str: Option<String> = None;
+        
+        // Buffer of lines to reduce the frequency of LLM interruption checks
+        let mut line_buffer = String::new();
+        let mut line_count = 0;
+        
+        // Track time between interruption checks (to prevent excessive API calls)
+        let mut last_check_time = std::time::Instant::now();
+        let min_check_interval = std::time::Duration::from_secs(10); // Check every 10 seconds - reduces API costs
+        
+        // Track if we have a partial tool result in the conversation
+        let mut has_partial_result = false;
+        
+        if !self.tool_executor.is_silent() {
+            println!("🔄 Shell execution started with interrupt capability (Press Ctrl+C to interrupt)");
+        }
+
+        // Setup for handling keyboard interrupts from user
+        let raw_mode_result = if !silent_mode {
+            terminal::enable_raw_mode()
+        } else {
+            // Don't enable raw mode in silent mode
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "Silent mode"))
+        };
+        let raw_mode_enabled = raw_mode_result.is_ok();
+        
+        // Loop to receive output and check for interruption
+        loop {
+            // Check for keyboard input if raw mode is enabled (with shorter poll time)
+            if raw_mode_enabled && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false) {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                        // User pressed Ctrl+C - just set flags, don't change terminal mode or print
+                        // This prevents race conditions with subprocess output
+                        
+                        // Set interrupt flag
+                        {
+                            let mut flag = interrupt_flag_main.lock().unwrap();
+                            *flag = true;
+                        }
+                        
+                        // Store the reason as user interruption
+                        interrupting = true;
+                        interruption_reason_str = Some("User interrupted command with Ctrl+C".to_string());
+                        
+                        // Don't print anything yet - will print after terminal mode is restored
+                        // Don't disable raw mode yet - will cause inconsistent output formatting
+                    }
+                }
+            }
+            
+            match rx.try_recv() {
+                Ok(ToolMessage::Line(line)) => {
+                    // Add to full output record
+                    full_output.push_str(&line);
+                    full_output.push('\n');
+                    
+                    // Add to line buffer for batched interruption checks
+                    line_buffer.push_str(&line);
+                    line_buffer.push('\n');
+                    line_count += 1;
+                    
+                    // Check for interruption every 2 seconds
+                    if !interrupting && !line_buffer.is_empty() && last_check_time.elapsed() > min_check_interval {
+                        // Update last check time
+                        last_check_time = std::time::Instant::now();
+                        
+                        // Remove previous partial result if it exists
+                        if has_partial_result {
+                            self.conversation.pop();
+                        }
+                        
+                        // Format the current partial result - WITHOUT ending tag to indicate it's in progress
+                        let stdout_line_count = full_output.lines().count();
+                        let partial_output = format!(
+                            "STDOUT (lines: {})\n{}\n\n[THIS IS A PARTIAL RESULT: Shell command is still running. The LLM is currently checking if it should interrupt the process.]",
+                            stdout_line_count, full_output
+                        );
+                        
+                        // Create partial tool result message WITHOUT the ending tag
+                        let partial_tool_result = format!(
+                            "{}\n{}",
+                            TOOL_RESULT_START, partial_output
+                        );
+                        
+                        // Mark this point in conversation as a cache point (before we add the partial result)
+                        self.cache_here();
+                        
+                        // Add partial result to conversation
+                        self.conversation.push(Message::text(
+                            "user", 
+                            partial_tool_result,
+                            MessageInfo::ToolResult {
+                                tool_name: "shell".to_string(),
+                            }
+                        ));
+                        
+                        has_partial_result = true;
+                        
+                        // Send interruption check using the partial tool result already in conversation
+                        if let Ok(interruption_check) = self.check_for_interruption() {
+                            if interruption_check.interrupted {
+                                // Store the interruption reason if provided
+                                let interruption_reason = interruption_check.reason.unwrap_or_else(|| 
+                                    "No specific reason provided".to_string()
+                                );
+                                
+                                // Log the interruption more concisely
+                                if !self.tool_executor.is_silent() {
+                                    println!("🛑 Interrupting: {}", interruption_reason);
+                                    println!("🔄 Setting interrupt flag");
+                                }
+                                
+                                // Set interrupt flag to signal shell command to stop
+                                {
+                                    let mut flag = interrupt_flag_main.lock().unwrap();
+                                    *flag = true;
+                                }
+                                
+                                // Store the reason so we can use it in the final output
+                                interrupting = true;
+                                interruption_reason_str = Some(interruption_reason);
+                                
+                                // Debug verification
+                                if !self.tool_executor.is_silent() {
+                                    let flag_value = *interrupt_flag_main.lock().unwrap();
+                                    println!("✅ Interrupt flag is now: {}", flag_value);
+                                }
+                            }
+                            
+                            // Reset buffer after check
+                            line_buffer.clear();
+                            line_count = 0;
+                        }
+                    }
+                    
+                    // Continue receiving output
+                    continue;
+                },
+                Ok(ToolMessage::Complete(tool_result)) => {
+                    // Command completed, store results
+                    success = tool_result.success;
+                    result_message = tool_result.agent_output;
+                    
+                    // Set the result message but don't add a note yet
+                    // We'll add completion status when finalizing the tool result
+                    
+                    break;
+                },
+                Err(TryRecvError::Empty) => {
+                    // No message available right now, wait a bit
+                    thread::sleep(std::time::Duration::from_millis(50));
+                },
+                Err(TryRecvError::Disconnected) => {
+                    // Channel disconnected, command must be done
+                    break;
+                }
+            }
+        }
+        
+        // Wait for command thread to finish first - ensures all output is complete
+        let _ = cmd_thread.join();
+        
+        // Now that all output processing is complete, restore terminal mode
+        if raw_mode_enabled {
+            let _ = crossterm::terminal::disable_raw_mode();
+            
+            // Safe to print interruption message now that terminal mode is normalized
+            // and all subprocess output has been processed
+            if interrupting && !silent_mode && interruption_reason_str.as_ref().map_or(false, |r| r.contains("Ctrl+C")) {
+                println!("🛑 User interrupted command with Ctrl+C");
+            }
+        }
+        
+        // Properly finish the partial tool result if it exists
+        if has_partial_result {
+            // Remove the open partial result
+            self.conversation.pop();
+            
+            // Add a completion message to the result
+            if interrupting {
+                let reason = interruption_reason_str
+                    .as_ref()
+                    .map_or(
+                        "Sufficient information gathered".to_string(),
+                        |r| r.clone()
+                    );
+                result_message = format!("{}\n\n[COMMAND INTERRUPTED: {}]", full_output, reason);
+                // When interrupted by LLM, this is NOT an error, it's a successful interruption
+                success = true;
+            } else {
+                result_message = format!("{}\n\n[COMMAND COMPLETED SUCCESSFULLY]", full_output);
+            }
+        }
+        
+        // Format the shell output with appropriate delimiters
+        // Note: Interruption is NOT an error, so we use TOOL_RESULT for it
+        let agent_response = if success || interrupting {
+            format!(
+                "{}\n{}\n{}",
+                TOOL_RESULT_START, result_message, TOOL_RESULT_END
+            )
+        } else {
+            format!(
+                "{}\n{}\n{}",
+                TOOL_ERROR_START, result_message, TOOL_ERROR_END
+            )
+        };
+        
+        // Add the agent_response to the conversation history
+        // Interruption should be treated as a successful result
+        let message_info = if success || interrupting {
+            MessageInfo::ToolResult {
+                tool_name: "shell".to_string(),
+            }
+        } else {
+            MessageInfo::ToolError {
+                tool_name: "shell".to_string(),
+            }
+        };
+        
+        self.conversation
+            .push(Message::text("user", agent_response, message_info));
+        
+        // Return with continue_processing flag set to true
+        Ok(MessageResult {
+            response: result_message,
+            continue_processing: true,
+            token_usage: None,
+        })
+    }
+    
+    /// Sends a message to the LLM to check if it wants to interrupt the shell command
+    /// based on the partial tool result already in the conversation
+    fn check_for_interruption(&mut self) -> Result<InterruptionCheck, Box<dyn std::error::Error>> {
+        // Save current cache points
+        let current_cache_points = self.cache_points.clone();
+        
+        // Create a shorter prompt for the interruption check
+        let interruption_check_message = format!(
+            "========== COMMAND INTERRUPTION CHECK ==========\n\
+            Evaluate if this command should be interrupted based on its current output.\n\
+            \n\
+            Interrupt if:\n\
+            - You have enough information to proceed\n\
+            - The output is repetitive or redundant\n\
+            - Errors indicate the command won't recover\n\
+            \n\
+            RESPONSE FORMAT:\n\
+            - To continue: '<continue/>'\n\
+            - To interrupt: '<interrupt>ONE SENTENCE REASON</interrupt>'\n\
+            \n\
+            If interrupting, provide exactly ONE SENTENCE explaining why.\n\
+            Your decision:"
+        );
+        
+        // Create a temporary message to add to conversation
+        let temp_message = Message::text(
+            "user",
+            interruption_check_message,
+            MessageInfo::User,
+        );
+        
+        // Add message temporarily
+        self.conversation.push(temp_message);
+
+        // Use "</interrupt>" as stop sequence to allow content between tags
+        let stop_sequences = vec!["</interrupt>".to_string(), "<continue/>".to_string()];
+        
+        // Allow 100 tokens for interruption reason
+        let max_tokens_for_check = 100;
+
+        let response = self.llm.send_message(
+            &self.conversation,
+            self.config.system_prompt.as_deref(), // Use the existing system prompt
+            Some(&stop_sequences),
+            None,
+            Some(&current_cache_points),
+            Some(max_tokens_for_check),
+        ).unwrap();
+        
+        // Remove the temporary message
+        self.conversation.pop();
+
+        if response.stop_reason.as_deref() != Some("stop_sequence") {
+            return Ok(InterruptionCheck { 
+                interrupted: false,
+                reason: None 
+            });
+        }
+        
+        let stop_sequence = response.stop_sequence.unwrap();
+        let content = response.content.iter().map(|c| match c {
+            crate::llm::Content::Text { text } => text.clone(),
+            _ => String::new(),
+        }).collect::<Vec<String>>().join("");
+        
+        // Check if we're interrupting and extract the reason
+        let (should_interrupt, reason) = if stop_sequence == "</interrupt>" {
+            // Extract reason from <interrupt>reason</interrupt>
+            let reason = if content.starts_with("<interrupt>") {
+                content.strip_prefix("<interrupt>").unwrap_or("").to_string()
+            } else {
+                "No specific reason provided".to_string()
+            };
+            
+            (true, reason)
+        } else {
+            (false, String::new())
+        };
+        
+        // Only log if interrupting - otherwise stay invisible to user
+        if should_interrupt && !self.tool_executor.is_silent() {
+            println!("🔍 Decision: INTERRUPT - {}", reason);
+        }
+        
+        Ok(InterruptionCheck {
+            interrupted: should_interrupt,
+            reason: if should_interrupt { Some(reason) } else { None },
+        })
+    }
+    
     pub fn new(config: Config) -> Self {
         // Create LLM backend using factory
         let llm = crate::llm::create_backend(&config)
@@ -208,6 +574,7 @@ impl Agent {
             self.stop_sequences.as_deref(),
             thinking_budget,
             Some(&self.cache_points),
+            None, // Use default max_tokens
         )?;
 
         
@@ -271,7 +638,23 @@ impl Agent {
         // Everything before and including the tool invocation (we need this for conversation history)
         let full_assistant_message = assistant_message.clone();
         
-        // Execute the tool using our tool executor
+        // Add the assistant's response (with tool invocation) to conversation history
+        self.conversation.push(Message::text(
+            "assistant",
+            full_assistant_message,
+            MessageInfo::ToolCall {
+                tool_name: tool_name.clone(),
+            },
+        ));
+        
+        // Special handling for shell tool to support streaming and interruption
+        if tool_name == "shell" {
+            // Execute shell command with streaming output and interruption capability
+            let shell_result = self.execute_streaming_shell(&tool_content)?;
+            return Ok(shell_result);
+        }
+        
+        // For other tools, execute normally using our tool executor
         let tool_result = self.tool_executor.execute(&tool_content);
         
         // Check if this is the "done" tool
@@ -292,15 +675,6 @@ impl Agent {
         
         // Return value to use in the process_user_query flow
         let result_for_response = tool_result.agent_output.clone();
-
-        // Add the assistant's response (with tool invocation) to conversation history
-        self.conversation.push(Message::text(
-            "assistant",
-            full_assistant_message,
-            MessageInfo::ToolCall {
-                tool_name: tool_name.clone(),
-            },
-        ));
 
         // Add the agent_response to the conversation history (for the LLM to see)
         // Determine the MessageInfo based on whether it was a successful tool execution
