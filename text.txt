@@ -1,3 +1,0 @@
-This is a test file.
-It contains some text.
-Multiple lines of text, to be precise.
