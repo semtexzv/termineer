@@ -1,5 +1,5 @@
 [package]
-name = "AutoSWE"
+name = "autoswe"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,3 +10,7 @@ ureq = { version = "2.9", features = ["json"] }
 base64 = "0.21"
 dotenvy = "0.15"
 crossterm = "0.27"
+url = "2.5"
+html2md = "0.2"
+chrono = "0.4"
+dirs = "5.0"

@@ -6,139 +6,145 @@ pub const TOOL_RESULT_END: &str = "</tool_result>";
 pub const TOOL_ERROR_START: &str = "<tool_error>";
 pub const TOOL_ERROR_END: &str = "</tool_error>";
 
+
+pub const FORMAT_BOLD: &str = "\x1b[1m";
+pub const FORMAT_GRAY: &str = "\x1b[90m";
+pub const FORMAT_RESET: &str = "\x1b[0m";
+
+// Foreground colors
+pub const FORMAT_RED: &str = "\x1b[31m";
+pub const FORMAT_GREEN: &str = "\x1b[32m";
+pub const FORMAT_YELLOW: &str = "\x1b[33m";
+pub const FORMAT_BLUE: &str = "\x1b[34m";
+pub const FORMAT_MAGENTA: &str = "\x1b[35m";
+pub const FORMAT_CYAN: &str = "\x1b[36m";
+
+// Background colors
+pub const FORMAT_RED_BG: &str = "\x1b[41m";
+pub const FORMAT_GREEN_BG: &str = "\x1b[42m";
+
 // Patch tool delimiters
 pub const PATCH_DELIMITER_BEFORE: &str = "<<<<BEFORE";
 pub const PATCH_DELIMITER_AFTER: &str = "<<<<AFTER";
-pub const PATCH_DELIMITER_END: &str = "<<<<";
+pub const PATCH_DELIMITER_END: &str = "<<<<END";
 
 // Templates for help and usage
 pub const HELP_TEMPLATE: &str = r#"
-Available Commands:
-  /help         - Display this help
-  /clear        - Clear conversation history
-  /system TEXT  - Set a system prompt
-  /model NAME   - Change the model (e.g., claude-3-opus-20240229)
-  /tools on|off - Enable or disable tools
-  /exit         - Exit the program
+# autoswe Help
 
-Interaction:
-  - Claude will automatically continue working on your task until completion
-  - Once a task is complete, you can enter a new query
+## Available Commands
+  /help                  - Display this help
+  /clear                 - Clear conversation history
+  /system TEXT           - Set a custom system prompt
+  /model NAME            - Change the model (e.g., claude-3-opus-20240229)
+  /tools on|off          - Enable or disable tools
+  /history-limit NUMBER  - Set max conversation history length 
+  /thinking NUMBER       - Set thinking budget in tokens
+  /stats                 - Show detailed token usage statistics
+  
+## Session Management
+  /session list          - List all saved sessions in current directory
+  /session all           - List sessions from all directories
+  /session save NAME     - Save current session with a name
+  /session load NAME/ID  - Load a session by name or ID
+  /session delete NAME/ID- Delete a session by name or ID
+  /session resume        - Resume the last active session
+  /exit                  - Exit the program
 
-Claude has access to system tools that allow it to:
-  - Execute shell commands
-  - Read and write files
-  - Make targeted updates to files
-  - Signal task completion
+## Effective Interaction
+  • Be specific about what you want Claude to accomplish
+  • Provide context about your project when relevant
+  • Claude will automatically continue working until task completion
+  • For complex tasks, break them down into smaller steps
+  • After task completion, you can start a new task
+
+## Available Tools (For Claude's Use)
+  • Shell: Execute commands and get real-time output
+  • Read: Examine file contents with optional line limits
+  • Write: Create or overwrite files with new content
+  • Patch: Make targeted changes to specific parts of files
+  • Done: Signal task completion with a summary
 
 These tools are exclusively for Claude's use - you don't need to use them directly.
 Just describe what you want to accomplish in natural language, and Claude will 
-use the appropriate tools to complete your request.
+use the appropriate tools as needed.
+
+## Example Requests
+  • "Create a React component for a login form"
+  • "Debug why this Python script is giving IndexError"
+  • "Analyze this codebase and suggest improvements"
+  • "Update this config to enable CORS support"
+  • "Create a unit test for this function"
 "#;
 
 pub const USAGE_TEMPLATE: &str = r#"
-Usage: AutoSWE [OPTIONS] [QUERY]
+# autoswe: AI-powered Software Engineering Assistant
 
-If QUERY is provided, runs in non-interactive mode and outputs only the response.
-If QUERY is not provided, starts an interactive console session.
+## Usage
+  autoswe [OPTIONS] [QUERY]
 
-Options:
+  • If QUERY is provided, runs in non-interactive mode
+  • If QUERY is not provided, starts an interactive console session
+
+## Options
   --model MODEL_NAME     Specify the Claude model to use
                          (default: claude-3-7-sonnet-20250219)
-  --system PROMPT        Provide a system prompt for Claude
+  --system PROMPT        Provide a custom system prompt
+  --stop-sequences SEQ   Comma-separated list of stopping sequences
+                         (e.g., "Human:,Assistant:")
   --no-tools             Disable tool usage (enabled by default)
   --help                 Display this help message
 
-Environment Variables:
+## Token Optimization Options
+  --max-history NUMBER   Set maximum history length (default: 100)
+  --thinking-budget NUM  Set thinking budget in tokens (default: 4096)
+  --minimal-prompt       Use a condensed system prompt to save tokens
+
+## Session Management
+  --resume               Automatically resume the last session
+
+## Environment Setup
   ANTHROPIC_API_KEY      Your Anthropic API key (required)
+                         Can be set in .env file or environment variables
 
-Example:
-  AutoSWE --model claude-3-haiku-20240307 "What is the capital of France?"
+## Examples
+  autoswe "Analyze this Node.js project and suggest optimizations"
+  autoswe --model claude-3-opus-20240229 "Fix bugs in the login component"
+  autoswe --no-tools "Explain how React's virtual DOM works"
 
-Interaction:
-- Claude will automatically continue working on your task until completion
-- Once a task is complete, you can enter a new query
+## Capabilities
+Claude can help with:
+  • Code analysis and development
+  • Debugging and troubleshooting
+  • Refactoring and optimization
+  • Documentation and explanation
+  • Design patterns and architecture
 
-Claude has access to system tools that allow it to:
-- Execute shell commands
-- Read and write files
-- Make targeted updates to files
-- Signal task completion
+## Tool Integration
+Claude seamlessly uses these tools to assist you:
+  • Shell: Execute commands to explore and modify your environment
+  • Read: Examine file contents to understand your codebase
+  • Write: Create new files or overwrite existing ones
+  • Patch: Make targeted changes to specific parts of files
+  • Done: Signal task completion with a comprehensive summary
 
-These tools are exclusively for Claude's use - you don't need to use them directly.
-Just describe what you want to accomplish in natural language, and Claude will
-use the appropriate tools to complete your request.
+These tools are exclusively for Claude's use - simply describe what you
+want to accomplish, and Claude will leverage the appropriate tools to
+complete your request efficiently.
 "#;
 
-pub const SYSTEM_PROMPT_TEMPLATE: &str = r#"You are Claude, an AI assistant by Anthropic. You are connected to a custom console interface with tool support.
+// System prompts are now defined in the prompts module
 
-## Available Tools
-
-### Shell
-Execute shell commands on the user's system:
-{TOOL_START}shell [command]{TOOL_END}
-
-Example:
-{TOOL_START}shell ls -la{TOOL_END}
-
-### Read
-Read the contents of a file:
-{TOOL_START}read [offset=N] [limit=M] [filepath]{TOOL_END}
-- The `offset` parameter (optional) specifies the starting line number (0-indexed)
-- The `limit` parameter (optional) specifies the maximum number of lines to read
-- For large files, only the first and last few lines will be shown
-
-Examples:
-{TOOL_START}read /etc/hosts{TOOL_END}
-{TOOL_START}read offset=10 limit=20 /etc/hosts{TOOL_END}
-
-### Write
-Write content to a file:
-{TOOL_START}write [filepath]
-[content on multiple lines]
-{TOOL_END}
-
-Example:
-{TOOL_START}write /tmp/example.txt
-This is example content
-that spans multiple lines
-in the file.
-{TOOL_END}
-
-### Patch
-Update file content by replacing text:
-{TOOL_START}patch [filepath]
-{PATCH_DELIMITER_BEFORE}
-[text before change]
-{PATCH_DELIMITER_AFTER}
-[text after change]
-{PATCH_DELIMITER_END}
-{TOOL_END}
-
-Example:
-{TOOL_START}patch /tmp/example.txt
-{PATCH_DELIMITER_BEFORE}
-old text to replace
-{PATCH_DELIMITER_AFTER}
-new replacement text
-{PATCH_DELIMITER_END}
-{TOOL_END}
-
-### Done
-Signal task completion with optional summary:
-{TOOL_START}done
-[summary on multiple lines]
-{TOOL_END}
-
-Use this tool when a task is complete to provide a final summary and end the conversation.
-
-Example:
-{TOOL_START}done
-Task completed. Created new file and configured settings.
-All requested changes have been implemented successfully.
-{TOOL_END}
-
-## Important Notes
-- For tools with complex content (write, patch, done), always place the content on new lines
-- When a tool is used, the result will be shown after the tool invocation, not replacing it
-"#;
+// Make the format_template function public so it can be called from prompts
+pub fn format_template(template: &str) -> String {
+    template
+        .replace("{TOOL_START}", TOOL_START)
+        .replace("{TOOL_END}", TOOL_END)
+        .replace("{TOOL_RESULT_START}", TOOL_RESULT_START)
+        .replace("{TOOL_RESULT_END}", TOOL_RESULT_END)
+        .replace("{TOOL_ERROR_START}", TOOL_ERROR_START)
+        .replace("{TOOL_ERROR_END}", TOOL_ERROR_END)
+        .replace("{PATCH_DELIMITER_BEFORE}", PATCH_DELIMITER_BEFORE)
+        .replace("{PATCH_DELIMITER_AFTER}", PATCH_DELIMITER_AFTER)
+        .replace("{PATCH_DELIMITER_END}", PATCH_DELIMITER_END)
+}

@@ -1,688 +1,407 @@
-use std::io::{self, Write};
+//! autoswe console interface for Claude API
+//!
+//! A command-line interface for interacting with Claude AI through Anthropic's API.
+
+use std::collections::BTreeSet;
 use std::env;
-use std::path::Path;
-use std::process::Command;
 use std::fs;
+use std::io::{self, Write};
+
+mod commands;
+mod config;
 mod constants;
-use serde::{Deserialize, Serialize};
+pub mod jsonpath;
+mod llm;
+mod prompts;
+pub mod serde_element_array;
+mod session;
+mod tools;
 
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
+use config::{ArgResult, Config};
+use constants::{TOOL_ERROR_START, TOOL_RESULT_START};
+use llm::anthropic::Anthropic;
+use llm::{Backend, Content, Message, MessageInfo, TokenUsage};
+use prompts::{generate_minimal_system_prompt, ToolDocOptions};
+use tools::ToolExecutor;
 
-#[derive(Serialize)]
-struct MessageRequest {
-    model: String,
-    max_tokens: usize,
-    messages: Vec<Message>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system: Option<String>,
+/// Result of sending a message, including whether further processing is needed
+struct MessageResult {
+    response: String,
+    continue_processing: bool,
+    token_usage: Option<TokenUsage>,
 }
 
-#[derive(Serialize, Clone)]
-struct Message {
-    role: String,
-    content: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct MessageResponse {
-    id: String,
-    content: Vec<Content>,
-    model: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct Content {
-    #[serde(rename = "type")]
-    content_type: String,
-    text: String,
-}
-
-struct ToolResult {
-    success: bool,
-    user_output: String,  // Output to show to the user (possibly truncated)
-    agent_output: String, // Full output for the agent
-}
-
-struct ClaudeClient {
-    api_key: String,
-    model: String,
-    conversation: Vec<Message>,
-    system_prompt: Option<String>,
-    tools_enabled: bool,
+/// Client for interacting with Claude API
+pub struct ClaudeClient {
+    pub config: Config,
+    llm: Box<dyn Backend>,
+    tool_executor: ToolExecutor,
+    pub conversation: Vec<Message>,
+    pub readonly_mode: bool,
+    pub stop_sequences: Option<Vec<String>>,
+    pub cache_points: BTreeSet<usize>,
 }
 
 impl ClaudeClient {
-    fn new(api_key: String, model: String) -> Self {
-        use constants::*;
-        
-        // Create system prompt using template
-        let default_system_prompt = SYSTEM_PROMPT_TEMPLATE
-            .replace("{TOOL_START}", TOOL_START)
-            .replace("{TOOL_END}", TOOL_END)
-            .replace("{PATCH_DELIMITER_BEFORE}", PATCH_DELIMITER_BEFORE)
-            .replace("{PATCH_DELIMITER_AFTER}", PATCH_DELIMITER_AFTER)
-            .replace("{PATCH_DELIMITER_END}", PATCH_DELIMITER_END);
+    fn new(config: Config) -> Self {
+        // Create LLM backend based on config
+        let llm: Box<dyn llm::Backend> = Box::new(Anthropic::new(
+            config.api_key.clone(),
+            config.model.clone(),
+        ));
 
-        ClaudeClient {
-            api_key,
-            model,
+        let tool_executor = ToolExecutor::new(false);
+
+        Self {
+            config,
+            llm,
+            tool_executor,
             conversation: Vec::new(),
-            system_prompt: Some(default_system_prompt),
-            tools_enabled: false,
+            readonly_mode: false,
+            stop_sequences: Some(vec![
+                TOOL_RESULT_START.to_string(),
+                TOOL_ERROR_START.to_string(),
+            ]),
+            cache_points: BTreeSet::new(),
         }
     }
 
+    /// Reset cache points - needed when system prompt changes or
+    /// when messages before cache points are modified/removed
+    pub fn reset_cache_points(&mut self) {
+        self.cache_points.clear();
+        // Only set a cache point at the last message if there are any messages
+        if !self.conversation.is_empty() {
+            self.cache_points.insert(self.conversation.len() - 1);
+        }
+    }
+
+    pub fn cache_here(&mut self) {
+        self.cache_points.insert(self.conversation.len() - 1);
+        if self.cache_points.len() > 3 {
+            let pos = *self.cache_points.iter().next().unwrap();
+            self.cache_points.remove(&pos);
+        }
+    }
+
+    /// Clear the conversation history
+    fn clear_conversation(&mut self) {
+        self.conversation.clear();
+        // Clear all cache points when conversation is cleared
+        self.cache_points.clear();
+    }
+
+    /// Set the system prompt
     fn set_system_prompt(&mut self, prompt: String) {
-        self.system_prompt = Some(prompt);
+        self.config.system_prompt = Some(prompt);
+        // System prompt change invalidates cache
+        self.reset_cache_points();
     }
 
+    /// Enable or disable tools
     fn enable_tools(&mut self, enabled: bool) {
-        self.tools_enabled = enabled;
+        self.config.enable_tools = enabled;
     }
 
-    fn send_message(&mut self, user_message: &str) -> Result<String, Box<dyn std::error::Error>> {
-        use constants::{TOOL_START, TOOL_END, TOOL_RESULT_START, TOOL_RESULT_END, TOOL_ERROR_START, TOOL_ERROR_END};
-        
-        // Process the message for tools if tools are enabled
-        let processed_message = if self.tools_enabled {
-            self.process_tools(user_message)?
-        } else {
-            user_message.to_string()
+    /// Set the thinking budget
+    fn set_thinking_budget(&mut self, budget: usize) {
+        self.config.thinking_budget = budget;
+    }
+
+    /// Set the model to use
+    fn set_model(&mut self, model: String) {
+        self.config.model = model.clone();
+        // Create new LLM provider with updated model
+        self.llm = Box::new(Anthropic::new(self.config.api_key.clone(), model));
+        // Reset cache points since model changed
+        self.reset_cache_points();
+    }
+
+    /// Create a subagent configuration with read-only tools
+    /// Returns a new ClaudeClient instance configured for subagent use
+    pub fn create_subagent_for_task(task_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        // Get the API key from the environment
+        let api_key = std::env::var("ANTHROPIC_API_KEY")
+            .map_err(|_| "ANTHROPIC_API_KEY environment variable not set")?;
+
+        // Create a new config for the subagent
+        let mut subagent_config = crate::Config::new(api_key);
+
+        // Use minimal prompt to save tokens
+        let options = ToolDocOptions::readonly();
+        let minimal_prompt = generate_minimal_system_prompt(&options);
+
+        // Create task-specific system prompt
+        let subagent_system_prompt = format!(
+            "{}\n\nYou are a subagent created to complete a specific task.\n\
+            Your task is: \"{}\"\n\
+            Complete this task thoroughly and return your results using the done tool when finished.\n\
+            You must put your final results in the done tool.\n\
+            Note: You are in read-only mode and can only use shell, read, fetch, and done tools.", 
+            minimal_prompt, task_name
+        );
+
+        subagent_config.system_prompt = Some(subagent_system_prompt);
+
+        // Create new client
+        let mut subagent = Self::new(subagent_config);
+        subagent.enable_tools(true);
+        subagent.readonly_mode = true;
+
+        Ok(subagent)
+    }
+
+    /// Send a message to Claude and process the response
+    fn send_message(
+        &mut self,
+        user_message: &str,
+    ) -> Result<MessageResult, Box<dyn std::error::Error>> {
+        // Import constants locally to avoid cluttering the global namespace
+        use constants::{
+            TOOL_END, TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START,
+            TOOL_START,
         };
 
-        // Add user message to conversation history
-        self.conversation.push(Message {
-            role: "user".to_string(),
-            content: processed_message,
-        });
+        // Add .autoswe file content to beginning of conversation if it hasn't been added yet
+        if self.conversation.is_empty() && fs::exists(".autoswe")? {
+            let working = std::env::current_dir()?;
+            let autoswe = fs::read_to_string(".autoswe")?;
+            let content = format!(
+                "# You're currently working in this directory:\n```\n{}\n```\n# Project information:\n{}",
+                working.to_str().unwrap_or("unknown"),
+                autoswe
+            );
 
-        // Prepare the request
-        let request = MessageRequest {
-            model: self.model.clone(),
-            max_tokens: 4000,
-            messages: self.conversation.clone(),
-            system: self.system_prompt.clone(),
-        };
+            // Insert as a regular user message at the beginning
+            self.conversation
+                .push(Message::text("user", content, MessageInfo::User));
+        }
 
-        // Send the request to Claude API
-        let response: MessageResponse = ureq::post(API_URL)
-            .set("Content-Type", "application/json")
-            .set("X-Api-Key", &self.api_key)
-            .set("anthropic-version", ANTHROPIC_VERSION)
-            .send_json(serde_json::to_value(request)?)?.into_json()?;
+        if !user_message.is_empty() {
+            // Add user message to conversation history
+            self.conversation.push(Message::text(
+                "user",
+                user_message.to_string(),
+                MessageInfo::User,
+            ));
+        }
 
-        // Get the assistant's response
-        let assistant_message = response.content.iter()
-            .filter(|content| content.content_type == "text")
-            .map(|content| content.text.clone())
-            .collect::<Vec<String>>()
-            .join("");
+        // Update cache points if needed
+        if self.cache_points.is_empty()
+            || *self.cache_points.iter().rev().next().unwrap()
+                < self.conversation.len().saturating_sub(5)
+        {
+            self.cache_points.insert(self.conversation.len() - 1);
+        }
+
+        if self.cache_points.len() > 5 {
+            let point = *self.cache_points.iter().next().unwrap();
+            self.cache_points.remove(&point);
+        }
+
+        // Send the request using our LLM provider
+        let system_prompt = self.config.system_prompt.as_deref();
+        let thinking_budget = Some(self.config.thinking_budget);
+
+        let response = self.llm.send_message(
+            &self.conversation,
+            system_prompt,
+            self.stop_sequences.as_deref(),
+            thinking_budget,
+            Some(&self.cache_points),
+        )?;
+
+        // Extract content from response
+        let mut assistant_message = String::new();
+        for content in &response.content {
+            if let Content::Text { text } = content {
+                assistant_message.push_str(text);
+            }
+        }
 
         // This will be the final response to return
         let final_response;
-        
+
         // Special handling for responses with tool invocations
-        if self.tools_enabled && assistant_message.contains(TOOL_START) {
+        if self.config.enable_tools && assistant_message.contains(TOOL_START) {
             // Find the complete tool invocation (from start to end tag)
             if let Some(tool_start_idx) = assistant_message.find(TOOL_START) {
-                if let Some(tool_end_relative_idx) = assistant_message[tool_start_idx..].find(TOOL_END) {
+                if let Some(tool_end_relative_idx) =
+                    assistant_message[tool_start_idx..].find(TOOL_END)
+                {
                     // Complete end position (including the end tag)
                     let tool_end_idx = tool_start_idx + tool_end_relative_idx;
                     let complete_end_idx = tool_end_idx + TOOL_END.len();
-                    
+
                     // Everything before and including the tool invocation
                     let assistant_part = assistant_message[0..complete_end_idx].to_string();
-                    
+
                     // Process the tool to get the result
-                    let tool_content = &assistant_message[tool_start_idx + TOOL_START.len()..tool_end_idx];
-                    
-                    // Check if this is the "done" tool
-                    let parts: Vec<&str> = tool_content.trim().splitn(2, ' ').collect();
-                    let is_done_tool = !parts.is_empty() && parts[0].to_lowercase() == "done";
-                    
-                    let tool_result = self.execute_tool(tool_content);
-                    
+                    let tool_content =
+                        &assistant_message[tool_start_idx + TOOL_START.len()..tool_end_idx];
+
+                    // Extract the tool name for checking if it's the "done" tool
+                    let parts: Vec<&str> =
+                        tool_content.trim().splitn(2, char::is_whitespace).collect();
+                    let tool_name = if !parts.is_empty() {
+                        parts[0].to_lowercase()
+                    } else {
+                        "unknown".to_string()
+                    };
+                    let is_done_tool = !parts.is_empty() && tool_name == "done";
+
+                    // Extract Claude's text part before executing the tool
+                    let assistant_message_content =
+                        if let Some(tool_start_pos) = assistant_part.find(TOOL_START) {
+                            assistant_part[0..tool_start_pos].trim().to_string()
+                        } else {
+                            assistant_part.clone()
+                        };
+
+                    // Display Claude's text before executing the tool
+                    if !assistant_message_content.is_empty() {
+                        println!("Claude: {}", assistant_message_content);
+                    }
+
+                    // Execute the tool using our tool executor
+                    let tool_result = self.tool_executor.execute(tool_content);
+
                     // Format the tool result as a user message
-                    // User sees the user_output, but Claude (agent) gets the agent_output in the conversation history
+                    // User sees the user_output without delimiters, but Claude (agent) gets the agent_output with delimiters
                     let user_response = if tool_result.success {
-                        format!("{}\n{}\n{}", TOOL_RESULT_START, tool_result.user_output, TOOL_RESULT_END)
+                        tool_result.user_output.clone()
                     } else {
-                        format!("{}\n{}\n{}", TOOL_ERROR_START, tool_result.user_output, TOOL_ERROR_END)
+                        format!("[ERROR] {}", tool_result.user_output)
                     };
-                    
+
                     let agent_response = if tool_result.success {
-                        format!("{}\n{}\n{}", TOOL_RESULT_START, tool_result.agent_output, TOOL_RESULT_END)
+                        format!(
+                            "{}\n{}\n{}",
+                            TOOL_RESULT_START, tool_result.agent_output, TOOL_RESULT_END
+                        )
                     } else {
-                        format!("{}\n{}\n{}", TOOL_ERROR_START, tool_result.agent_output, TOOL_ERROR_END)
+                        format!(
+                            "{}\n{}\n{}",
+                            TOOL_ERROR_START, tool_result.agent_output, TOOL_ERROR_END
+                        )
                     };
-                    
+
                     // Add the assistant's response (with tool invocation) to conversation history
-                    self.conversation.push(Message {
-                        role: "assistant".to_string(),
-                        content: assistant_part.clone(),
-                    });
-                    
+                    self.conversation.push(Message::text(
+                        "assistant",
+                        assistant_part.clone(),
+                        MessageInfo::ToolCall {
+                            tool_name: tool_name.clone(),
+                        },
+                    ));
+
                     // Add the agent_response to the conversation history (for Claude to see)
-                    self.conversation.push(Message {
-                        role: "user".to_string(),
-                        content: agent_response,
-                    });
-                    
-                    // For display purposes, show the user the user_response
-                    final_response = format!("{}\n{}", assistant_part, user_response);
-                    
-                    // If this was the "done" tool, we'll return the final response with a special flag
+                    // Determine the MessageInfo based on whether it was a successful tool execution
+                    let message_info = if tool_result.success {
+                        MessageInfo::ToolResult {
+                            tool_name: tool_name.clone(),
+                        }
+                    } else {
+                        MessageInfo::ToolError {
+                            tool_name: tool_name.clone(),
+                        }
+                    };
+                    self.conversation
+                        .push(Message::text("user", agent_response, message_info));
+
+                    // For the final response, just use the tool response since we already
+                    // displayed Claude's text part before executing the tool
+                    final_response = user_response;
+
+                    // If this was the "done" tool, return the final response with continue_processing=false
                     if is_done_tool {
-                        return Ok(final_response);
+                        return Ok(MessageResult {
+                            response: final_response,
+                            continue_processing: false,
+                            token_usage: response.usage,
+                        });
                     }
                 } else {
                     // Tool start tag found but no end tag - throw an error
-                    return Err("Incomplete tool invocation: Found tool start tag but no matching end tag".into());
+                    return Err(
+                        "Incomplete tool invocation: Found tool start tag but no matching end tag"
+                            .into(),
+                    );
                 }
             } else {
                 // No tool invocation found
-                self.conversation.push(Message {
-                    role: "assistant".to_string(),
-                    content: assistant_message.clone(),
-                });
+                self.conversation.push(Message::text(
+                    "assistant",
+                    assistant_message.clone(),
+                    MessageInfo::Assistant,
+                ));
+
                 final_response = assistant_message.clone();
+
+                // No tool invocation, so don't continue processing
+                return Ok(MessageResult {
+                    response: final_response,
+                    continue_processing: false,
+                    token_usage: response.usage,
+                });
             }
         } else {
-            return Err("No tool invocation found in response".into());
+            // No tools enabled or no tool markers in response
+            self.conversation.push(Message::text(
+                "assistant",
+                assistant_message.clone(),
+                MessageInfo::Assistant,
+            ));
+
+            return Ok(MessageResult {
+                response: assistant_message,
+                continue_processing: false,
+                token_usage: response.usage,
+            });
         }
 
-        Ok(final_response)
-    }
-
-    fn clear_conversation(&mut self) {
-        self.conversation.clear();
-    }
-
-    fn process_tools(&self, message: &str) -> Result<String, Box<dyn std::error::Error>> {
-        use constants::{TOOL_START, TOOL_END, TOOL_RESULT_START, TOOL_RESULT_END, TOOL_ERROR_START, TOOL_ERROR_END};
-        
-        let mut result = message.to_string();
-        let mut start_index = 0;
-
-        while let Some(tool_start) = result[start_index..].find(TOOL_START) {
-            let tool_start = start_index + tool_start;
-            if let Some(tool_end) = result[tool_start..].find(TOOL_END) {
-                let tool_end = tool_start + tool_end;
-                let tool_content = &result[tool_start + TOOL_START.len()..tool_end];
-                
-                // Check if this is the "done" tool
-                let parts: Vec<&str> = tool_content.trim().splitn(2, ' ').collect();
-                let is_done_tool = !parts.is_empty() && parts[0].to_lowercase() == "done";
-                
-                // Process the tool
-                let tool_result = self.execute_tool(tool_content);
-                
-                // Get the parts of the string we need
-                let before_part = result[0..tool_end + TOOL_END.len()].to_string();
-                let after_part = result[tool_end + TOOL_END.len()..].to_string();
-                
-                // Format user output for display
-                let user_response = if tool_result.success {
-                    format!("\n{}\n{}\n{}\n", TOOL_RESULT_START, tool_result.user_output, TOOL_RESULT_END)
-                } else {
-                    format!("\n{}\n{}\n{}\n", TOOL_ERROR_START, tool_result.user_output, TOOL_ERROR_END)
-                };
-                
-                // Format agent output for conversation history
-                // We don't use this variable directly here, but we're documenting the structure
-                // The actual agent output is processed separately in send_message
-                let _agent_response = if tool_result.success {
-                    format!("\n{}\n{}\n{}\n", TOOL_RESULT_START, tool_result.agent_output, TOOL_RESULT_END)
-                } else {
-                    format!("\n{}\n{}\n{}\n", TOOL_ERROR_START, tool_result.agent_output, TOOL_ERROR_END)
-                };
-                
-                // Note: agent_response is intentionally not used here since we're
-                // only constructing the visible output. The agent_output is handled separately
-                // when added to the conversation history via send_message.
-                
-                // For the visible output to the user, we use user_response
-                result = format!("{}{}{}", before_part, user_response, after_part);
-                
-                // Update the start index to continue searching after the response
-                start_index = before_part.len() + user_response.len();
-                
-                // Special handling for the "done" tool - we'll keep processing other tools that might be in the message
-                if is_done_tool && after_part.trim().is_empty() {
-                    break;
-                }
-            } else {
-                // No closing tag found, return an error
-                return Err(format!("Incomplete tool invocation: Found tool start tag at position {} but no matching end tag", tool_start).into());
-            }
-        }
-        
-        Ok(result)
-    }
-
-    fn execute_tool(&self, tool_content: &str) -> ToolResult {
-        let parts: Vec<&str> = tool_content.trim().splitn(2, ' ').collect();
-        if parts.is_empty() {
-            let error_msg = "Empty tool invocation".to_string();
-            return ToolResult {
-                success: false,
-                user_output: error_msg.clone(),
-                agent_output: error_msg,
-            };
-        }
-
-        let tool_name = parts[0];
-        let args = if parts.len() > 1 { parts[1] } else { "" };
-
-        match tool_name.to_lowercase().as_str() {
-            "shell" => self.execute_shell(args),
-            "read" => self.execute_read(args),
-            "write" => self.execute_write(args),
-            "patch" => self.execute_patch(args),
-            "done" => self.execute_done(args),
-            _ => {
-                let error_msg = format!("Unknown tool: {}", tool_name);
-                ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                }
-            },
-        }
-    }
-
-    fn execute_shell(&self, args: &str) -> ToolResult {
-        let shell = if cfg!(target_os = "windows") {
-            "cmd"
-        } else {
-            "sh"
-        };
-
-        let shell_arg = if cfg!(target_os = "windows") {
-            "/C"
-        } else {
-            "-c"
-        };
-
-        match Command::new(shell)
-            .arg(shell_arg)
-            .arg(args)
-            .output() {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                    
-                    if output.status.success() {
-                        // Full output for the agent
-                        let agent_output = format!("Command: {}\nOutput:\n\n{}", args, stdout);
-                        
-                        // Limit output for user display
-                        let user_output = if stdout.lines().count() > 50 {
-                            let first_lines: Vec<&str> = stdout.lines().take(20).collect();
-                            let last_lines: Vec<&str> = stdout.lines().rev().take(20).collect();
-                            
-                            format!(
-                                "Command: {}\nOutput (truncated, showing first 20 and last 20 lines of {} total):\n\n{}\n\n[...]\n\n{}", 
-                                args,
-                                stdout.lines().count(),
-                                first_lines.join("\n"),
-                                last_lines.into_iter().rev().collect::<Vec<&str>>().join("\n")
-                            )
-                        } else {
-                            agent_output.clone() // For smaller outputs, show the same to user and agent
-                        };
-                        
-                        ToolResult {
-                            success: true,
-                            user_output,
-                            agent_output,
-                        }
-                    } else {
-                        let error_msg = format!("Error executing command '{}': {}", args, stderr);
-                        ToolResult {
-                            success: false,
-                            user_output: error_msg.clone(),
-                            agent_output: error_msg,
-                        }
-                    }
-                },
-                Err(e) => {
-                    let error_msg = format!("Failed to execute command '{}': {}", args, e);
-                    ToolResult {
-                        success: false,
-                        user_output: error_msg.clone(),
-                        agent_output: error_msg,
-                    }
-                },
-            }
-    }
-
-    fn execute_read(&self, args: &str) -> ToolResult {
-        // Parse arguments with optional offset and limit
-        let mut offset: Option<usize> = None;
-        let mut limit: Option<usize> = None;
-        let mut filepath_str = args.trim().to_string();
-        
-        // Look for offset parameter
-        if let Some(offset_idx) = args.find("offset=") {
-            let offset_end = match args[offset_idx..].find(' ') {
-                Some(end) => offset_idx + end,
-                None => args.len(),
-            };
-            let offset_str = &args[offset_idx + 7..offset_end];
-            if let Ok(val) = offset_str.parse::<usize>() {
-                offset = Some(val);
-            }
-            let replacement = String::from(&args[offset_idx..offset_end]);
-            filepath_str = filepath_str.replace(&replacement, "");
-        }
-        
-        // Look for limit parameter
-        if let Some(limit_idx) = args.find("limit=") {
-            let limit_end = match args[limit_idx..].find(' ') {
-                Some(end) => limit_idx + end,
-                None => args.len(),
-            };
-            let limit_str = &args[limit_idx + 6..limit_end];
-            if let Ok(val) = limit_str.parse::<usize>() {
-                limit = Some(val);
-            }
-            let replacement = String::from(&args[limit_idx..limit_end]);
-            filepath_str = filepath_str.replace(&replacement, "");
-        }
-        
-        // Trim any extra whitespace
-        let filepath = filepath_str.trim();
-        
-        // Read the file
-        match fs::read_to_string(filepath) {
-            Ok(content) => {
-                // Split content into lines
-                let lines: Vec<&str> = content.lines().collect();
-                let total_lines = lines.len();
-                
-                // Apply offset and limit for agent output
-                let agent_start_line = offset.unwrap_or(0).min(total_lines);
-                let agent_end_line = match limit {
-                    Some(l) => (agent_start_line + l).min(total_lines),
-                    None => total_lines,
-                };
-                
-                // Full content for the agent (respecting offset/limit if provided)
-                let agent_lines = lines[agent_start_line..agent_end_line].join("\n");
-                let agent_output = format!(
-                    "File: {} (lines {}-{} of {})\n\n```\n{}\n```",
-                    filepath, agent_start_line+1, agent_end_line, total_lines, agent_lines
-                );
-                
-                // Truncated content for the user
-                let user_output = if total_lines > 100 {
-                    // For large files, show first 20 and last 20 lines
-                    let first_20 = lines.iter().take(20).cloned().collect::<Vec<&str>>().join("\n");
-                    let last_20 = lines.iter().rev().take(20).rev().cloned().collect::<Vec<&str>>().join("\n");
-                    
-                    format!(
-                        "File: {} (showing first/last 20 lines of {} total)\n\n```\n{}\n\n[...{} lines omitted...]\n\n{}\n```",
-                        filepath, total_lines, first_20, total_lines - 40, last_20
-                    )
-                } else {
-                    // For smaller files, show the same content as the agent
-                    agent_output.clone()
-                };
-                
-                ToolResult {
-                    success: true,
-                    user_output,
-                    agent_output,
-                }
-            },
-            Err(e) => {
-                let error_msg = format!("Error reading file '{}': {}", filepath, e);
-                ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                }
-            },
-        }
-    }
-
-    fn execute_write(&self, args: &str) -> ToolResult {
-        let lines: Vec<&str> = args.trim().lines().collect();
-        if lines.is_empty() {
-            let error_msg = "Write tool requires a filename followed by content on new lines".to_string();
-            return ToolResult {
-                success: false,
-                user_output: error_msg.clone(),
-                agent_output: error_msg,
-            };
-        }
-
-        let filename = lines[0].trim();
-        let content = if lines.len() > 1 {
-            lines[1..].join("\n")
-        } else {
-            "".to_string()
-        };
-
-        match fs::write(filename, content) {
-            Ok(_) => {
-                let msg = format!("Successfully wrote to file '{}'", filename);
-                ToolResult {
-                    success: true,
-                    user_output: msg.clone(),
-                    agent_output: msg,
-                }
-            },
-            Err(e) => {
-                let error_msg = format!("Error writing to file '{}': {}", filename, e);
-                ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                }
-            },
-        }
-    }
-    
-    fn execute_patch(&self, args: &str) -> ToolResult {
-        use constants::{PATCH_DELIMITER_BEFORE, PATCH_DELIMITER_AFTER, PATCH_DELIMITER_END};
-        
-        let lines: Vec<&str> = args.trim().lines().collect();
-        if lines.is_empty() {
-            let error_msg = "Patch tool requires a filename and patch content".to_string();
-            return ToolResult {
-                success: false,
-                user_output: error_msg.clone(),
-                agent_output: error_msg,
-            };
-        }
-
-        let filename = lines[0].trim();
-        let patch_content = lines[1..].join("\n");
-        
-        // Read the file content
-        let file_content = match fs::read_to_string(filename) {
-            Ok(content) => content,
-            Err(e) => {
-                let error_msg = format!("Error reading file '{}': {}", filename, e);
-                return ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                };
-            }
-        };
-        
-        // Parse the patch content
-        let before_delimiter = match patch_content.find(PATCH_DELIMITER_BEFORE) {
-            Some(pos) => pos,
-            None => {
-                let error_msg = format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE);
-                return ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                };
-            }
-        };
-        
-        let after_delimiter = match patch_content[before_delimiter..].find(PATCH_DELIMITER_AFTER) {
-            Some(pos) => before_delimiter + pos,
-            None => {
-                let error_msg = format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER);
-                return ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                };
-            }
-        };
-        
-        let end_delimiter = match patch_content[after_delimiter..].find(PATCH_DELIMITER_END) {
-            Some(pos) => after_delimiter + pos,
-            None => {
-                let error_msg = format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_END);
-                return ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                };
-            }
-        };
-        
-        // Extract the before and after text
-        // Skip the delimiter line itself by finding the next newline
-        let before_start = match patch_content[before_delimiter + PATCH_DELIMITER_BEFORE.len()..].find('\n') {
-            Some(pos) => before_delimiter + PATCH_DELIMITER_BEFORE.len() + pos + 1,
-            None => before_delimiter + PATCH_DELIMITER_BEFORE.len(),
-        };
-        
-        let after_start = match patch_content[after_delimiter + PATCH_DELIMITER_AFTER.len()..].find('\n') {
-            Some(pos) => after_delimiter + PATCH_DELIMITER_AFTER.len() + pos + 1,
-            None => after_delimiter + PATCH_DELIMITER_AFTER.len(),
-        };
-        
-        let before_text = patch_content[before_start..after_delimiter].trim();
-        let after_text = patch_content[after_start..end_delimiter].trim();
-        
-        // Apply the patch
-        if !file_content.contains(before_text) {
-            let error_msg = format!("Text to replace not found in the file: '{}'", before_text);
-            return ToolResult {
-                success: false,
-                user_output: error_msg.clone(),
-                agent_output: error_msg,
-            };
-        }
-        
-        let new_content = file_content.replace(before_text, after_text);
-        
-        // Write the updated content
-        match fs::write(filename, new_content) {
-            Ok(_) => {
-                // Full output for the agent
-                let agent_output = format!("Successfully patched file '{}'", filename);
-                
-                // Create a pretty diff for the user output
-                let before_lines = before_text.lines();
-                let after_lines = after_text.lines();
-                
-                // Format with colored backgrounds (ANSI escape codes)
-                let red_bg = "\u{1b}[41;97m";    // Light red background with white text
-                let green_bg = "\u{1b}[42;97m";  // Light green background with white text
-                let reset = "\u{1b}[0m";         // Reset formatting
-                
-                let removed = before_lines
-                    .map(|line| format!("{}- {}{}", red_bg, line, reset))
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                
-                let added = after_lines
-                    .map(|line| format!("{}+ {}{}", green_bg, line, reset))
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                
-                let user_output = format!(
-                    "Successfully patched file '{}'\n\nDiff:\n{}\n{}",
-                    filename, removed, added
-                );
-                
-                ToolResult {
-                    success: true,
-                    user_output,
-                    agent_output,
-                }
-            },
-            Err(e) => {
-                let error_msg = format!("Error writing patched file '{}': {}", filename, e);
-                ToolResult {
-                    success: false,
-                    user_output: error_msg.clone(),
-                    agent_output: error_msg,
-                }
-            },
-        }
-    }
-    
-    fn execute_done(&self, args: &str) -> ToolResult {
-        let summary = if args.trim().is_empty() {
-            "Task completed successfully."
-        } else {
-            args.trim()
-        };
-        
-        let output = format!("TASK COMPLETE:\n{}\n\nNo further agent actions will be taken.", summary);
-        ToolResult {
-            success: true,
-            user_output: output.clone(),
-            agent_output: output,
-        }
+        // Return with continue_processing flag set to true to indicate tool processing
+        Ok(MessageResult {
+            response: final_response,
+            continue_processing: true,
+            token_usage: response.usage,
+        })
     }
 }
 
-fn display_help() {
-    use constants::*;
-    
-    // Create help text using template
-    let help_text = HELP_TEMPLATE
-        .replace("{TOOL_START}", TOOL_START)
-        .replace("{TOOL_END}", TOOL_END)
-        .replace("{PATCH_DELIMITER_BEFORE}", PATCH_DELIMITER_BEFORE)
-        .replace("{PATCH_DELIMITER_AFTER}", PATCH_DELIMITER_AFTER)
-        .replace("{PATCH_DELIMITER_END}", PATCH_DELIMITER_END);
-    
-    println!("{}", help_text);
-}
-
+/// Read a line of input from the user
 fn read_line() -> Result<String, Box<dyn std::error::Error>> {
     // Simply use standard readline for simplicity
     let mut input = String::new();
-    
+
     // Print the prompt
     print!("> ");
     io::stdout().flush()?;
-    
+
     // Read input
     io::stdin().read_line(&mut input)?;
-    
+
     // Trim newline
     input = input.trim_end().to_string();
-    
+
     Ok(input)
 }
 
-fn process_user_query(client: &mut ClaudeClient, user_input: &str) -> Result<bool, Box<dyn std::error::Error>> {
+/// Process a user query, handling tool calls and multi-turn interactions
+///
+/// When silent_mode is true, no console output is produced (for subagents)
+/// Returns a tuple of (task_completed, last_response)
+fn process_user_query(
+    client: &mut ClaudeClient,
+    user_input: &str,
+    silent_mode: bool,
+) -> Result<(bool, String), Box<dyn std::error::Error>> {
     let mut message_sent = false;
-    let mut task_completed = false;
 
-    println!("\nClaude is working on your request...");
-    
-    // Loop until we get a "done" tool or encounter an error
+    // Loop until we get a "done" tool or no further processing is needed
     loop {
         // Send the message to Claude
-        let response = if !message_sent {
+        let message_result = if !message_sent {
             // First message is the user's input
             message_sent = true;
             client.send_message(user_input)
@@ -690,52 +409,114 @@ fn process_user_query(client: &mut ClaudeClient, user_input: &str) -> Result<boo
             // Subsequent messages are empty - Claude will continue with tool output
             client.send_message("")
         };
-        
-        match response {
-            Ok(response) => {
-                println!("\nClaude:");
-                println!("{}", response);
-                println!("");
-                
-                // Check if the response contains the "done" tool result
-                if response.contains("TASK COMPLETE:") {
-                    println!("\nTask completed. Agent has signaled completion using the 'done' tool.");
-                    task_completed = true;
-                    break;
+
+        match message_result {
+            Ok(result) => {
+                // Get the current response to return
+                let final_response = result.response.clone();
+
+                // Only print output to console if not in silent mode
+                if !silent_mode {
+                    // Display token usage statistics if available
+                    if let Some(usage) = &result.token_usage {
+                        use constants::{FORMAT_GRAY, FORMAT_RESET};
+
+                        // Show minimal token usage for the current request only
+                        println!(
+                            "Claude: {}[{} in / {} out] ({} read, {} written){}",
+                            FORMAT_GRAY,
+                            usage.input_tokens,
+                            usage.output_tokens,
+                            usage.cache_read_input_tokens,
+                            usage.cache_creation_input_tokens,
+                            FORMAT_RESET
+                        );
+                    } else {
+                        println!("\nClaude: ");
+                    }
+
+                    // Small delay to prevent tight loop, only when outputting to console
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                
-                // Small delay to prevent tight loop
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            },
+
+                // Check for task completion by looking for the done tool
+                let task_completed = client.conversation.last().map(|m|
+                    matches!(&m.info,
+                        MessageInfo::ToolResult { tool_name } | MessageInfo::ToolError { tool_name } if tool_name == "done"
+                    )
+                ).unwrap_or(false);
+
+                // Check if we should continue processing
+                if !result.continue_processing || task_completed {
+                    return Ok((task_completed, final_response));
+                }
+            }
             Err(err) => {
-                // Only show error if it's not the expected pattern for end of conversation
-                if !err.to_string().contains("No tool invocation found in response") {
+                if !silent_mode {
                     println!("\nError: {}\n", err);
                 }
-                break;
+                return Err(err);
             }
         }
-
     }
-    
-    Ok(task_completed)
 }
 
-fn run_interactive_mode(api_key: String, model: String, enable_tools: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ClaudeClient::new(api_key.clone(), model);
-    client.enable_tools(enable_tools);
-    
+/// Run in interactive mode with a conversation UI
+fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = ClaudeClient::new(config.clone());
+
+    // Apply appropriate system prompt if none is provided
+    if client.config.system_prompt.is_none() {
+        // Use default (full) tool options
+        let options = ToolDocOptions::default();
+
+        if client.config.use_minimal_prompt {
+            // Use minimal prompt if configured
+            let minimal_prompt = generate_minimal_system_prompt(&options);
+            client.set_system_prompt(minimal_prompt);
+        } else {
+            // Use full default system prompt
+            let default_prompt = prompts::generate_system_prompt(&options);
+            client.set_system_prompt(default_prompt);
+        }
+    }
+
+    // Attempt to resume last session if requested
+    if config.resume_last_session {
+        match session::load_last_session(&mut client) {
+            Ok(_) => println!("Successfully resumed last session"),
+            Err(e) => println!("Note: Could not resume last session: {}", e),
+        }
+    }
+
     println!("Claude Console Interface");
     println!("Type your message and press Enter to chat with Claude");
     println!("Type '/help' for available commands or '/exit' to quit");
-    
-    if enable_tools {
+
+    if client.config.enable_tools {
         println!("Tools are ENABLED. Claude will use tools automatically based on your request.");
     } else {
         println!("Tools are DISABLED. Use /tools on to enable them.");
     }
+
+    // Display token optimization settings
+    println!("\nToken optimization settings:");
+    println!(
+        "- Thinking budget: {} tokens",
+        client.config.thinking_budget
+    );
+    println!(
+        "- System prompt: {}",
+        if client.config.system_prompt.is_some() {
+            "custom"
+        } else if client.config.use_minimal_prompt {
+            "minimal"
+        } else {
+            "standard"
+        }
+    );
     println!();
-    
+
     loop {
         let user_input = match read_line() {
             Ok(input) => input,
@@ -744,196 +525,114 @@ fn run_interactive_mode(api_key: String, model: String, enable_tools: bool) -> R
                 continue;
             }
         };
-        
+
         let user_input = user_input.trim();
-        
+
+        // Handle exit command directly for quick exit
+        if user_input == "/exit" {
+            break;
+        }
+
         // Handle commands
-        if user_input.starts_with("/") {
-            let parts: Vec<&str> = user_input.splitn(2, ' ').collect();
-            let command = parts[0].to_lowercase();
-            
-            match command.as_str() {
-                "/exit" => break,
-                
-                "/help" => display_help(),
-                
-                "/clear" => {
-                    client.clear_conversation();
-                    println!("Conversation history cleared.");
-                },
-                
-                "/system" => {
-                    if parts.len() > 1 {
-                        let system_prompt = parts[1].to_string();
-                        client.set_system_prompt(system_prompt);
-                        println!("System prompt set.");
-                    } else {
-                        println!("Usage: /system YOUR SYSTEM PROMPT TEXT");
-                    }
-                },
-                
-                "/model" => {
-                    if parts.len() > 1 {
-                        let model_name = parts[1].to_string();
-                        let tools_enabled = client.tools_enabled;
-                        client = ClaudeClient::new(api_key.clone(), model_name);
-                        client.enable_tools(tools_enabled);
-                        println!("Model changed. Conversation history cleared.");
-                    } else {
-                        println!("Usage: /model MODEL_NAME");
-                        println!("Examples: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307");
-                    }
-                },
-                
-                "/tools" => {
-                    if parts.len() > 1 {
-                        match parts[1].to_lowercase().as_str() {
-                            "on" | "enable" | "true" => {
-                                client.enable_tools(true);
-                                println!("Tools enabled. Claude will use tools automatically based on your request.");
-                            },
-                            "off" | "disable" | "false" => {
-                                client.enable_tools(false);
-                                println!("Tools disabled.");
-                            },
-                            _ => println!("Usage: /tools on|off"),
-                        }
-                    } else {
-                        println!("Usage: /tools on|off");
-                    }
-                },
-                
-                _ => println!("Unknown command. Type /help for available commands."),
+        if user_input.starts_with('/') {
+            if let Err(e) = commands::handle_command(&mut client, user_input) {
+                println!("Command error: {}", e);
             }
-            
             continue;
         }
-        
-        // Process user query
+
+        // Process normal user query
         if !user_input.is_empty() {
-            let _ = process_user_query(&mut client, user_input)?;
+            if let Err(e) = process_user_query(&mut client, user_input, false) {
+                println!("\nError: {}\n", e);
+            }
         }
     }
-    
+
     println!("Goodbye!");
     Ok(())
 }
 
-fn run_query(api_key: String, model: String, query: &str, system_prompt: Option<String>, enable_tools: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ClaudeClient::new(api_key, model);
-    
-    if let Some(prompt) = system_prompt {
-        client.set_system_prompt(prompt);
+/// Run a single query in non-interactive mode
+fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = ClaudeClient::new(config.clone());
+
+    // Apply appropriate system prompt if none is provided
+    if client.config.system_prompt.is_none() {
+        // Use default (full) tool options
+        let options = ToolDocOptions::default();
+
+        if client.config.use_minimal_prompt {
+            // Use minimal prompt if configured
+            let minimal_prompt = generate_minimal_system_prompt(&options);
+            client.set_system_prompt(minimal_prompt);
+        } else {
+            // Use full default system prompt
+            let default_prompt = prompts::generate_system_prompt(&options);
+            client.set_system_prompt(default_prompt);
+        }
     }
-    
-    client.enable_tools(enable_tools);
-    
+
+    // Attempt to resume last session if requested
+    if config.resume_last_session {
+        match session::load_last_session(&mut client) {
+            Ok(_) => println!("Successfully resumed last session"),
+            Err(e) => println!("Note: Could not resume last session: {}", e),
+        }
+    }
+
     // Process the query
-    let result = process_user_query(&mut client, query);
-    
+    let result = process_user_query(&mut client, query, false);
+
+    // Only care about success/error, not the actual result values
     result.map(|_| ())
 }
 
+/// Display usage text
 fn print_usage() {
     use constants::*;
-    
+
     // Create usage text using template
-    let usage_text = USAGE_TEMPLATE
-        .replace("{TOOL_START}", TOOL_START)
-        .replace("{TOOL_END}", TOOL_END)
-        .replace("{PATCH_DELIMITER_BEFORE}", PATCH_DELIMITER_BEFORE)
-        .replace("{PATCH_DELIMITER_AFTER}", PATCH_DELIMITER_AFTER)
-        .replace("{PATCH_DELIMITER_END}", PATCH_DELIMITER_END);
-    
+    let usage_text = format_template(USAGE_TEMPLATE);
+
     eprintln!("{}", usage_text);
 }
 
+/// Main entry point
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file if exists
     let _ = dotenvy::dotenv();
-    
-    // Try custom .env locations if default not found
-    if env::var("ANTHROPIC_API_KEY").is_err() {
-        for env_path in ["./env/.env", "../.env", "~/.env"] {
-            if Path::new(env_path).exists() {
-                let _ = dotenvy::from_path(env_path);
-                break;
-            }
-        }
-    }
-    
-    // Get API key from environment variable
-    let api_key = match env::var("ANTHROPIC_API_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            eprintln!("Error: ANTHROPIC_API_KEY environment variable not set");
-            eprintln!("Please set it in a .env file or as an environment variable");
+
+    // Load configuration from environment variables
+    let config = match Config::from_env() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            eprintln!("Please set ANTHROPIC_API_KEY in a .env file or as an environment variable");
             eprintln!("Example .env file content:");
             eprintln!("ANTHROPIC_API_KEY=your_api_key_here");
             return Ok(());
         }
     };
-    
-    // Initialize defaults
-    let default_model = "claude-3-7-sonnet-20250219".to_string();
-    
-    // Parse command line arguments
+
+    // Apply command line arguments to override configuration
     let args: Vec<String> = env::args().collect();
-    let mut i = 1;
-    let mut model = default_model;
-    let mut system_prompt = None;
-    let mut query = None;
-    let mut show_help = false;
-    let mut enable_tools = true; // Enable tools by default
-    
-    while i < args.len() {
-        match args[i].as_str() {
-            "--model" => {
-                if i + 1 < args.len() {
-                    model = args[i + 1].clone();
-                    i += 2;
-                } else {
-                    eprintln!("Error: --model requires a MODEL_NAME");
-                    return Ok(());
-                }
-            },
-            "--system" => {
-                if i + 1 < args.len() {
-                    system_prompt = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    eprintln!("Error: --system requires a PROMPT");
-                    return Ok(());
-                }
-            },
-            "--no-tools" => {
-                enable_tools = false;
-                i += 1;
-            },
-            "--help" => {
-                show_help = true;
-                i += 1;
-            },
-            _ => {
-                // If it doesn't start with --, treat it as the query
-                if !args[i].starts_with("--") && query.is_none() {
-                    query = Some(args[i].clone());
-                }
-                i += 1;
-            }
+    let mut config = config; // Make config mutable to apply args
+
+    // Apply args and get result type (query, interactive, or help)
+    let arg_result = config.apply_args(&args);
+
+    // Handle the different result types
+    match arg_result {
+        Ok(ArgResult::Query(query)) => run_query(config, &query)?,
+        Ok(ArgResult::Interactive) => run_interactive_mode(config)?,
+        Ok(ArgResult::ShowHelp) => {
+            print_usage();
+        }
+        Err(e) => {
+            eprintln!("{}", e);
         }
     }
-    
-    if show_help {
-        print_usage();
-        return Ok(());
-    }
-    
-    // Determine mode and run
-    match query {
-        Some(q) => run_query(api_key, model, &q, system_prompt, enable_tools)?,
-        None => run_interactive_mode(api_key, model, enable_tools)?,
-    }
-    
+
     Ok(())
 }
