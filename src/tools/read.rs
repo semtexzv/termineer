@@ -10,7 +10,7 @@ struct ReadArgs {
     paths: Vec<String>,
 }
 
-pub fn execute_read(args: &str, _body: &str) -> ToolResult {
+pub fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
     // Note: For read tool, we mainly use args, not body
     // Parse arguments
     let parsed_args = parse_arguments(args);
@@ -18,9 +18,14 @@ pub fn execute_read(args: &str, _body: &str) -> ToolResult {
     // Handle empty paths case
     if parsed_args.paths.is_empty() {
         let error_msg = "No files specified for reading".to_string();
+        
+        if !silent_mode {
+            println!("{}❌ Error:{} {}", 
+                FORMAT_BOLD, FORMAT_RESET, error_msg);
+        }
+        
         return ToolResult {
             success: false,
-            user_output: error_msg.clone(),
             agent_output: error_msg,
         };
     }
@@ -29,22 +34,27 @@ pub fn execute_read(args: &str, _body: &str) -> ToolResult {
     if parsed_args.offset.is_some() || parsed_args.limit.is_some() {
         if parsed_args.paths.len() > 1 {
             let error_msg = "Offset and limit parameters can only be used with a single file".to_string();
+            
+            if !silent_mode {
+                println!("{}❌ Error:{} {}", 
+                    FORMAT_BOLD, FORMAT_RESET, error_msg);
+            }
+            
             return ToolResult {
                 success: false,
-                user_output: error_msg.clone(),
                 agent_output: error_msg,
             };
         }
-        return read_single_file(&parsed_args.paths[0], parsed_args.offset, parsed_args.limit);
+        return read_single_file(&parsed_args.paths[0], parsed_args.offset, parsed_args.limit, silent_mode);
     }
     
     // If there's only one path, use the single file/directory approach
     if parsed_args.paths.len() == 1 {
-        return read_single_file(&parsed_args.paths[0], None, None);
+        return read_single_file(&parsed_args.paths[0], None, None, silent_mode);
     }
     
     // Multiple files case
-    read_multiple_files(&parsed_args.paths)
+    read_multiple_files(&parsed_args.paths, silent_mode)
 }
 
 /// Parse the command arguments into a structured format
@@ -108,64 +118,70 @@ fn find_param_end(s: &str) -> Option<usize> {
 }
 
 /// Read multiple files and combine their outputs
-fn read_multiple_files(filepaths: &[String]) -> ToolResult {
+fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolResult {
     let mut agent_outputs = Vec::new();
-    let mut user_outputs = Vec::new();
     let mut all_successful = true;
     
     for filepath in filepaths {
-        let result = read_file_content(filepath, None, None);
+        let result = read_file_content(filepath, None, None, silent_mode);
         if result.success {
             agent_outputs.push(result.agent_output);
-            user_outputs.push(result.user_output);
         } else {
             agent_outputs.push(result.agent_output.clone());
-            user_outputs.push(result.agent_output); // Use error message directly
             all_successful = false;
         }
     }
     
     let combined_agent_output = agent_outputs.join("\n\n");
-    let combined_user_output = format!(
-        "{}📚 Read {} files:{} {}", 
-        FORMAT_BOLD,
-        filepaths.len(),
-        FORMAT_RESET,
-        user_outputs.join(" | ")
-    );
+    
+    // Print combined output message if not in silent mode
+    if !silent_mode {
+        println!(
+            "{}📚 Read {} files:{}", 
+            FORMAT_BOLD,
+            filepaths.len(),
+            FORMAT_RESET
+        );
+        
+        // Optionally, we could print more details about each file here
+    }
     
     ToolResult {
         success: all_successful,
-        user_output: combined_user_output,
         agent_output: combined_agent_output,
     }
 }
 
 /// Helper function to read a single file or directory path
-fn read_single_file(filepath: &str, offset: Option<usize>, limit: Option<usize>) -> ToolResult {
+fn read_single_file(filepath: &str, offset: Option<usize>, limit: Option<usize>, silent_mode: bool) -> ToolResult {
     let path = Path::new(filepath);
     
     // Check if path exists
     if !path.exists() {
         let error_msg = format!("Error: Path does not exist: '{}'", filepath);
+        
+        if !silent_mode {
+            println!("{}❌ Error:{} {}", 
+                FORMAT_BOLD, FORMAT_RESET, error_msg);
+        }
+        
         return ToolResult {
             success: false,
-            user_output: error_msg.clone(),
             agent_output: error_msg,
         };
     }
     
     // Check if path is a directory
     if path.is_dir() {
-        return read_directory(filepath);
+        return read_directory(filepath, silent_mode);
     }
     
     // Handle regular file
-    read_file_content(filepath, offset, limit)
+    read_file_content(filepath, offset, limit, silent_mode)
 }
 
 /// Helper function to read file content with optional offset and limit
-fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>) -> ToolResult {
+fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>, silent_mode: bool) -> ToolResult {
     match fs::read_to_string(filepath) {
         Ok(content) => {
             // Split content into lines
@@ -194,41 +210,48 @@ fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>
                 selected_lines
             );
             
-            // Create a brief preview for user output
-            let preview_lines = lines[start_line..end_line].iter()
-                .take(2)
-                .cloned()
-                .collect::<Vec<&str>>()
-                .join("\n");
+            // Direct output to console if not in silent mode
+            if !silent_mode {
+                // Create a brief preview for console output
+                let preview_lines = lines[start_line..end_line].iter()
+                    .take(2)
+                    .cloned()
+                    .collect::<Vec<&str>>()
+                    .join("\n");
+                    
+                let preview = if !preview_lines.is_empty() {
+                    format!("\n{}{}{}", FORMAT_GRAY, preview_lines, FORMAT_RESET)
+                } else {
+                    "".to_string()
+                };
                 
-            let preview = if !preview_lines.is_empty() {
-                format!("\n{}{}{}", FORMAT_GRAY, preview_lines, FORMAT_RESET)
-            } else {
-                "".to_string()
-            };
-            
-            let user_output = format!(
-                "{}📄 Read: {} (lines {}-{} of {} total){}{}",
-                FORMAT_BOLD,
-                filepath, 
-                start_line+1, 
-                end_line, 
-                total_lines,
-                FORMAT_RESET,
-                preview
-            );
+                println!(
+                    "{}📄 Read: {} (lines {}-{} of {} total){}{}",
+                    FORMAT_BOLD,
+                    filepath, 
+                    start_line+1, 
+                    end_line, 
+                    total_lines,
+                    FORMAT_RESET,
+                    preview
+                );
+            }
             
             ToolResult {
                 success: true,
-                user_output,
                 agent_output,
             }
         },
         Err(e) => {
             let error_msg = format!("Error reading file '{}': {}", filepath, e);
+            
+            if !silent_mode {
+                println!("{}❌ Error:{} {}", 
+                    FORMAT_BOLD, FORMAT_RESET, error_msg);
+            }
+            
             ToolResult {
                 success: false,
-                user_output: error_msg.clone(),
                 agent_output: error_msg,
             }
         },
@@ -236,7 +259,7 @@ fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>
 }
 
 /// Helper function to list directory contents
-fn read_directory(dirpath: &str) -> ToolResult {
+fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
     match fs::read_dir(dirpath) {
         Ok(entries) => {
             let mut files = Vec::new();
@@ -274,40 +297,47 @@ fn read_directory(dirpath: &str) -> ToolResult {
                 content
             );
             
-            // Format output for user display
-            let mut list_output = Vec::new();
-            list_output.push(format!("Directory: {} ({} items)", dirpath, entry_count));
-            
-            // Add directories with trailing slash and bold formatting
-            for dir in &dirs {
-                let dir_name = dir.trim_end_matches('/');
-                list_output.push(format!("{}{}/{}", FORMAT_BOLD, dir_name, FORMAT_RESET));
+            // Direct output to console if not in silent mode
+            if !silent_mode {
+                // Format output for display
+                let mut list_output = Vec::new();
+                list_output.push(format!("Directory: {} ({} items)", dirpath, entry_count));
+                
+                // Add directories with trailing slash and bold formatting
+                for dir in &dirs {
+                    let dir_name = dir.trim_end_matches('/');
+                    list_output.push(format!("{}{}/{}", FORMAT_BOLD, dir_name, FORMAT_RESET));
+                }
+                
+                // Add files
+                for file in &files {
+                    list_output.push(file.clone());
+                }
+                
+                println!(
+                    "{}📁 {}{}\n{}",
+                    FORMAT_BOLD,
+                    list_output[0],
+                    FORMAT_RESET,
+                    list_output[1..].join("\n")
+                );
             }
-            
-            // Add files
-            for file in &files {
-                list_output.push(file.clone());
-            }
-            
-            let user_output = format!(
-                "{}📁 {}{}\n{}",
-                FORMAT_BOLD,
-                list_output[0],
-                FORMAT_RESET,
-                list_output[1..].join("\n")
-            );
             
             ToolResult {
                 success: true,
-                user_output,
                 agent_output,
             }
         },
         Err(e) => {
             let error_msg = format!("Error reading directory '{}': {}", dirpath, e);
+            
+            if !silent_mode {
+                println!("{}❌ Error:{} {}", 
+                    FORMAT_BOLD, FORMAT_RESET, error_msg);
+            }
+            
             ToolResult {
                 success: false,
-                user_output: error_msg.clone(),
                 agent_output: error_msg,
             }
         },

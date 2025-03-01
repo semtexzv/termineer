@@ -2,16 +2,21 @@ use std::fs;
 use crate::tools::ToolResult;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 
-pub fn execute_write(args: &str, body: &str) -> ToolResult {
+pub fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the filename from args
     let filename = args.trim();
     
     // Validate filename
     if filename.is_empty() {
         let error_msg = "Write tool requires a filename as an argument".to_string();
+        
+        if !silent_mode {
+            println!("{}❌ Error:{} {}", 
+                FORMAT_BOLD, FORMAT_RESET, error_msg);
+        }
+        
         return ToolResult {
             success: false,
-            user_output: error_msg.clone(),
             agent_output: error_msg,
         };
     }
@@ -22,28 +27,31 @@ pub fn execute_write(args: &str, body: &str) -> ToolResult {
     // Write the file
     match fs::write(filename, content) {
         Ok(_) => {
-            // Create a more concise user message with a preview of the written content
-            // Get a brief preview (first 2 lines of content)
-            let preview_lines = content.lines()
-                .take(2)
-                .collect::<Vec<&str>>()
-                .join("\n");
-                
+            // Get content details
             let line_count = content.lines().count();
             
-            let preview = if !preview_lines.is_empty() {
-                format!("\n{}{}{}", FORMAT_GRAY, preview_lines, FORMAT_RESET)
-            } else {
-                "".to_string()
-            };
-            
-            let user_output = format!("{}✍Write: {} ({} lines){}{}", 
-                FORMAT_BOLD, 
-                filename, 
-                line_count, 
-                FORMAT_RESET,
-                preview
-            );
+            // Direct output to console if not in silent mode
+            if !silent_mode {
+                // Get a brief preview (first 2 lines of content)
+                let preview_lines = content.lines()
+                    .take(2)
+                    .collect::<Vec<&str>>()
+                    .join("\n");
+                    
+                let preview = if !preview_lines.is_empty() {
+                    format!("\n{}{}{}", FORMAT_GRAY, preview_lines, FORMAT_RESET)
+                } else {
+                    "".to_string()
+                };
+                
+                println!("{}✍️ Write: {} ({} lines){}{}", 
+                    FORMAT_BOLD, 
+                    filename, 
+                    line_count, 
+                    FORMAT_RESET,
+                    preview
+                );
+            }
             
             // More detailed output for the agent including line count
             let agent_output = format!(
@@ -55,15 +63,19 @@ pub fn execute_write(args: &str, body: &str) -> ToolResult {
             
             ToolResult {
                 success: true,
-                user_output,
                 agent_output,
             }
         },
         Err(e) => {
             let error_msg = format!("Error writing to file '{}': {}", filename, e);
+            
+            if !silent_mode {
+                println!("{}❌ Error:{} {}", 
+                    FORMAT_BOLD, FORMAT_RESET, error_msg);
+            }
+            
             ToolResult {
                 success: false,
-                user_output: error_msg.clone(),
                 agent_output: error_msg,
             }
         },

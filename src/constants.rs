@@ -1,3 +1,7 @@
+// These color constants are kept for future UI enhancements
+// and to maintain a consistent color scheme across the application
+#![allow(dead_code)]
+
 // Tool delimiters
 pub const TOOL_START: &str = "<tool>";
 pub const TOOL_END: &str = "</tool>";
@@ -7,19 +11,15 @@ pub const TOOL_ERROR_START: &str = "<tool_error>";
 pub const TOOL_ERROR_END: &str = "</tool_error>";
 
 
+pub const FORMAT_RESET: &str = "\x1b[0m";
 pub const FORMAT_BOLD: &str = "\x1b[1m";
 pub const FORMAT_GRAY: &str = "\x1b[90m";
-pub const FORMAT_RESET: &str = "\x1b[0m";
-
-// Foreground colors
 pub const FORMAT_RED: &str = "\x1b[31m";
 pub const FORMAT_GREEN: &str = "\x1b[32m";
 pub const FORMAT_YELLOW: &str = "\x1b[33m";
 pub const FORMAT_BLUE: &str = "\x1b[34m";
 pub const FORMAT_MAGENTA: &str = "\x1b[35m";
 pub const FORMAT_CYAN: &str = "\x1b[36m";
-
-// Background colors
 pub const FORMAT_RED_BG: &str = "\x1b[41m";
 pub const FORMAT_GREEN_BG: &str = "\x1b[42m";
 
@@ -52,21 +52,21 @@ pub const HELP_TEMPLATE: &str = r#"
   /exit                  - Exit the program
 
 ## Effective Interaction
-  • Be specific about what you want Claude to accomplish
+  • Be specific about what you want the assistant to accomplish
   • Provide context about your project when relevant
-  • Claude will automatically continue working until task completion
+  • The assistant will automatically continue working until task completion
   • For complex tasks, break them down into smaller steps
   • After task completion, you can start a new task
 
-## Available Tools (For Claude's Use)
+## Available Tools (For the Assistant's Use)
   • Shell: Execute commands and get real-time output
   • Read: Examine file contents with optional line limits
   • Write: Create or overwrite files with new content
   • Patch: Make targeted changes to specific parts of files
   • Done: Signal task completion with a summary
 
-These tools are exclusively for Claude's use - you don't need to use them directly.
-Just describe what you want to accomplish in natural language, and Claude will 
+These tools are exclusively for the assistant's use - you don't need to use them directly.
+Just describe what you want to accomplish in natural language, and the assistant will 
 use the appropriate tools as needed.
 
 ## Example Requests
@@ -87,7 +87,14 @@ pub const USAGE_TEMPLATE: &str = r#"
   • If QUERY is not provided, starts an interactive console session
 
 ## Options
-  --model MODEL_NAME     Specify the Claude model to use
+  --model MODEL_NAME     Specify the AI model to use
+                         The provider is automatically inferred from model prefixes:
+                         - Anthropic: claude-3-opus, claude-3-sonnet, etc.
+                         - OpenAI: gpt-4, o1, etc. (coming soon)
+                         
+                         You can also explicitly specify the provider with:
+                         --model anthropic/claude-3-opus or --model openai/gpt-4
+                         
                          (default: claude-3-7-sonnet-20250219)
   --system PROMPT        Provide a custom system prompt
   --stop-sequences SEQ   Comma-separated list of stopping sequences
@@ -113,7 +120,7 @@ pub const USAGE_TEMPLATE: &str = r#"
   autoswe --no-tools "Explain how React's virtual DOM works"
 
 ## Capabilities
-Claude can help with:
+The assistant can help with:
   • Code analysis and development
   • Debugging and troubleshooting
   • Refactoring and optimization
@@ -121,15 +128,15 @@ Claude can help with:
   • Design patterns and architecture
 
 ## Tool Integration
-Claude seamlessly uses these tools to assist you:
+The assistant seamlessly uses these tools to assist you:
   • Shell: Execute commands to explore and modify your environment
   • Read: Examine file contents to understand your codebase
   • Write: Create new files or overwrite existing ones
   • Patch: Make targeted changes to specific parts of files
   • Done: Signal task completion with a comprehensive summary
 
-These tools are exclusively for Claude's use - simply describe what you
-want to accomplish, and Claude will leverage the appropriate tools to
+These tools are exclusively for the assistant's use - simply describe what you
+want to accomplish, and the assistant will leverage the appropriate tools to
 complete your request efficiently.
 "#;
 

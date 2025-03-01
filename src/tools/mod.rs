@@ -21,29 +21,18 @@ pub struct ToolResult {
     /// Whether the tool execution was successful
     pub success: bool,
 
-    /// Output to show to the user (possibly truncated)
-    pub user_output: String,
-
     /// Full output to send to the LLM
     pub agent_output: String,
 }
 
 impl ToolResult {
     /// Create a successful tool result
+    /// Kept as utility function for future use and extension
+    #[allow(dead_code)]
     pub fn success(output: String) -> Self {
         Self {
             success: true,
-            user_output: output.clone(),
             agent_output: output,
-        }
-    }
-
-    /// Create a success result with different user and agent outputs
-    pub fn success_with_agent_output(user_output: String, agent_output: String) -> Self {
-        Self {
-            success: true,
-            user_output,
-            agent_output,
         }
     }
 
@@ -51,7 +40,6 @@ impl ToolResult {
     pub fn error(message: String) -> Self {
         Self {
             success: false,
-            user_output: message.clone(),
             agent_output: message,
         }
     }
@@ -61,14 +49,22 @@ impl ToolResult {
 pub struct ToolExecutor {
     /// Whether tools are in read-only mode
     readonly_mode: bool,
+    /// Whether to suppress console output
+    silent_mode: bool,
 }
 
 impl ToolExecutor {
     /// Create a new tool executor
-    pub fn new(readonly_mode: bool) -> Self {
+    pub fn new(readonly_mode: bool, silent_mode: bool) -> Self {
         Self {
             readonly_mode,
+            silent_mode,
         }
+    }
+    
+    /// Check if executor is in silent mode
+    pub fn is_silent(&self) -> bool {
+        self.silent_mode
     }
 
     /// Execute a tool based on content provided by the LLM
@@ -79,25 +75,35 @@ impl ToolExecutor {
         // In readonly mode, only allow read-only tools (and task which will create readonly subagents)
         if self.readonly_mode && !self.is_readonly_tool(&tool_name) {
             let error_msg = format!("Tool '{}' is not available in read-only mode", tool_name);
+            if !self.silent_mode {
+                println!("{}❌ Error:{} {}", 
+                    crate::constants::FORMAT_BOLD, 
+                    crate::constants::FORMAT_RESET, 
+                    error_msg);
+            }
             return ToolResult::error(error_msg);
         }
 
-        // Execute the appropriate tool
-        let mut result = match tool_name.as_str() {
-            "shell" => execute_shell(args, &body),
-            "read" => execute_read(args, &body),
-            "write" => execute_write(args, &body),
-            "patch" => execute_patch(args, &body),
-            "fetch" => execute_fetch(args, &body),
-            "done" => execute_done(args, &body),
-            "task" => execute_task(args, &body),
+        // Execute the appropriate tool with silent mode flag
+        match tool_name.as_str() {
+            "shell" => execute_shell(args, &body, self.silent_mode),
+            "read" => execute_read(args, &body, self.silent_mode),
+            "write" => execute_write(args, &body, self.silent_mode),
+            "patch" => execute_patch(args, &body, self.silent_mode),
+            "fetch" => execute_fetch(args, &body, self.silent_mode),
+            "done" => execute_done(args, &body, self.silent_mode),
+            "task" => execute_task(args, &body, self.silent_mode),
             _ => {
                 let error_msg = format!("Unknown tool: {:?}", tool_name);
+                if !self.silent_mode {
+                    println!("{}❌ Error:{} {}", 
+                        crate::constants::FORMAT_BOLD, 
+                        crate::constants::FORMAT_RESET, 
+                        error_msg);
+                }
                 ToolResult::error(error_msg)
             }
-        };
-
-        result
+        }
     }
 
     /// Parse tool content into name, args, and body

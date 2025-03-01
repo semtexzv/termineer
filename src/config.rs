@@ -22,10 +22,7 @@ pub enum ArgResult {
 /// Application configuration structure
 #[derive(Clone)]
 pub struct Config {
-    /// API key for the LLM provider
-    pub api_key: String,
-    
-    /// Model name to use
+    /// Model name to use (will infer provider from this)
     pub model: String,
     
     /// Custom system prompt
@@ -46,10 +43,9 @@ pub struct Config {
 
 impl Config {
     /// Create a new configuration with default values
-    pub fn new(api_key: String) -> Self {
+    pub fn new() -> Self {
         // Default configuration
         Self {
-            api_key,
             model: "claude-3-7-sonnet-20250219".to_string(), // Default model
             system_prompt: None,
             enable_tools: true,
@@ -58,18 +54,44 @@ impl Config {
             resume_last_session: false,
         }
     }
+    
+    /// Create a new configuration with a specific model
+    pub fn with_model(model: String) -> Self {
+        let mut config = Self::new();
+        config.model = model;
+        config
+    }
 
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self, Box<dyn Error>> {
-        // Get API key from environment variable (required)
-        let api_key = match env::var("ANTHROPIC_API_KEY") {
-            Ok(key) => key,
-            Err(_) => {
-                return Err("ANTHROPIC_API_KEY environment variable not set".into());
+        // Create default configuration
+        let mut config = Self::new();
+        
+        // Check for provider-specific env vars for basic validation
+        // This will be handled in detail by each provider, but we do a basic check here
+        if env::var("ANTHROPIC_API_KEY").is_err() {
+            eprintln!("Warning: ANTHROPIC_API_KEY environment variable not set");
+            // We don't return an error here since the provider will handle this
+        }
+        
+        // Override model from environment if provided
+        if let Ok(model) = env::var("AUTOSWE_MODEL") {
+            config.model = model;
+        }
+        
+        // Override thinking budget from environment if provided
+        if let Ok(budget) = env::var("AUTOSWE_THINKING_BUDGET") {
+            if let Ok(budget) = budget.parse::<usize>() {
+                config.thinking_budget = budget;
             }
-        };
+        }
+        
+        // Override tools enabled from environment if provided
+        if let Ok(tools) = env::var("AUTOSWE_ENABLE_TOOLS") {
+            config.enable_tools = tools.to_lowercase() == "true" || tools == "1";
+        }
 
-        Ok(Self::new(api_key))
+        Ok(config)
     }
 
     /// Apply command line arguments to override configuration

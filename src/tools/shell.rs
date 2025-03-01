@@ -10,7 +10,7 @@ use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 
 // No scrolling display - just stream output directly
 
-pub fn execute_shell(args: &str, body: &str) -> ToolResult {
+pub fn execute_shell(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // If body is provided, use it as a script instead of the args
     let command_to_run = if !body.is_empty() {
         body
@@ -61,9 +61,11 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
                     if let Ok(line) = line {
-                        // Print stdout in gray for a unified look
-                        print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
-                        std::io::stdout().flush().unwrap_or(());
+                        // Don't print anything in silent mode
+                        if !silent_mode {
+                            print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
+                            std::io::stdout().flush().unwrap_or(());
+                        }
                         
                         // Store in buffer for later processing
                         let mut buffer = stdout_buf_clone.lock().unwrap();
@@ -83,9 +85,11 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
                     if let Ok(line) = line {
-                        // Print stderr in gray too (merged with stdout)
-                        print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
-                        std::io::stdout().flush().unwrap_or(());
+                        // Print stderr in gray too (merged with stdout), only if not in silent mode
+                        if !silent_mode {
+                            print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
+                            std::io::stdout().flush().unwrap_or(());
+                        }
                         
                         // Store in buffer for later processing
                         let mut buffer = stderr_buf_clone.lock().unwrap();
@@ -103,10 +107,12 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
             // Setup for handling interrupts
             let mut interrupted = false;
             
-            // Print status message with consistent formatting
-            // Print status message with consistent bold formatting
-            println!("{}🐚 Shell:{} {} (Press Ctrl+C to interrupt)", 
-                    FORMAT_BOLD, FORMAT_RESET, args);
+            // Print status message with consistent formatting only if not in silent mode
+            if !silent_mode {
+                // Print status message with consistent bold formatting
+                println!("{}🐚 Shell:{} {} (Press Ctrl+C to interrupt)", 
+                        FORMAT_BOLD, FORMAT_RESET, args);
+            }
 
             // We want to enable raw mode to capture Ctrl+C, but we need to ensure
             // we restore terminal state properly regardless of how we exit
@@ -137,8 +143,6 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
                 if raw_mode_enabled && crossterm::event::poll(Duration::from_millis(100)).unwrap_or(false) {
                     if let Ok(Event::Key(key)) = event::read() {
                         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                            // User pressed Ctrl+C to interrupt
-                            println!("\nCommand interrupted by user");
                             interrupted = true;
                             // Mark as not running and kill the process
                             *command_running.lock().unwrap() = false;
@@ -189,9 +193,15 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
                     stderr_line_count, stderr
                 );
                 
+                // Print output directly if not in silent mode
+                if !silent_mode {
+                    println!("{}🐚 Shell:{} {} (success)", 
+                        FORMAT_BOLD, FORMAT_RESET, args);
+                    // Note: Not printing output summary here as it was already streamed in real-time
+                }
+                
                 ToolResult {
                     success: true,
-                    user_output: String::new(),
                     agent_output,
                 }
             } else if interrupted {
@@ -205,16 +215,14 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
                     args, stdout_line_count, stdout, stderr_line_count, stderr
                 );
                 
-                // Simplified user-facing output with consistent formatting
-                let user_output = format!(
-                    "{}🐚 Shell:{} {} (interrupted by user)",
-                    FORMAT_BOLD, FORMAT_RESET,
-                    args
-                );
+                // Print output directly if not in silent mode
+                if !silent_mode {
+                    println!("{}🐚 Shell:{} {} (interrupted by user)",
+                        FORMAT_BOLD, FORMAT_RESET, args);
+                }
                 
                 ToolResult {
                     success: false,
-                    user_output,
                     agent_output,
                 }
             } else {
@@ -228,16 +236,15 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
                     args, stdout_line_count, stdout, stderr_line_count, stderr
                 );
                 
-                // User-facing output with consistent formatting
-                let user_output = format!(
-                    "{}🐚 Shell:{} {} (failed with error)",
-                    FORMAT_BOLD, FORMAT_RESET,
-                    args
-                );
+                // Print output directly if not in silent mode
+                if !silent_mode {
+                    println!("{}🐚 Shell:{} {} (failed with error)",
+                        FORMAT_BOLD, FORMAT_RESET, args);
+                    // Note: Not printing error details here as they were already streamed in real-time
+                }
                 
                 ToolResult {
                     success: false,
-                    user_output,
                     agent_output,
                 }
             }
@@ -246,17 +253,17 @@ pub fn execute_shell(args: &str, body: &str) -> ToolResult {
             // Failed to start the command
             let agent_output = format!("Failed to execute command '{}': {}", args, e);
             
-            // User-facing output with consistent formatting
-            let user_output = format!(
-                "{}🐚 Shell:{} {} (failed to start: {})",
-                FORMAT_BOLD, FORMAT_RESET,
-                args,
-                e
-            );
+            // Print output directly if not in silent mode
+            if !silent_mode {
+                println!("{}🐚 Shell:{} {} (failed to start: {})",
+                    FORMAT_BOLD, FORMAT_RESET,
+                    args,
+                    e
+                );
+            }
             
             ToolResult {
                 success: false,
-                user_output,
                 agent_output,
             }
         },
