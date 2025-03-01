@@ -198,6 +198,10 @@ impl Agent {
                                 
                                 // Log the interruption more concisely
                                 if !self.tool_executor.is_silent() {
+                                    // Ensure terminal is in normal mode before printing
+                                    // Terminal might be in raw mode from a recent keyboard check
+                                    let _ = terminal::disable_raw_mode();
+                                    
                                     println!("🛑 Interrupting: {}", interruption_reason);
                                     println!("🔄 Setting interrupt flag");
                                 }
@@ -212,8 +216,12 @@ impl Agent {
                                 interrupting = true;
                                 interruption_reason_str = Some(interruption_reason);
                                 
-                                // Debug verification
+                                // Debug verification 
                                 if !self.tool_executor.is_silent() {
+                                    // Ensure terminal is in normal mode (again)
+                                    // As a safety measure, always disable raw mode before any console output
+                                    let _ = terminal::disable_raw_mode();
+                                    
                                     let flag_value = *interrupt_flag_main.lock().unwrap();
                                     println!("✅ Interrupt flag is now: {}", flag_value);
                                 }
