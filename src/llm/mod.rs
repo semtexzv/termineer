@@ -1,13 +1,16 @@
 //! LLM provider abstraction layer
 //! 
 //! This module defines traits and types for interacting with
-//! different LLM providers (Anthropic, etc.)
+//! different LLM providers (Anthropic, Google, etc.)
 
 mod types;
 pub mod anthropic;
+pub mod gemini;
+pub mod factory;
 
 use std::collections::BTreeSet;
 pub use self::types::*;
+pub use self::factory::{create_backend, create_backend_for_task};
 
 /// Common trait for all LLM backends
 pub trait Backend {
@@ -22,9 +25,13 @@ pub trait Backend {
     ) -> Result<LlmResponse, LlmError>;
     
     /// Get the provider name
+    /// Included in the API for provider identification but not currently used
+    #[allow(dead_code)]
     fn name(&self) -> &str;
     
     /// Get the model name
+    /// Included in the API for model identification but not currently used
+    #[allow(dead_code)]
     fn model(&self) -> &str;
 }
 

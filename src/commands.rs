@@ -2,14 +2,14 @@
 //!
 //! This module provides a clean way to handle commands entered in the CLI.
 
-use crate::ClaudeClient;
+use crate::agent::Agent;
 use crate::constants;
 use crate::session;
 use std::error::Error;
 
 /// Handle a command from the user
 pub fn handle_command(
-    client: &mut ClaudeClient, 
+    client: &mut Agent, 
     input: &str
 ) -> Result<(), Box<dyn Error>> {
     let parts: Vec<&str> = input.split_whitespace().collect();
@@ -45,7 +45,7 @@ fn display_help() {
 }
 
 /// Handle the /system command
-fn handle_system_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), Box<dyn Error>> {
+fn handle_system_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
         println!("Usage: /system YOUR SYSTEM PROMPT TEXT");
         return Ok(());
@@ -59,7 +59,7 @@ fn handle_system_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(),
 }
 
 /// Handle the /model command
-fn handle_model_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), Box<dyn Error>> {
+fn handle_model_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
         println!("Usage: /model MODEL_NAME");
         println!("Examples: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307");
@@ -74,7 +74,7 @@ fn handle_model_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), 
 }
 
 /// Handle the /tools command
-fn handle_tools_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), Box<dyn Error>> {
+fn handle_tools_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
         println!("Usage: /tools on|off");
         return Ok(());
@@ -83,7 +83,7 @@ fn handle_tools_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), 
     match args[0].to_lowercase().as_str() {
         "on" | "enable" | "true" => {
             client.enable_tools(true);
-            println!("Tools enabled. Claude will use tools automatically based on your request.");
+            println!("Tools enabled. The assistant will use tools automatically based on your request.");
         },
         "off" | "disable" | "false" => {
             client.enable_tools(false);
@@ -96,7 +96,7 @@ fn handle_tools_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), 
 }
 
 /// Handle the /thinking command
-fn handle_thinking_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), Box<dyn Error>> {
+fn handle_thinking_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
         println!("Usage: /thinking NUMBER");
         return Ok(());
@@ -113,7 +113,7 @@ fn handle_thinking_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(
 }
 
 /// Handle the session command and its subcommands
-fn handle_session_command(client: &mut ClaudeClient, args: &[&str]) -> Result<(), Box<dyn Error>> {
+fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
         println!("Usage: /session <command> [args]");
         println!("Available commands:");

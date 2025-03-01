@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Serialize, Deserialize};
-use crate::Message;
-use crate::ClaudeClient;
+use crate::llm::Message;
+use crate::agent::Agent;
 
 // Session structure for saving/loading conversations
 #[derive(Serialize, Deserialize, Clone)]
@@ -28,7 +28,7 @@ pub struct SessionMetadata {
 }
 
 impl Session {
-    pub fn new(name: String, client: &ClaudeClient) -> Self {
+    pub fn new(name: String, client: &Agent) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -111,8 +111,8 @@ pub fn get_last_session_file() -> std::io::Result<std::path::PathBuf> {
     Ok(get_session_dir()?.join(".last"))
 }
 
-// Client functions for session management
-pub fn save_session(client: &ClaudeClient, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+// Agent functions for session management
+pub fn save_session(client: &Agent, name: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Get session directory for the current working directory
     let session_dir = get_session_dir()?;
     
@@ -132,7 +132,7 @@ pub fn save_session(client: &ClaudeClient, name: &str) -> Result<String, Box<dyn
     Ok(session.id)
 }
 
-pub fn load_session(client: &mut ClaudeClient, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn load_session(client: &mut Agent, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Get the session directory
     let session_dir = get_session_dir()?;
     
@@ -145,6 +145,10 @@ pub fn load_session(client: &mut ClaudeClient, session_id_or_name: &str) -> Resu
         client.config.system_prompt = session.system_prompt.clone();
         client.conversation = session.conversation.clone();
         client.reset_cache_points(); // Reset cache points when loading a session
+        
+        // Recreate the backend with the loaded model
+        client.llm = crate::llm::create_backend(&client.config)
+            .expect("Failed to create LLM backend");
         
         // Save as last session
         save_last_session(client, &session.id)?;
@@ -162,6 +166,10 @@ pub fn load_session(client: &mut ClaudeClient, session_id_or_name: &str) -> Resu
         client.config.system_prompt = session.system_prompt.clone();
         client.conversation = session.conversation.clone();
         client.reset_cache_points(); // Reset cache points when loading a session
+        
+        // Recreate the backend with the loaded model
+        client.llm = crate::llm::create_backend(&client.config)
+            .expect("Failed to create LLM backend");
         
         // Save as last session
         save_last_session(client, &session.id)?;
@@ -192,13 +200,17 @@ pub fn load_session(client: &mut ClaudeClient, session_id_or_name: &str) -> Resu
     client.conversation = session.conversation.clone();
     client.reset_cache_points(); // Reset cache points when loading a session
     
+    // Recreate the backend with the loaded model
+    client.llm = crate::llm::create_backend(&client.config)
+        .expect("Failed to create LLM backend");
+    
     // Save as last session
     save_last_session(client, &session.id)?;
     
     Ok(())
 }
 
-pub fn list_sessions(_client: &ClaudeClient) -> Result<Vec<Session>, Box<dyn std::error::Error>> {
+pub fn list_sessions(_client: &Agent) -> Result<Vec<Session>, Box<dyn std::error::Error>> {
     // Get the session directory
     let session_dir = get_session_dir()?;
     
@@ -224,7 +236,7 @@ pub fn list_sessions(_client: &ClaudeClient) -> Result<Vec<Session>, Box<dyn std
     Ok(sessions)
 }
 
-pub fn list_all_sessions(_client: &ClaudeClient) -> Result<Vec<(String, Vec<Session>)>, Box<dyn std::error::Error>> {
+pub fn list_all_sessions(_client: &Agent) -> Result<Vec<(String, Vec<Session>)>, Box<dyn std::error::Error>> {
     // Get the base session directory
     let base_dir = get_base_session_dir();
     
@@ -279,14 +291,14 @@ pub fn list_all_sessions(_client: &ClaudeClient) -> Result<Vec<(String, Vec<Sess
     Ok(all_sessions)
 }
 
-pub fn save_last_session(_client: &ClaudeClient, session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn save_last_session(_client: &Agent, session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let last_file = get_last_session_file()?;
     fs::write(last_file, session_id)?;
     Ok(())
 }
 
 // New function to delete a session
-pub fn delete_session(_client: &ClaudeClient, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn delete_session(_client: &Agent, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Get the session directory
     let session_dir = get_session_dir()?;
     
@@ -328,7 +340,7 @@ pub fn delete_session(_client: &ClaudeClient, session_id_or_name: &str) -> Resul
 }
 
 // For loading the last used session when starting
-pub fn load_last_session(client: &mut ClaudeClient) -> Result<(), Box<dyn std::error::Error>> {
+pub fn load_last_session(client: &mut Agent) -> Result<(), Box<dyn std::error::Error>> {
     let last_file = get_last_session_file()?;
     
     if !last_file.exists() {

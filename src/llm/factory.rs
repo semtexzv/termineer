@@ -1,0 +1,152 @@
+//! LLM backend factory
+//!
+//! This module provides factory functions for creating LLM backends
+//! based on model name inference.
+
+use std::env;
+use crate::config::Config;
+use crate::llm::{Backend, LlmError};
+use crate::llm::anthropic::Anthropic;
+use crate::llm::gemini::Gemini;
+
+/// Supported model provider types
+#[derive(Debug, PartialEq, Eq)]
+pub enum Provider {
+    /// Anthropic's Claude models
+    Anthropic,
+    /// OpenAI's models
+    OpenAI,
+    /// Google's Gemini models
+    Google,
+    /// Unknown provider
+    Unknown(String),
+}
+
+/// Model information after parsing
+struct ModelInfo {
+    /// The provider to use
+    provider: Provider,
+    /// The actual model name to pass to the API
+    model_name: String,
+}
+
+/// Create an LLM backend from configuration, inferring the provider from model name
+pub fn create_backend(config: &Config) -> Result<Box<dyn Backend>, LlmError> {
+    infer_backend_from_model(&config.model)
+}
+
+/// Parse a model string which may be in either format:
+/// - "claude-3-opus-20240229" (provider inferred from model name)
+/// - "anthropic/claude-3-opus-20240229" (explicit provider)
+/// - "google/gemini-1.5-flash" (explicit Google provider)
+fn parse_model_string(model_str: &str) -> ModelInfo {
+    // Check if we have a provider/model format
+    if let Some((provider, model)) = model_str.split_once('/') {
+        // Extract provider and model
+        let provider_type = match provider.trim().to_lowercase().as_str() {
+            "anthropic" => Provider::Anthropic,
+            "openai" => Provider::OpenAI,
+            "google" => Provider::Google,
+            other => Provider::Unknown(other.to_string()),
+        };
+        
+        return ModelInfo {
+            provider: provider_type,
+            model_name: model.trim().to_string(),
+        };
+    }
+    
+    // No explicit provider, infer it from the model name
+    let provider = if is_anthropic_model(model_str) {
+        Provider::Anthropic
+    } else if is_openai_model(model_str) {
+        Provider::OpenAI
+    } else if is_gemini_model(model_str) {
+        Provider::Google
+    } else {
+        Provider::Unknown(String::new())
+    };
+    
+    ModelInfo {
+        provider,
+        model_name: model_str.to_string(),
+    }
+}
+
+/// Infer and create the appropriate backend based on model name
+fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmError> {
+    let model_info = parse_model_string(model_str);
+    
+    match model_info.provider {
+        Provider::Anthropic => {
+            let api_key = resolve_anthropic_api_key()?;
+            Ok(Box::new(Anthropic::new(api_key, model_info.model_name)))
+        },
+        Provider::Google => {
+            let api_key = resolve_google_api_key()?;
+            Ok(Box::new(Gemini::new(api_key, model_info.model_name)))
+        },
+        Provider::OpenAI => {
+            // For future implementation
+            Err(LlmError::ConfigError(
+                "OpenAI provider is not yet implemented".into()
+            ))
+        },
+        Provider::Unknown(provider) => {
+            let provider_msg = if provider.is_empty() {
+                format!("Unknown model '{}'. Cannot determine provider.", model_str)
+            } else {
+                format!("Unknown provider '{}' specified in '{}'", provider, model_str)
+            };
+            
+            Err(LlmError::ConfigError(format!(
+                "{}. Please use a supported model format:\n\
+                 - Anthropic models: 'claude-3-opus', 'claude-3-sonnet', etc.\n\
+                 - Google models: 'gemini-1.5-flash', 'gemini-pro', etc.\n\
+                 - Explicit provider: 'anthropic/claude-3-opus', 'google/gemini-1.5-flash', etc.", 
+                provider_msg
+            )))
+        }
+    }
+}
+
+/// Determine if a model name belongs to the Anthropic Claude family
+/// Uses the model list from https://docs.anthropic.com/en/docs/about-claude/models/all-models
+fn is_anthropic_model(model: &str) -> bool {
+    model.starts_with("claude-")
+}
+
+/// Determine if a model name belongs to the OpenAI family
+fn is_openai_model(model: &str) -> bool {
+    model.starts_with("gpt-") || 
+    model.starts_with("text-") || 
+    model.starts_with("davinci") || 
+    model == "o1" || 
+    model.starts_with("o1-")
+}
+
+/// Determine if a model name belongs to the Google Gemini family
+fn is_gemini_model(model: &str) -> bool {
+    model.starts_with("gemini-") || 
+    model.starts_with("models/gemini-")
+}
+
+/// Resolve Anthropic API key from environment variables
+fn resolve_anthropic_api_key() -> Result<String, LlmError> {
+    env::var("ANTHROPIC_API_KEY").map_err(|_| 
+        LlmError::ConfigError("ANTHROPIC_API_KEY environment variable not set".into())
+    )
+}
+
+/// Resolve Google API key from environment variables
+fn resolve_google_api_key() -> Result<String, LlmError> {
+    env::var("GOOGLE_API_KEY").map_err(|_| 
+        LlmError::ConfigError("GOOGLE_API_KEY environment variable not set".into())
+    )
+}
+
+/// Create a backend for a specific task with custom model
+pub fn create_backend_for_task(model: Option<&str>) -> Result<Box<dyn Backend>, LlmError> {
+    let model_name = model.unwrap_or("claude-3-7-sonnet-20250219");
+    infer_backend_from_model(model_name)
+}
