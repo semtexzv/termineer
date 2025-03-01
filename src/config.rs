@@ -49,7 +49,7 @@ impl Config {
             model: "claude-3-7-sonnet-20250219".to_string(), // Default model
             system_prompt: None,
             enable_tools: true,
-            thinking_budget: 8192,
+            thinking_budget: 16384,
             use_minimal_prompt: false,
             resume_last_session: false,
         }

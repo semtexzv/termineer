@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use std::thread;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal;
+use crate::constants::{FORMAT_GRAY, FORMAT_RESET};
 
 use crate::config::Config;
 use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START};
@@ -18,7 +19,8 @@ use crate::conversation::{parse_assistant_response, print_assistant_response, pr
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::prompts::{generate_minimal_system_prompt, ToolDocOptions};
 use crate::tools::ToolExecutor;
-use crate::tools::shell_async::{execute_shell_async, ToolMessage};
+use crate::tools::shell::{execute_shell, ShellOutput};
+use crate::tools::InterruptData;
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -57,22 +59,17 @@ impl Agent {
         let parts: Vec<&str> = command_str.trim().splitn(2, char::is_whitespace).collect();
         let cmd_args = if parts.len() > 1 { parts[1].to_string() } else { String::new() };
         
-        // Flag to track if the command should be interrupted
-        let interrupt_flag = Arc::new(Mutex::new(false));
-        let interrupt_flag_thread = Arc::clone(&interrupt_flag);
-        let interrupt_flag_main = Arc::clone(&interrupt_flag);
+        // Create interrupt data for coordination
+        let interrupt_data = Arc::new(Mutex::new(InterruptData::new()));
+        let interrupt_data_main = Arc::clone(&interrupt_data);
         
-        // Setup channel for streaming output
-        let (tx, rx) = std::sync::mpsc::channel();
-        
-        // Start the shell command in a separate thread
+        // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
-        let cmd_thread = thread::spawn(move || {
-            execute_shell_async(cmd_args.clone(), tx, interrupt_flag_thread, silent_mode);
-        });
+        let rx = execute_shell(&cmd_args, "", interrupt_data.clone(), silent_mode);
         
         // Buffer to collect output for the conversation history
-        let mut full_output = String::new();
+        let mut partial_output = String::new();
+
         let mut result_message = String::new();
         let mut success = true;
         
@@ -81,9 +78,6 @@ impl Agent {
         // Store the reason for interruption if provided
         let mut interruption_reason_str: Option<String> = None;
         
-        // Buffer of lines to reduce the frequency of LLM interruption checks
-        let mut line_buffer = String::new();
-        
         // Track time between interruption checks (to prevent excessive API calls)
         let mut last_check_time = std::time::Instant::now();
         let min_check_interval = std::time::Duration::from_secs(10); // Check every 10 seconds - reduces API costs
@@ -91,69 +85,18 @@ impl Agent {
         // Track if we have a partial tool result in the conversation
         let mut has_partial_result = false;
         
-        if !self.tool_executor.is_silent() {
-            println!("🔄 Shell execution started with interrupt capability (Press Ctrl+C to interrupt)");
-        }
-
-        // Setup for handling keyboard interrupts from user
-        // We only enable raw mode during the short polling window for keyboard events
-        // This ensures normal terminal output behavior most of the time
-        let mut raw_mode_enabled;
-        
         // Loop to receive output and check for interruption
         loop {
-            // Briefly enable raw mode only during the keyboard check window
-            // This minimizes the time spent in raw mode to avoid output formatting issues
-            if !silent_mode {
-                // Try to enable raw mode just for keyboard check
-                raw_mode_enabled = terminal::enable_raw_mode().is_ok();
-                
-                // Check for keyboard input with a longer poll time to ensure we don't miss Ctrl+C keypresses
-                if raw_mode_enabled && event::poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
-                    if let Ok(Event::Key(key)) = event::read() {
-                        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                            // User pressed Ctrl+C
-                            
-                            // Set interrupt flag
-                            {
-                                let mut flag = interrupt_flag_main.lock().unwrap();
-                                *flag = true;
-                            }
-                            
-                            // Store the reason as user interruption
-                            interrupting = true;
-                            interruption_reason_str = Some("User interrupted command with Ctrl+C".to_string());
-
-                            // Restore terminal mode before printing
-                            let _ = terminal::disable_raw_mode();
-                            
-                            // Print message immediately
-                            if !silent_mode {
-                                println!("\n🛑 User interrupted command with Ctrl+C");
-                            }
-                        }
-                    }
-                }
-                
-                // Always restore normal terminal mode after keyboard check
-                if raw_mode_enabled {
-                    let _ = terminal::disable_raw_mode();
-                    // No need to set raw_mode_enabled to false as we'll reassign it on next iteration
-                }
-            }
-            
+            // Note: Keyboard interrupt handling (Ctrl+C) is now done in the shell implementation
             match rx.try_recv() {
-                Ok(ToolMessage::Line(line)) => {
+                Ok(ShellOutput::Stdout(line)) => {
                     // Add to full output record
-                    full_output.push_str(&line);
-                    full_output.push('\n');
+                    partial_output.push_str(&line);
+                    partial_output.push('\n');
+                    // Output is already displayed by the shell component
                     
-                    // Add to line buffer for batched interruption checks
-                    line_buffer.push_str(&line);
-                    line_buffer.push('\n');
-                    
-                    // Check for interruption every 2 seconds
-                    if !interrupting && !line_buffer.is_empty() && last_check_time.elapsed() > min_check_interval {
+                    // Check for interruption every N seconds
+                    if !interrupting && last_check_time.elapsed() > min_check_interval {
                         // Update last check time
                         last_check_time = std::time::Instant::now();
                         
@@ -161,13 +104,6 @@ impl Agent {
                         if has_partial_result {
                             self.conversation.pop();
                         }
-                        
-                        // Format the current partial result - WITHOUT ending tag to indicate it's in progress
-                        let stdout_line_count = full_output.lines().count();
-                        let partial_output = format!(
-                            "STDOUT (lines: {})\n{}\n\n[THIS IS A PARTIAL RESULT: Shell command is still running. The LLM is currently checking if it should interrupt the process.]",
-                            stdout_line_count, full_output
-                        );
                         
                         // Create partial tool result message WITHOUT the ending tag
                         let partial_tool_result = format!(
@@ -186,6 +122,7 @@ impl Agent {
                                 tool_name: "shell".to_string(),
                             }
                         ));
+
                         
                         has_partial_result = true;
                         
@@ -197,52 +134,36 @@ impl Agent {
                                     "No specific reason provided".to_string()
                                 );
                                 
-                                // Log the interruption more concisely
-                                if !self.tool_executor.is_silent() {
-                                    // Ensure terminal is in normal mode before printing
-                                    // Terminal might be in raw mode from a recent keyboard check
-                                    let _ = terminal::disable_raw_mode();
-                                    
-                                    println!("🛑 Interrupting: {}", interruption_reason);
-                                    println!("🔄 Setting interrupt flag");
-                                }
-                                
-                                // Set interrupt flag to signal shell command to stop
+                                // Set interrupt flag with reason
                                 {
-                                    let mut flag = interrupt_flag_main.lock().unwrap();
-                                    *flag = true;
+                                    let mut interrupt_data = interrupt_data_main.lock().unwrap();
+                                    interrupt_data.interrupt(interruption_reason.clone());
                                 }
                                 
                                 // Store the reason so we can use it in the final output
                                 interrupting = true;
                                 interruption_reason_str = Some(interruption_reason);
-                                
-                                // Debug verification 
-                                if !self.tool_executor.is_silent() {
-                                    // Ensure terminal is in normal mode (again)
-                                    // As a safety measure, always disable raw mode before any console output
-                                    let _ = terminal::disable_raw_mode();
-                                    
-                                    let flag_value = *interrupt_flag_main.lock().unwrap();
-                                    println!("✅ Interrupt flag is now: {}", flag_value);
-                                }
                             }
-                            
-                            // Reset buffer after check
-                            line_buffer.clear();
+
                         }
                     }
                     
                     // Continue receiving output
                     continue;
                 },
-                Ok(ToolMessage::Complete(tool_result)) => {
+                Ok(ShellOutput::Stderr(line)) => {
+                    // Add to full output record
+                    partial_output.push_str(&line);
+                    partial_output.push('\n');
+                    
+                    // Output is already displayed by the shell component
+                    
+                    continue;
+                },
+                Ok(ShellOutput::Complete(tool_result)) => {
                     // Command completed, store results
                     success = tool_result.success;
                     result_message = tool_result.agent_output;
-                    
-                    // Set the result message but don't add a note yet
-                    // We'll add completion status when finalizing the tool result
                     
                     break;
                 },
@@ -257,31 +178,28 @@ impl Agent {
             }
         }
         
-        // Wait for command thread to finish first - ensures all output is complete
-        let _ = cmd_thread.join();
-        
         // Since we're managing terminal mode during the event polling cycle,
-        // we don't need to restore it here. It's always in normal mode at this point.
+        // we don't need to restore terminal mode here. It's already in normal mode.
         
         // Properly finish the partial tool result if it exists
         if has_partial_result {
             // Remove the open partial result
             self.conversation.pop();
-            
-            // Add a completion message to the result
-            if interrupting {
-                let reason = interruption_reason_str
-                    .as_ref()
-                    .map_or(
-                        "Sufficient information gathered".to_string(),
-                        |r| r.clone()
-                    );
-                result_message = format!("{}\n\n[COMMAND INTERRUPTED: {}]", full_output, reason);
-                // When interrupted by LLM, this is NOT an error, it's a successful interruption
-                success = true;
-            } else {
-                result_message = format!("{}\n\n[COMMAND COMPLETED SUCCESSFULLY]", full_output);
-            }
+        }
+        
+        // Add a completion message to the result
+        if interrupting {
+            let reason = interruption_reason_str
+                .as_ref()
+                .map_or(
+                    "Sufficient information gathered".to_string(),
+                    |r| r.clone()
+                );
+            result_message = format!("{}\n\n[COMMAND INTERRUPTED: {}]", partial_output, reason);
+            // When interrupted by LLM, this is NOT an error, it's a successful interruption
+            success = true;
+        } else {
+            result_message = format!("{}\n\n[COMMAND COMPLETED SUCCESSFULLY]", partial_output); 
         }
         
         // Format the shell output with appropriate delimiters
@@ -400,10 +318,7 @@ impl Agent {
             (false, String::new())
         };
         
-        // Only log if interrupting - otherwise stay invisible to user
-        if should_interrupt && !self.tool_executor.is_silent() {
-            println!("🔍 Decision: INTERRUPT - {}", reason);
-        }
+        // No logging here - all logging is now handled by the shell component
         
         Ok(InterruptionCheck {
             interrupted: should_interrupt,
@@ -703,7 +618,7 @@ impl Agent {
         
         // Cache frequently.
         if let Some(usage) = &response.usage {
-            if usage.input_tokens > 300 {
+            if usage.input_tokens + usage.output_tokens > 300 {
                 self.cache_here();
             }
         }

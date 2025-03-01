@@ -1,5 +1,4 @@
 pub mod shell;
-pub mod shell_async;
 pub mod read;
 pub mod write;
 pub mod patch;
@@ -8,13 +7,13 @@ pub mod fetch;
 pub mod task;
 
 // Re-export all tool functions
-pub use shell::execute_shell;
 pub use read::execute_read;
 pub use write::execute_write;
 pub use patch::execute_patch;
 pub use done::execute_done;
 pub use fetch::execute_fetch;
 pub use task::execute_task;
+pub use shell::{execute_shell, ShellOutput, InterruptData};
 
 /// Result of executing a tool
 #[derive(Debug, Clone)]
@@ -85,9 +84,8 @@ impl ToolExecutor {
             return ToolResult::error(error_msg);
         }
 
-        // Execute the appropriate tool with silent mode flag
+        // Execute the appropriate tool with silent mode flag. Shell handled externally
         match tool_name.as_str() {
-            "shell" => execute_shell(args, &body, self.silent_mode),
             "read" => execute_read(args, &body, self.silent_mode),
             "write" => execute_write(args, &body, self.silent_mode),
             "patch" => execute_patch(args, &body, self.silent_mode),
