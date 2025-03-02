@@ -1,8 +1,8 @@
-use std::fs;
+use tokio::fs;
 use crate::tools::ToolResult;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 
-pub fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolResult {
+pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the filename from args
     let filename = args.trim();
     
@@ -24,8 +24,8 @@ pub fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Use the entire body as content
     let content = body;
 
-    // Write the file
-    match fs::write(filename, content) {
+    // Write the file using async I/O
+    match fs::write(filename, content).await {
         Ok(_) => {
             // Get content details
             let line_count = content.lines().count();

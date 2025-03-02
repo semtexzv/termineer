@@ -1,5 +1,5 @@
-use std::fs;
 use std::path::Path;
+use tokio::fs;
 use crate::tools::ToolResult;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 
@@ -10,7 +10,7 @@ struct ReadArgs {
     paths: Vec<String>,
 }
 
-pub fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
+pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
     // Note: For read tool, we mainly use args, not body
     // Parse arguments
     let parsed_args = parse_arguments(args);
@@ -45,16 +45,16 @@ pub fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
                 agent_output: error_msg,
             };
         }
-        return read_single_file(&parsed_args.paths[0], parsed_args.offset, parsed_args.limit, silent_mode);
+        return read_single_file(&parsed_args.paths[0], parsed_args.offset, parsed_args.limit, silent_mode).await;
     }
     
     // If there's only one path, use the single file/directory approach
     if parsed_args.paths.len() == 1 {
-        return read_single_file(&parsed_args.paths[0], None, None, silent_mode);
+        return read_single_file(&parsed_args.paths[0], None, None, silent_mode).await;
     }
     
     // Multiple files case
-    read_multiple_files(&parsed_args.paths, silent_mode)
+    read_multiple_files(&parsed_args.paths, silent_mode).await
 }
 
 /// Parse the command arguments into a structured format
@@ -118,12 +118,12 @@ fn find_param_end(s: &str) -> Option<usize> {
 }
 
 /// Read multiple files and combine their outputs
-fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolResult {
+async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolResult {
     let mut agent_outputs = Vec::new();
     let mut all_successful = true;
     
     for filepath in filepaths {
-        let result = read_file_content(filepath, None, None, silent_mode);
+        let result = read_file_content(filepath, None, None, silent_mode).await;
         if result.success {
             agent_outputs.push(result.agent_output);
         } else {
@@ -153,11 +153,11 @@ fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolResult {
 }
 
 /// Helper function to read a single file or directory path
-fn read_single_file(filepath: &str, offset: Option<usize>, limit: Option<usize>, silent_mode: bool) -> ToolResult {
+async fn read_single_file(filepath: &str, offset: Option<usize>, limit: Option<usize>, silent_mode: bool) -> ToolResult {
     let path = Path::new(filepath);
     
     // Check if path exists
-    if !path.exists() {
+    if !fs::try_exists(path).await.unwrap_or(false) {
         let error_msg = format!("Error: Path does not exist: '{}'", filepath);
         
         if !silent_mode {
@@ -172,17 +172,17 @@ fn read_single_file(filepath: &str, offset: Option<usize>, limit: Option<usize>,
     }
     
     // Check if path is a directory
-    if path.is_dir() {
-        return read_directory(filepath, silent_mode);
+    if fs::metadata(path).await.map(|m| m.is_dir()).unwrap_or(false) {
+        return read_directory(filepath, silent_mode).await;
     }
     
     // Handle regular file
-    read_file_content(filepath, offset, limit, silent_mode)
+    read_file_content(filepath, offset, limit, silent_mode).await
 }
 
 /// Helper function to read file content with optional offset and limit
-fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>, silent_mode: bool) -> ToolResult {
-    match fs::read_to_string(filepath) {
+async fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>, silent_mode: bool) -> ToolResult {
+    match fs::read_to_string(filepath).await {
         Ok(content) => {
             // Split content into lines
             let lines: Vec<&str> = content.lines().collect();
@@ -259,22 +259,20 @@ fn read_file_content(filepath: &str, offset: Option<usize>, limit: Option<usize>
 }
 
 /// Helper function to list directory contents
-fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
-    match fs::read_dir(dirpath) {
-        Ok(entries) => {
+async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
+    match fs::read_dir(dirpath).await {
+        Ok(mut entries) => {
             let mut files = Vec::new();
             let mut dirs = Vec::new();
             
             // Collect directory entries
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    if let Ok(file_type) = entry.file_type() {
-                        if let Ok(filename) = entry.file_name().into_string() {
-                            if file_type.is_dir() {
-                                dirs.push(format!("{}/", filename));
-                            } else {
-                                files.push(filename);
-                            }
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(file_type) = entry.file_type().await {
+                    if let Ok(filename) = entry.file_name().into_string() {
+                        if file_type.is_dir() {
+                            dirs.push(format!("{}/", filename));
+                        } else {
+                            files.push(filename);
                         }
                     }
                 }

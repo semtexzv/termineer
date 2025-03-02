@@ -3,7 +3,7 @@ use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::agent::{Agent, process_user_query};
 use crate::llm::{Content, MessageInfo};
 
-pub fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
+pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the args string to check for model parameter
     let mut task_name = args.trim().to_string();
     let mut model_name = None;
@@ -72,9 +72,10 @@ pub fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
         // Display the start message immediately so user knows a subtask is starting
         println!("\n{}{}{}\n", start_message, model_info, instructions_preview);
     }
-    
+    // Pin here because recursion
+    let pinned_task = Box::pin(execute_subagent_task(&task_name, task_instructions, model_name, silent_mode));
     // Try to create a subagent and execute the task
-    match execute_subagent_task(&task_name, task_instructions, model_name, silent_mode) {
+    match pinned_task.await {
         Ok(result) => {
             // Only print completion if not in silent mode
             if !silent_mode {
@@ -120,7 +121,7 @@ pub fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
 }
 
 // Create a subagent and execute the given task
-fn execute_subagent_task(task_name: &str, instructions: &str, model: Option<String>, silent_mode: bool) -> Result<String, String> {
+async fn execute_subagent_task(task_name: &str, instructions: &str, model: Option<String>, silent_mode: bool) -> Result<String, String> {
     // Create a new subagent configured for this task
     // This will use the default provider (Anthropic)
     let mut subagent = match Agent::create_subagent_for_task(task_name, model) {
@@ -130,7 +131,7 @@ fn execute_subagent_task(task_name: &str, instructions: &str, model: Option<Stri
     
     // Send the task instructions to the subagent and process until completion
     // Use silent_mode parameter to control subagent output
-    let task_result = match process_user_query(&mut subagent, instructions, silent_mode) {
+    let task_result = match process_user_query(&mut subagent, instructions, silent_mode).await {
         Ok((_, _result)) => {
             // First try to find a message with the done tool
             if let Some(last_message) = subagent.conversation.iter().rev().find(|m| {

@@ -51,8 +51,8 @@ pub struct Agent {
 
 impl Agent {
     /// Execute a shell command with streaming output and interruption capability
-    fn execute_streaming_shell(&mut self, command: &str) -> Result<MessageResult, Box<dyn std::error::Error>> {
-        use std::sync::mpsc::TryRecvError;
+    async fn execute_streaming_shell(&mut self, command: &str) -> Result<MessageResult, Box<dyn std::error::Error>> {
+        use tokio::sync::mpsc::error::TryRecvError;
         
         // Extract the command from the tool content and make it owned data (String)
         let command_str = command.to_string();
@@ -65,7 +65,7 @@ impl Agent {
         
         // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
-        let rx = execute_shell(&cmd_args, "", interrupt_data.clone(), silent_mode);
+        let mut rx = execute_shell(&cmd_args, "", interrupt_data.clone(), silent_mode).await?;
         
         // Buffer to collect output for the conversation history
         let mut partial_output = String::new();
@@ -127,7 +127,7 @@ impl Agent {
                         has_partial_result = true;
                         
                         // Send interruption check using the partial tool result already in conversation
-                        if let Ok(interruption_check) = self.check_for_interruption() {
+                        if let Ok(interruption_check) = self.check_for_interruption().await {
                             if interruption_check.interrupted {
                                 // Store the interruption reason if provided
                                 let interruption_reason = interruption_check.reason.unwrap_or_else(|| 
@@ -169,7 +169,7 @@ impl Agent {
                 },
                 Err(TryRecvError::Empty) => {
                     // Shorter sleep to ensure more frequent keyboard event checks
-                    thread::sleep(std::time::Duration::from_millis(10));
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                 },
                 Err(TryRecvError::Disconnected) => {
                     // Channel disconnected, command must be done
@@ -241,7 +241,7 @@ impl Agent {
     
     /// Sends a message to the LLM to check if it wants to interrupt the shell command
     /// based on the partial tool result already in the conversation
-    fn check_for_interruption(&mut self) -> Result<InterruptionCheck, Box<dyn std::error::Error>> {
+    async fn check_for_interruption(&mut self) -> Result<InterruptionCheck, Box<dyn std::error::Error>> {
         // Save current cache points
         let current_cache_points = self.cache_points.clone();
         
@@ -286,7 +286,7 @@ impl Agent {
             None,
             Some(&current_cache_points),
             Some(max_tokens_for_check),
-        ).unwrap();
+        ).await?;
         
         // Remove the temporary message
         self.conversation.pop();
@@ -461,14 +461,14 @@ impl Agent {
     }
 
     /// Send a message to the LLM backend and process the response
-    pub fn send_message(
+    pub async fn send_message(
         &mut self,
         user_message: &str,
     ) -> Result<MessageResult, Box<dyn std::error::Error>> {
         // Add .autoswe file content to beginning of conversation if it hasn't been added yet
-        if self.conversation.is_empty() && fs::exists(".autoswe")? {
+        if self.conversation.is_empty() && tokio::fs::try_exists(".autoswe").await? {
             let working = std::env::current_dir()?;
-            let autoswe = fs::read_to_string(".autoswe")?;
+            let autoswe = tokio::fs::read_to_string(".autoswe").await?;
             let content = format!(
                 "# You're currently working in this directory:\n```\n{}\n```\n# Project information:\n{}",
                 working.to_str().unwrap_or("unknown"),
@@ -500,7 +500,7 @@ impl Agent {
             thinking_budget,
             Some(&self.cache_points),
             None, // Use default max_tokens
-        )?;
+        ).await?;
 
         
         // Extract content from response
@@ -575,12 +575,12 @@ impl Agent {
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
             // Execute shell command with streaming output and interruption capability
-            let shell_result = self.execute_streaming_shell(&tool_content)?;
+            let shell_result = self.execute_streaming_shell(&tool_content).await?;
             return Ok(shell_result);
         }
         
         // For other tools, execute normally using our tool executor
-        let tool_result = self.tool_executor.execute(&tool_content);
+        let tool_result = self.tool_executor.execute(&tool_content).await;
         
         // Check if this is the "done" tool
         let is_done_tool = is_done_tool(&tool_name);
@@ -645,7 +645,7 @@ impl Agent {
 ///
 /// When silent_mode is true, no console output is produced (for subagents)
 /// Returns a tuple of (task_completed, last_response)
-pub fn process_user_query(
+pub async fn process_user_query(
     client: &mut Agent,
     user_input: &str,
     silent_mode: bool,
@@ -658,10 +658,10 @@ pub fn process_user_query(
         let message_result = if !message_sent {
             // First message is the user's input
             message_sent = true;
-            client.send_message(user_input)
+            client.send_message(user_input).await
         } else {
             // Subsequent messages are empty - The assistant will continue with tool output
-            client.send_message("")
+            client.send_message("").await
         };
 
         match message_result {

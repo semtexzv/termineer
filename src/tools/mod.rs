@@ -68,7 +68,7 @@ impl ToolExecutor {
     }
 
     /// Execute a tool based on content provided by the LLM
-    pub fn execute(&self, tool_content: &str) -> ToolResult {
+    pub async fn execute(&self, tool_content: &str) -> ToolResult {
         // Parse the tool content into args (first line) and body (subsequent lines)
         let (tool_name, args, body) = self.parse_tool_content(tool_content);
 
@@ -86,12 +86,12 @@ impl ToolExecutor {
 
         // Execute the appropriate tool with silent mode flag. Shell handled externally
         match tool_name.as_str() {
-            "read" => execute_read(args, &body, self.silent_mode),
-            "write" => execute_write(args, &body, self.silent_mode),
-            "patch" => execute_patch(args, &body, self.silent_mode),
-            "fetch" => execute_fetch(args, &body, self.silent_mode),
+            "read" => execute_read(args, &body, self.silent_mode).await,
+            "write" => execute_write(args, &body, self.silent_mode).await,
+            "patch" => execute_patch(args, &body, self.silent_mode).await,
+            "fetch" => execute_fetch(args, &body, self.silent_mode).await,
             "done" => execute_done(args, &body, self.silent_mode),
-            "task" => execute_task(args, &body, self.silent_mode),
+            "task" => execute_task(args, &body, self.silent_mode).await,
             _ => {
                 let error_msg = format!("Unknown tool: {:?}", tool_name);
                 if !self.silent_mode {

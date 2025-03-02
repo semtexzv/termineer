@@ -3,8 +3,10 @@
 //! Implementation of the LLM provider for Anthropic's Claude models.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio::time::sleep;
 use crate::jsonpath;
 use crate::llm::{Backend, LlmResponse, LlmError, Message, Content, TokenUsage};
 
@@ -59,16 +61,23 @@ pub struct Anthropic {
     
     /// Model name to use
     model: String,
+    
+    /// HTTP client
+    client: reqwest::Client,
 }
 
 impl Anthropic {
     /// Create a new Anthropic provider with the specified API key and model
     pub fn new(api_key: String, model: String) -> Self {
-        Self { api_key, model }
+        Self { 
+            api_key, 
+            model,
+            client: reqwest::Client::new(),
+        }
     }
     
     /// Send a request to the Anthropic API with retry logic
-    fn send_api_request<T: serde::de::DeserializeOwned>(
+    async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
@@ -78,28 +87,33 @@ impl Anthropic {
         let base_retry_delay_ms = 1000; // 1 second initial retry delay
 
         loop {
-            match ureq::post(API_URL)
-                .set("Content-Type", "application/json")
-                .set("X-Api-Key", &self.api_key)
-                .set("anthropic-version", ANTHROPIC_VERSION)
-                .set("anthropic-beta", "output-128k-2025-02-19")
-                .send_json(request_json.clone())
-            {
-                Ok(res) => return Ok(res.into_json().map_err(|e| LlmError::ApiError(e.to_string()))?),
-                Err(err) => match err {
-                    ureq::Error::Status(429, response) => {
+            let response = self.client.post(API_URL)
+                .header("Content-Type", "application/json")
+                .header("X-Api-Key", &self.api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-beta", "output-128k-2025-02-19")
+                .json(&request_json)
+                .send()
+                .await;
+
+            match response {
+                Ok(res) => {
+                    if res.status().is_success() {
+                        return res.json::<T>().await
+                            .map_err(|e| LlmError::ApiError(format!("Failed to parse response: {}", e)));
+                    } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                         // Handle rate limiting (429 Too Many Requests)
                         attempts += 1;
                         if attempts >= max_attempts {
                             return Err(LlmError::ApiError(format!(
                                 "Max retry attempts reached for rate limiting: {}",
-                                response.status_text()
+                                res.status()
                             )));
                         }
 
                         // Try to get retry-after header, default to exponential backoff if not present
-                        let retry_after = match response
-                            .header("retry-after")
+                        let retry_after = match res.headers().get("retry-after")
+                            .and_then(|v| v.to_str().ok())
                             .and_then(|v| v.parse::<u64>().ok())
                         {
                             Some(value) => value * 1000,
@@ -111,31 +125,32 @@ impl Anthropic {
                             }
                         };
 
-                        // Return a rate limit error with retry information
-                        return Err(LlmError::RateLimitError { 
-                            retry_after: Some(retry_after / 1000) 
-                        });
-                    }
-                    ureq::Error::Status(status_code, response) => {
-                        let error_message = response.into_string()
+                        // Sleep for the retry duration
+                        sleep(Duration::from_millis(retry_after)).await;
+                        continue;
+                    } else {
+                        let status = res.status();
+                        let error_text = res.text().await
                             .unwrap_or_else(|_| "Unknown error".to_string());
-                        
+                            
                         return Err(LlmError::ApiError(format!(
                             "HTTP error {}: {}",
-                            status_code,
-                            error_message
+                            status,
+                            error_text
                         )));
                     }
-                    // Pass through other errors
-                    err => return Err(LlmError::ApiError(format!("HTTP request error: {}", err))),
                 },
+                Err(err) => {
+                    return Err(LlmError::ApiError(format!("HTTP request error: {}", err)));
+                }
             }
         }
     }
 }
 
+#[async_trait::async_trait]
 impl Backend for Anthropic {
-    fn send_message(
+    async fn send_message(
         &self, 
         messages: &[Message], 
         system: Option<&str>,
@@ -176,7 +191,7 @@ impl Backend for Anthropic {
         }
         
         // Send the request
-        let response: MessageResponse = self.send_api_request(json)?;
+        let response: MessageResponse = self.send_api_request(json).await?;
         
         // Convert to LlmResponse with stop information
         Ok(LlmResponse {

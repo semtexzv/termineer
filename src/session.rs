@@ -1,7 +1,7 @@
-use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Serialize, Deserialize};
+use tokio::fs;
 use crate::llm::Message;
 use crate::agent::Agent;
 
@@ -54,23 +54,23 @@ impl Session {
         }
     }
     
-    pub fn to_file(&self, filepath: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn to_file(&self, filepath: &Path) -> Result<(), Box<dyn std::error::Error>> {
         // Create directories if they don't exist
         if let Some(parent) = filepath.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).await?;
         }
         
         // Serialize the session
         let serialized = serde_json::to_string_pretty(self)?;
         
         // Write to file
-        fs::write(filepath, serialized)?;
+        fs::write(filepath, serialized).await?;
         
         Ok(())
     }
     
-    pub fn from_file(filepath: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = fs::read_to_string(filepath)?;
+    pub async fn from_file(filepath: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let content = fs::read_to_string(filepath).await?;
         let session: Session = serde_json::from_str(&content)?;
         Ok(session)
     }
@@ -88,7 +88,7 @@ pub fn get_base_session_dir() -> std::path::PathBuf {
     }
 }
 
-pub fn get_session_dir() -> std::io::Result<std::path::PathBuf> {
+pub async fn get_session_dir() -> std::io::Result<std::path::PathBuf> {
     // Get the current working directory
     let current_dir = std::env::current_dir()?;
     
@@ -102,19 +102,19 @@ pub fn get_session_dir() -> std::io::Result<std::path::PathBuf> {
     let path = get_base_session_dir().join(dir_string);
     
     // Ensure directory exists
-    fs::create_dir_all(&path)?;
+    fs::create_dir_all(&path).await?;
     
     Ok(path)
 }
 
-pub fn get_last_session_file() -> std::io::Result<std::path::PathBuf> {
-    Ok(get_session_dir()?.join(".last"))
+pub async fn get_last_session_file() -> std::io::Result<std::path::PathBuf> {
+    Ok(get_session_dir().await?.join(".last"))
 }
 
 // Agent functions for session management
-pub fn save_session(client: &Agent, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn save_session(client: &Agent, name: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Get session directory for the current working directory
-    let session_dir = get_session_dir()?;
+    let session_dir = get_session_dir().await?;
     
     // Create a session object
     let session = Session::new(name.to_string(), client);
@@ -124,21 +124,21 @@ pub fn save_session(client: &Agent, name: &str) -> Result<String, Box<dyn std::e
     let filepath = session_dir.join(filename);
     
     // Save session to file
-    session.to_file(&filepath)?;
+    session.to_file(&filepath).await?;
     
     // Save as last session
-    save_last_session(client, &session.id)?;
+    save_last_session(client, &session.id).await?;
     
     Ok(session.id)
 }
 
-pub fn load_session(client: &mut Agent, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn load_session(client: &mut Agent, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Get the session directory
-    let session_dir = get_session_dir()?;
+    let session_dir = get_session_dir().await?;
     
     // Check if it's a full path 
-    if session_id_or_name.ends_with(".json") && Path::new(session_id_or_name).exists() {
-        let session = Session::from_file(Path::new(session_id_or_name))?;
+    if session_id_or_name.ends_with(".json") && fs::try_exists(session_id_or_name).await? {
+        let session = Session::from_file(Path::new(session_id_or_name)).await?;
         
         // Update client state
         client.config.model = session.model.clone();
@@ -151,15 +151,15 @@ pub fn load_session(client: &mut Agent, session_id_or_name: &str) -> Result<(), 
             .expect("Failed to create LLM backend");
         
         // Save as last session
-        save_last_session(client, &session.id)?;
+        save_last_session(client, &session.id).await?;
         
         return Ok(());
     }
     
     // Check if it's just a session ID
     let session_path = session_dir.join(format!("{}.json", session_id_or_name));
-    if session_path.exists() {
-        let session = Session::from_file(&session_path)?;
+    if fs::try_exists(&session_path).await? {
+        let session = Session::from_file(&session_path).await?;
         
         // Update client state
         client.config.model = session.model.clone();
@@ -172,13 +172,13 @@ pub fn load_session(client: &mut Agent, session_id_or_name: &str) -> Result<(), 
             .expect("Failed to create LLM backend");
         
         // Save as last session
-        save_last_session(client, &session.id)?;
+        save_last_session(client, &session.id).await?;
         
         return Ok(());
     }
     
     // Not found by ID, try to find by name
-    let sessions = list_sessions(client)?;
+    let sessions = list_sessions(client).await?;
     
     // Find sessions with matching names (case-insensitive)
     let matching_sessions: Vec<&Session> = sessions.iter()
@@ -205,26 +205,26 @@ pub fn load_session(client: &mut Agent, session_id_or_name: &str) -> Result<(), 
         .expect("Failed to create LLM backend");
     
     // Save as last session
-    save_last_session(client, &session.id)?;
+    save_last_session(client, &session.id).await?;
     
     Ok(())
 }
 
-pub fn list_sessions(_client: &Agent) -> Result<Vec<Session>, Box<dyn std::error::Error>> {
+pub async fn list_sessions(_client: &Agent) -> Result<Vec<Session>, Box<dyn std::error::Error>> {
     // Get the session directory
-    let session_dir = get_session_dir()?;
+    let session_dir = get_session_dir().await?;
     
     let mut sessions = Vec::new();
     
     // Iterate through all files in the session directory
-    for entry in fs::read_dir(session_dir)? {
-        let entry = entry?;
+    let mut entries = fs::read_dir(session_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         
         // Only process JSON files, skip the .last file
         if path.is_file() && 
            path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-            if let Ok(session) = Session::from_file(&path) {
+            if let Ok(session) = Session::from_file(&path).await {
                 sessions.push(session);
             }
         }
@@ -236,24 +236,24 @@ pub fn list_sessions(_client: &Agent) -> Result<Vec<Session>, Box<dyn std::error
     Ok(sessions)
 }
 
-pub fn list_all_sessions(_client: &Agent) -> Result<Vec<(String, Vec<Session>)>, Box<dyn std::error::Error>> {
+pub async fn list_all_sessions(_client: &Agent) -> Result<Vec<(String, Vec<Session>)>, Box<dyn std::error::Error>> {
     // Get the base session directory
     let base_dir = get_base_session_dir();
     
     // Create if it doesn't exist
-    if !base_dir.exists() {
-        fs::create_dir_all(&base_dir)?;
+    if !fs::try_exists(&base_dir).await? {
+        fs::create_dir_all(&base_dir).await?;
         return Ok(Vec::new()); // No sessions yet
     }
     
     let mut all_sessions = Vec::new();
     
     // Iterate through all subdirectories (each representing a working directory)
-    for entry in fs::read_dir(&base_dir)? {
-        let entry = entry?;
+    let mut base_entries = fs::read_dir(&base_dir).await?;
+    while let Some(entry) = base_entries.next_entry().await? {
         let path = entry.path();
         
-        if path.is_dir() {
+        if fs::metadata(&path).await?.is_dir() {
             let dir_name = path.file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("unknown")
@@ -262,14 +262,14 @@ pub fn list_all_sessions(_client: &Agent) -> Result<Vec<(String, Vec<Session>)>,
             let mut sessions = Vec::new();
             
             // Read all session files in this directory
-            for file_entry in fs::read_dir(&path)? {
-                let file_entry = file_entry?;
+            let mut file_entries = fs::read_dir(&path).await?;
+            while let Some(file_entry) = file_entries.next_entry().await? {
                 let file_path = file_entry.path();
                 
                 // Only process JSON files, skip the .last file
-                if file_path.is_file() && 
+                if fs::metadata(&file_path).await?.is_file() && 
                    file_path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-                    if let Ok(session) = Session::from_file(&file_path) {
+                    if let Ok(session) = Session::from_file(&file_path).await {
                         sessions.push(session);
                     }
                 }
@@ -291,32 +291,32 @@ pub fn list_all_sessions(_client: &Agent) -> Result<Vec<(String, Vec<Session>)>,
     Ok(all_sessions)
 }
 
-pub fn save_last_session(_client: &Agent, session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let last_file = get_last_session_file()?;
-    fs::write(last_file, session_id)?;
+pub async fn save_last_session(_client: &Agent, session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let last_file = get_last_session_file().await?;
+    fs::write(last_file, session_id).await?;
     Ok(())
 }
 
 // New function to delete a session
-pub fn delete_session(_client: &Agent, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn delete_session(_client: &Agent, session_id_or_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Get the session directory
-    let session_dir = get_session_dir()?;
+    let session_dir = get_session_dir().await?;
     
     // Check if it's a full path 
-    if session_id_or_name.ends_with(".json") && Path::new(session_id_or_name).exists() {
-        fs::remove_file(session_id_or_name)?;
+    if session_id_or_name.ends_with(".json") && fs::try_exists(session_id_or_name).await? {
+        fs::remove_file(session_id_or_name).await?;
         return Ok(());
     }
     
     // Check if it's just a session ID
     let session_path = session_dir.join(format!("{}.json", session_id_or_name));
-    if session_path.exists() {
-        fs::remove_file(&session_path)?;
+    if fs::try_exists(&session_path).await? {
+        fs::remove_file(&session_path).await?;
         return Ok(());
     }
     
     // Not found by ID, try to find by name
-    let sessions = list_sessions(_client)?;
+    let sessions = list_sessions(_client).await?;
     
     // Find sessions with matching names (case-insensitive)
     let matching_sessions: Vec<&Session> = sessions.iter()
@@ -334,19 +334,19 @@ pub fn delete_session(_client: &Agent, session_id_or_name: &str) -> Result<(), B
     
     // Delete the file
     let session_path = session_dir.join(format!("{}.json", session.id));
-    fs::remove_file(&session_path)?;
+    fs::remove_file(&session_path).await?;
     
     Ok(())
 }
 
 // For loading the last used session when starting
-pub fn load_last_session(client: &mut Agent) -> Result<(), Box<dyn std::error::Error>> {
-    let last_file = get_last_session_file()?;
+pub async fn load_last_session(client: &mut Agent) -> Result<(), Box<dyn std::error::Error>> {
+    let last_file = get_last_session_file().await?;
     
-    if !last_file.exists() {
+    if !fs::try_exists(&last_file).await? {
         return Err("No previous session found".into());
     }
     
-    let session_id = fs::read_to_string(last_file)?.trim().to_string();
-    load_session(client, &session_id)
+    let session_id = fs::read_to_string(last_file).await?.trim().to_string();
+    load_session(client, &session_id).await
 }

@@ -9,7 +9,7 @@ use std::error::Error;
 use std::io::{self, Write};
 
 /// Handle a command from the user
-pub fn handle_command(
+pub async fn handle_command(
     client: &mut Agent, 
     input: &str
 ) -> Result<(), Box<dyn Error>> {
@@ -33,7 +33,7 @@ pub fn handle_command(
         "model" => handle_model_command(client, args)?,
         "tools" => handle_tools_command(client, args)?,
         "thinking" => handle_thinking_command(client, args)?,
-        "session" => handle_session_command(client, args)?,
+        "session" => handle_session_command(client, args).await?,
         _ => {
             print!("Unknown command. Type /help for available commands.\r\n");
             io::stdout().flush()?;
@@ -131,7 +131,7 @@ fn handle_thinking_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<
 }
 
 /// Handle the session command and its subcommands
-fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
+async fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
         print!("Usage: /session <command> [args]\r\n");
         print!("Available commands:\r\n");
@@ -149,7 +149,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
     
     match subcommand.as_str() {
         "list" => {
-            match session::list_sessions(client) {
+            match session::list_sessions(client).await {
                 Ok(sessions) => {
                     if sessions.is_empty() {
                         print!("No saved sessions found.\r\n");
@@ -181,7 +181,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
         }
         
         "all" => {
-            match session::list_all_sessions(client) {
+            match session::list_all_sessions(client).await {
                 Ok(all_sessions) => {
                     if all_sessions.is_empty() {
                         print!("No saved sessions found in any directory.\r\n");
@@ -217,7 +217,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
         "save" => {
             if args.len() > 1 {
                 let name = args[1].to_string();
-                match session::save_session(client, &name) {
+                match session::save_session(client, &name).await {
                     Ok(session_id) => {
                         print!("Session '{}' saved with ID: {}\r\n", name, session_id);
                         print!("You can load it later with: /session load {}\r\n", session_id);
@@ -233,7 +233,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
         "load" => {
             if args.len() > 1 {
                 let session_id_or_name = args[1].to_string();
-                match session::load_session(client, &session_id_or_name) {
+                match session::load_session(client, &session_id_or_name).await {
                     Ok(_) => print!("Session loaded successfully\r\n"),
                     Err(e) => print!("Error loading session: {}\r\n", e),
                 }
@@ -248,7 +248,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
         "delete" => {
             if args.len() > 1 {
                 let session_id_or_name = args[1].to_string();
-                match session::delete_session(client, &session_id_or_name) {
+                match session::delete_session(client, &session_id_or_name).await {
                     Ok(_) => print!("Session deleted successfully\r\n"),
                     Err(e) => print!("Error deleting session: {}\r\n", e),
                 }
@@ -261,7 +261,7 @@ fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<d
         }
         
         "resume" => {
-            match session::load_last_session(client) {
+            match session::load_last_session(client).await {
                 Ok(_) => print!("Last session resumed successfully\r\n"),
                 Err(e) => print!("Error resuming last session: {}\r\n", e),
             }

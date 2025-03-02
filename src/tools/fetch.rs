@@ -207,7 +207,7 @@ fn parse_fetch_args(args: &str) -> (String, bool, Option<SummaryLength>) {
 }
 
 /// Summarize text using Gemini
-fn summarize_text(text: &str, length: &SummaryLength) -> Result<String, String> {
+async fn summarize_text(text: &str, length: &SummaryLength) -> Result<String, String> {
     use crate::llm::factory::create_backend_for_task;
     use crate::llm::{Message, MessageInfo, Content};
     
@@ -235,7 +235,7 @@ fn summarize_text(text: &str, length: &SummaryLength) -> Result<String, String> 
     
     // Send to the model - use 1000 tokens max for summaries to keep them concise
     let max_tokens = Some(1000);
-    let response = match backend.send_message(&[message], None, None, None, None, max_tokens) {
+    let response = match backend.send_message(&[message], None, None, None, None, max_tokens).await {
         Ok(response) => response,
         Err(e) => return Err(format!("Summarization failed: {}", e)),
     };
@@ -248,7 +248,7 @@ fn summarize_text(text: &str, length: &SummaryLength) -> Result<String, String> 
     }
 }
 
-pub fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
+pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
     // Parse arguments
     let (url, do_summarize, summary_length) = parse_fetch_args(args);
     
@@ -267,138 +267,10 @@ pub fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
         }
     }
     
-    // Make the request
-    let result = match ureq::get(&url).call() {
-        Ok(response) => {
-            if response.status() != 200 {
-                let error_msg = format!("Error fetching URL: HTTP status {}", response.status());
-                
-                if !silent_mode {
-                    println!("{}❌ Error:{} {}", 
-                        FORMAT_BOLD, FORMAT_RESET, error_msg);
-                }
-                
-                return ToolResult {
-                    success: false,
-                    agent_output: error_msg,
-                }
-            }
-            
-            // Try to get content type to handle differently
-            let content_type = response.header("content-type")
-                .unwrap_or("text/html")
-                .to_string(); // Clone the string to own it
-            
-            // Move the response to get the text content
-            if let Ok(text) = response.into_string() {
-                // Process text based on content type
-                let processed_text = if content_type.contains("text/html") || 
-                                       content_type.contains("application/xhtml") {
-                    strip_html_and_js(&text)
-                } else {
-                    // For plain text, JSON, or other formats, use as-is
-                    text
-                };
-                
-                // Truncate large responses for user output - show first 1000 and last 1000 characters
-                let user_text = if processed_text.len() > 2000 {
-                    let first_part = &processed_text[0..1000];
-                    let last_part = &processed_text[processed_text.len() - 1000..];
-                    format!(
-                        "{}...\n\n[... {} characters truncated ...]\n\n{}\n\n[Total content length: {} characters]",
-                        first_part,
-                        processed_text.len() - 2000,
-                        last_part,
-                        processed_text.len()
-                    )
-                } else {
-                    processed_text.clone()
-                };
-                
-                // Process summarization if requested
-                if do_summarize {
-                    match summary_length {
-                        Some(length) => {
-                            match summarize_text(&processed_text, &length) {
-                                Ok(summary) => {
-                                    // Print output with summary if not in silent mode
-                                    if !silent_mode {
-                                        println!("{}🌐 Fetch:{} {} - Content summarized successfully", 
-                                            FORMAT_BOLD, FORMAT_RESET, url);
-                                        println!("{}{}{}", FORMAT_GRAY, summary, FORMAT_RESET);
-                                    }
-                                    
-                                    // Return summarized content with info about original
-                                    let word_count = processed_text.split_whitespace().count();
-                                    ToolResult {
-                                        success: true,
-                                        agent_output: format!(
-                                            "Fetched and summarized from {}:\n\nOriginal content length: ~{} words\n\n{}", 
-                                            url, 
-                                            word_count,
-                                            summary
-                                        ),
-                                    }
-                                },
-                                Err(err) => {
-                                    // Summarization failed, log error and fall back to original content
-                                    if !silent_mode {
-                                        println!("{}⚠️ Warning:{} Failed to summarize content: {}", 
-                                            FORMAT_BOLD, FORMAT_RESET, err);
-                                        println!("{}🌐 Fetch:{} {} - Returning full content instead", 
-                                            FORMAT_BOLD, FORMAT_RESET, url);
-                                        println!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
-                                    }
-                                    
-                                    ToolResult {
-                                        success: true,
-                                        agent_output: format!("Fetched from {} (summarization failed: {}):\n\n{}", 
-                                                              url, err, processed_text),
-                                    }
-                                }
-                            }
-                        },
-                        None => {
-                            // No length specified (shouldn't happen with our parsing logic)
-                            if !silent_mode {
-                                println!("{}🌐 Fetch:{} {} - Content fetched successfully", 
-                                    FORMAT_BOLD, FORMAT_RESET, url);
-                                println!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
-                            }
-                            
-                            ToolResult {
-                                success: true,
-                                agent_output: format!("Fetched from {}:\n\n{}", url, processed_text),
-                            }
-                        }
-                    }
-                } else {
-                    // Standard fetch without summarization
-                    if !silent_mode {
-                        println!("{}🌐 Fetch:{} {} - Content fetched successfully", 
-                            FORMAT_BOLD, FORMAT_RESET, url);
-                        println!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
-                    }
-                    
-                    ToolResult {
-                        success: true,
-                        agent_output: format!("Fetched from {}:\n\n{}", url, processed_text),
-                    }
-                }
-            } else {
-                let error_msg = "Error: Could not read response as text".to_string();
-                
-                if !silent_mode {
-                    println!("{}❌ Error:{} {}", 
-                        FORMAT_BOLD, FORMAT_RESET, error_msg);
-                }
-                
-                ToolResult {
-                    success: false,
-                    agent_output: error_msg,
-                }
-            }
-        },
+    // Make the request using reqwest
+    let client = reqwest::Client::new();
+    let response = match client.get(&url).send().await {
+        Ok(response) => response,
         Err(err) => {
             let error_msg = format!("Error fetching URL: {}", err);
             
@@ -407,12 +279,145 @@ pub fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
                     FORMAT_BOLD, FORMAT_RESET, error_msg);
             }
             
-            ToolResult {
+            return ToolResult {
                 success: false,
                 agent_output: error_msg,
             }
         }
     };
     
-    result
+    // Check status code
+    if !response.status().is_success() {
+        let error_msg = format!("Error fetching URL: HTTP status {}", response.status());
+        
+        if !silent_mode {
+            println!("{}❌ Error:{} {}", 
+                FORMAT_BOLD, FORMAT_RESET, error_msg);
+        }
+        
+        return ToolResult {
+            success: false,
+            agent_output: error_msg,
+        }
+    }
+    
+    // Try to get content type
+    let content_type = response.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("text/html")
+        .to_string();
+    
+    // Get text content
+    let text = match response.text().await {
+        Ok(text) => text,
+        Err(err) => {
+            let error_msg = format!("Error reading response: {}", err);
+            
+            if !silent_mode {
+                println!("{}❌ Error:{} {}", 
+                    FORMAT_BOLD, FORMAT_RESET, error_msg);
+            }
+            
+            return ToolResult {
+                success: false,
+                agent_output: error_msg,
+            }
+        }
+    };
+    
+    // Process text based on content type
+    let processed_text = if content_type.contains("text/html") || 
+                            content_type.contains("application/xhtml") {
+        strip_html_and_js(&text)
+    } else {
+        // For plain text, JSON, or other formats, use as-is
+        text
+    };
+    
+    // Truncate large responses for user output - show first 1000 and last 1000 characters
+    let user_text = if processed_text.len() > 2000 {
+        let first_part = &processed_text[0..1000];
+        let last_part = &processed_text[processed_text.len() - 1000..];
+        format!(
+            "{}...\n\n[... {} characters truncated ...]\n\n{}\n\n[Total content length: {} characters]",
+            first_part,
+            processed_text.len() - 2000,
+            last_part,
+            processed_text.len()
+        )
+    } else {
+        processed_text.clone()
+    };
+    
+    // Process summarization if requested
+    if do_summarize {
+        match summary_length {
+            Some(length) => {
+                match summarize_text(&processed_text, &length).await {
+                    Ok(summary) => {
+                        // Print output with summary if not in silent mode
+                        if !silent_mode {
+                            println!("{}🌐 Fetch:{} {} - Content summarized successfully", 
+                                FORMAT_BOLD, FORMAT_RESET, url);
+                            println!("{}{}{}", FORMAT_GRAY, summary, FORMAT_RESET);
+                        }
+                        
+                        // Return summarized content with info about original
+                        let word_count = processed_text.split_whitespace().count();
+                        ToolResult {
+                            success: true,
+                            agent_output: format!(
+                                "Fetched and summarized from {}:\n\nOriginal content length: ~{} words\n\n{}", 
+                                url, 
+                                word_count,
+                                summary
+                            ),
+                        }
+                    },
+                    Err(err) => {
+                        // Summarization failed, log error and fall back to original content
+                        if !silent_mode {
+                            println!("{}⚠️ Warning:{} Failed to summarize content: {}", 
+                                FORMAT_BOLD, FORMAT_RESET, err);
+                            println!("{}🌐 Fetch:{} {} - Returning full content instead", 
+                                FORMAT_BOLD, FORMAT_RESET, url);
+                            println!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
+                        }
+                        
+                        ToolResult {
+                            success: true,
+                            agent_output: format!("Fetched from {} (summarization failed: {}):\n\n{}", 
+                                                    url, err, processed_text),
+                        }
+                    }
+                }
+            },
+            None => {
+                // No length specified (shouldn't happen with our parsing logic)
+                if !silent_mode {
+                    println!("{}🌐 Fetch:{} {} - Content fetched successfully", 
+                        FORMAT_BOLD, FORMAT_RESET, url);
+                    println!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
+                }
+                
+                ToolResult {
+                    success: true,
+                    agent_output: format!("Fetched from {}:\n\n{}", url, processed_text),
+                }
+            }
+        }
+    } else {
+        // Standard fetch without summarization
+        if !silent_mode {
+            println!("{}🌐 Fetch:{} {} - Content fetched successfully", 
+                FORMAT_BOLD, FORMAT_RESET, url);
+            println!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
+        }
+        
+        ToolResult {
+            success: true,
+            agent_output: format!("Fetched from {}:\n\n{}", url, processed_text),
+        }
+    }
 }

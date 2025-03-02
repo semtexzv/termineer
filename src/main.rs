@@ -39,7 +39,7 @@ fn read_line() -> Result<String, Box<dyn std::error::Error>> {
 }
 
 /// Run in interactive mode with a conversation UI
-fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     use constants::{FORMAT_BOLD, FORMAT_RESET};
     
     let mut client = Agent::new(config.clone());
@@ -62,7 +62,7 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
 
     // Attempt to resume last session if requested
     if config.resume_last_session {
-        match session::load_last_session(&mut client) {
+        match session::load_last_session(&mut client).await {
             Ok(_) => print!("Successfully resumed last session\r\n"),
             Err(e) => print!("Note: Could not resume last session: {}\r\n", e),
         }
@@ -118,7 +118,7 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
 
         // Handle commands
         if user_input.starts_with('/') {
-            if let Err(e) = commands::handle_command(&mut client, user_input) {
+            if let Err(e) = commands::handle_command(&mut client, user_input).await {
                 print!("Command error: {}\r\n", e);
                 io::stdout().flush()?;
             }
@@ -129,7 +129,7 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
         if !user_input.is_empty() {
             // Process the query and handle any errors
             // Note: The printing of responses is now handled directly in the agent
-            if let Err(e) = process_user_query(&mut client, user_input, false) {
+            if let Err(e) = process_user_query(&mut client, user_input, false).await {
                 print!("\r\nError: {}\r\n\r\n", e);
                 io::stdout().flush()?;
             }
@@ -143,7 +143,7 @@ fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>
 }
 
 /// Run a single query in non-interactive mode
-fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut client = Agent::new(config.clone());
 
     // Apply appropriate system prompt if none is provided
@@ -164,7 +164,7 @@ fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Erro
 
     // Attempt to resume last session if requested
     if config.resume_last_session {
-        match session::load_last_session(&mut client) {
+        match session::load_last_session(&mut client).await {
             Ok(_) => print!("Successfully resumed last session\r\n"),
             Err(e) => print!("Note: Could not resume last session: {}\r\n", e),
         }
@@ -172,7 +172,7 @@ fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Erro
     }
 
     // Process the query - printing is now handled in the agent
-    let result = process_user_query(&mut client, query, false);
+    let result = process_user_query(&mut client, query, false).await;
 
     // Only log errors, actual response output is handled in the agent
     if let Err(e) = &result {
@@ -199,7 +199,8 @@ fn print_usage() {
 
 /// Main entry point
 /// This application uses normal terminal mode, with raw mode only enabled in the shell tool when needed
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file if exists
     let _ = dotenvy::dotenv();
 
@@ -222,8 +223,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Handle the different result types
     match arg_result {
-        Ok(ArgResult::Query(query)) => run_query(config, &query)?,
-        Ok(ArgResult::Interactive) => run_interactive_mode(config)?,
+        Ok(ArgResult::Query(query)) => run_query(config, &query).await?,
+        Ok(ArgResult::Interactive) => run_interactive_mode(config).await?,
         Ok(ArgResult::ShowHelp) => {
             print_usage();
         }

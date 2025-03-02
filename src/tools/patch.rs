@@ -1,11 +1,11 @@
-use std::fs;
+use tokio::fs;
 use crate::constants::{
     PATCH_DELIMITER_BEFORE, PATCH_DELIMITER_AFTER, PATCH_DELIMITER_END,
     FORMAT_BOLD, FORMAT_RESET, FORMAT_RED_BG, FORMAT_GREEN_BG
 };
 use crate::tools::ToolResult;
 
-pub fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolResult {
+pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Extract filename from args
     let filename = args.trim();
     
@@ -41,7 +41,7 @@ pub fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     let patch_content = body;
     
     // Read the file content
-    let file_content = match fs::read_to_string(filename) {
+    let file_content = match fs::read_to_string(filename).await {
         Ok(content) => content,
         Err(e) => {
             let error_msg = format!("Error reading file '{}': {}", filename, e);
@@ -187,7 +187,7 @@ pub fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     let new_content = file_content.replace(before_text, after_text);
     
     // Write the updated content
-    match fs::write(filename, new_content) {
+    match fs::write(filename, new_content).await {
         Ok(_) => {
             // Detailed output for the agent with line number information
             // First, find the line numbers in the original file where the patch was applied

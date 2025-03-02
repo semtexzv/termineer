@@ -7,7 +7,6 @@ use std::env;
 use crate::config::Config;
 use crate::llm::{Backend, LlmError};
 use crate::llm::anthropic::Anthropic;
-use crate::llm::gemini::Gemini;
 
 /// Supported model provider types
 #[derive(Debug, PartialEq, Eq)]
@@ -83,8 +82,9 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
             Ok(Box::new(Anthropic::new(api_key, model_info.model_name)))
         },
         Provider::Google => {
-            let api_key = resolve_google_api_key()?;
-            Ok(Box::new(Gemini::new(api_key, model_info.model_name)))
+            // let api_key = resolve_google_api_key()?;
+            // Ok(Box::new(Gemini::new(api_key, model_info.model_name)))
+            todo!()
         },
         Provider::OpenAI => {
             // For future implementation

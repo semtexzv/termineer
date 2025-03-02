@@ -3,9 +3,10 @@
 //! This module defines traits and types for interacting with
 //! different LLM providers (Anthropic, Google, etc.)
 
+pub use async_trait::async_trait;
+
 mod types;
 pub mod anthropic;
-pub mod gemini;
 pub mod factory;
 
 use std::collections::BTreeSet;
@@ -13,9 +14,10 @@ pub use self::types::*;
 pub use self::factory::{create_backend, create_backend_for_task};
 
 /// Common trait for all LLM backends
-pub trait Backend {
+#[async_trait]
+pub trait Backend: Send + Sync {
     /// Send a message to the LLM and get a response
-    fn send_message(
+    async fn send_message(
         &self, 
         messages: &[Message], 
         system: Option<&str>,
