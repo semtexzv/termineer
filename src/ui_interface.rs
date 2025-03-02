@@ -870,9 +870,9 @@ impl TuiInterface {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     // Shift+Home: Scroll to top/oldest messages (offset = 0)
                     self.state.scroll_offset = 0;
-                } else if !self.state.command_output.visible {
+                } else if !self.state.temp_output.visible {
                     // Regular Home: Move cursor to start of input
-                    // Only if command output is not visible
+                    // Only if temporary output is not visible
                     self.state.cursor_position = 0;
                 }
             }
@@ -882,9 +882,9 @@ impl TuiInterface {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     // Shift+End: Scroll to bottom/newest messages (offset = max)
                     self.state.scroll_to_bottom();
-                } else if !self.state.command_output.visible {
+                } else if !self.state.temp_output.visible {
                     // Regular End: Move cursor to end of input
-                    // Only if command output is not visible
+                    // Only if temporary output is not visible
                     self.state.cursor_position = self.state.input.len();
                 }
             }
@@ -1048,7 +1048,7 @@ impl TuiInterface {
         };
         
         let popup_title = "Interrupt".to_string();
-        let mut popup_content = String::new();
+        let popup_content;
         
         match agent_state {
             // If running a shell command (interruptible tool) or if agent is actively processing
