@@ -1291,8 +1291,6 @@ impl TuiInterface {
         match agent_state {
             // If running a shell command (interruptible tool) or if agent is actively processing
             Some(AgentState::RunningTool { .. }) | Some(AgentState::Processing) => {
-                popup_content = format!("Interrupting agent. Press Ctrl+C again within 3 seconds to exit.");
-                
                 // Use the dedicated interrupt channel with the agent manager
                 let manager = self.agent_manager.lock().unwrap();
                 manager.interrupt_agent_with_reason(
@@ -1304,6 +1302,9 @@ impl TuiInterface {
                 // This prevents it from counting towards the double-press exit timer
                 self.state.last_interrupt_time = Some(now);
                 self.state.last_interrupt_was_process = true;
+                
+                // Don't show popup when interrupting an agent
+                // Just silently interrupt the process
             },
             
             // If agent is waiting for input (idle or done), start the double-press timer
@@ -1313,11 +1314,11 @@ impl TuiInterface {
                 // Start the double-press timer for exiting the application
                 self.state.last_interrupt_time = Some(now);
                 self.state.last_interrupt_was_process = false;
+                
+                // Only show popup when we're counting toward application exit
+                self.show_command_result(popup_title, popup_content);
             }
         }
-        
-        // Show result in popup
-        self.show_command_result(popup_title, popup_content);
         
         Ok(())
     }
