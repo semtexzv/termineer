@@ -300,19 +300,24 @@ impl Agent {
             - Consider your current reasoning path and remaining work\n\
             - Identify which previous tool outputs you no longer need to reference\n\
             - Tool outputs with larger token counts will save more space when truncated\n\n\
-            INSTRUCTIONS:\n\
-            - Respond with precisely: \"truncate: X,Y,Z\" (where X,Y,Z are indices of tool outputs to truncate)\n\
-            - Or respond with precisely: \"keep_all\" if all outputs are still necessary\n\n\
-            Note: This is a debugging test of the token management system.",
+            RESPONSE FORMAT (XML):\n\
+            - To truncate outputs: <truncate>X,Y,Z</truncate> (where X,Y,Z are indices of tool outputs to truncate)\n\
+            - To keep all outputs: <keep_all/>\n\n\
+            IMPORTANT: Use ONLY the exact XML tags shown above. Do NOT add any explanations or prose - just respond with the appropriate XML tag.",
             tool_details
         );
+        
+        // Log our token management query for debugging
+        crate::bprintln!("{}DEBUG: Sending token management query with XML response format{}",
+            crate::constants::FORMAT_CYAN,
+            crate::constants::FORMAT_RESET);
         
         // Add message temporarily
         let temp_message = Message::text("user", token_warning_message, MessageInfo::User);
         self.conversation.push(temp_message);
         
         // We want to limit this query to be very brief to save tokens
-        let stop_sequences = vec!["truncate:".to_string(), "keep_all".to_string()];
+        let stop_sequences = vec!["</truncate>".to_string(), "<keep_all/>".to_string()];
         let max_tokens = Some(50); // Very limited response
         
         // Handle the LLM response with proper error conversion
@@ -335,22 +340,77 @@ impl Agent {
         // Remove the temporary message
         self.conversation.pop();
         
+        // Log the full response details for debugging
+        crate::bprintln!("{}DEBUG: LLM FULL RESPONSE:{}",
+            crate::constants::FORMAT_CYAN,
+            crate::constants::FORMAT_RESET);
+            
+        crate::bprintln!("{}DEBUG: Stop reason: {:?}{}",
+            crate::constants::FORMAT_CYAN,
+            response.stop_reason,
+            crate::constants::FORMAT_RESET);
+            
+        crate::bprintln!("{}DEBUG: Stop sequence: {:?}{}",
+            crate::constants::FORMAT_CYAN,
+            response.stop_sequence,
+            crate::constants::FORMAT_RESET);
+            
+        if let Some(usage) = &response.usage {
+            crate::bprintln!("{}DEBUG: Token usage: {} input, {} output{}",
+                crate::constants::FORMAT_CYAN,
+                usage.input_tokens,
+                usage.output_tokens,
+                crate::constants::FORMAT_RESET);
+        }
+        
+        // Extract and log each content element separately
+        crate::bprintln!("{}DEBUG: RESPONSE CONTENT:{}",
+            crate::constants::FORMAT_CYAN,
+            crate::constants::FORMAT_RESET);
+            
+        for (i, content) in response.content.iter().enumerate() {
+            match content {
+                Content::Text { text } => {
+                    crate::bprintln!("{}DEBUG: Content[{}] (Text): {}{}",
+                        crate::constants::FORMAT_CYAN,
+                        i,
+                        text,
+                        crate::constants::FORMAT_RESET);
+                },
+                _ => {
+                    crate::bprintln!("{}DEBUG: Content[{}] (Other type): {:?}{}",
+                        crate::constants::FORMAT_CYAN,
+                        i,
+                        content,
+                        crate::constants::FORMAT_RESET);
+                }
+            }
+        }
+        
         // Extract content from response
         let response_text = response.content.iter()
             .filter_map(|c| if let Content::Text { text } = c { Some(text.clone()) } else { None })
             .collect::<Vec<String>>()
             .join("");
         
-        // Log the response for debugging
-        crate::bprintln!("{}DEBUG: LLM's response to relevance query: '{}'{}",
+        // Log the combined response text for debugging
+        crate::bprintln!("{}DEBUG: COMBINED RESPONSE TEXT: '{}'{}",
             crate::constants::FORMAT_CYAN,
             response_text,
             crate::constants::FORMAT_RESET);
             
-        // Parse the response to get indices to truncate
-        if response_text.contains("truncate:") {
-            if let Some(indices_str) = response_text.split("truncate:").nth(1) {
-                crate::bprintln!("{}DEBUG: Extracted indices string: '{}'{}",
+        // Parse the response to get indices to truncate using the XML format
+        if response_text.contains("<truncate>") && response_text.contains("</truncate>") {
+            // Extract content between <truncate> and </truncate> tags
+            let start_tag = "<truncate>";
+            let end_tag = "</truncate>";
+            let start_pos = response_text.find(start_tag).map(|pos| pos + start_tag.len());
+            let end_pos = response_text.find(end_tag);
+            
+            if let (Some(start), Some(end)) = (start_pos, end_pos) {
+                let indices_str = &response_text[start..end];
+                
+                crate::bprintln!("{}DEBUG: Extracted indices string from XML: '{}'{}",
                     crate::constants::FORMAT_CYAN,
                     indices_str,
                     crate::constants::FORMAT_RESET);
@@ -392,13 +452,17 @@ impl Agent {
                     // Return true to indicate we identified irrelevant outputs
                     return Ok(true);
                 }
+            } else {
+                crate::bprintln!("{}DEBUG: Malformed XML truncate tags in response{}",
+                    crate::constants::FORMAT_RED,
+                    crate::constants::FORMAT_RESET);
             }
-        } else if response_text.contains("keep_all") {
-            crate::bprintln!("{}DEBUG: LLM indicated to keep all tool outputs{}",
+        } else if response_text.contains("<keep_all/>") || response_text.contains("<keep_all>") {
+            crate::bprintln!("{}DEBUG: LLM indicated to keep all tool outputs (XML format){}",
                 crate::constants::FORMAT_GREEN,
                 crate::constants::FORMAT_RESET);
         } else {
-            crate::bprintln!("{}DEBUG: Could not parse LLM response for tool relevance{}",
+            crate::bprintln!("{}DEBUG: Could not parse LLM response for tool relevance (expected XML format){}",
                 crate::constants::FORMAT_RED,
                 crate::constants::FORMAT_RESET);
         }
