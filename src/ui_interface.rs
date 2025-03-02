@@ -14,7 +14,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame, Terminal,
 };
 use std::io;
@@ -231,7 +231,7 @@ impl TuiState {
         let visible_height = area.height.saturating_sub(2) as usize;
         
         // Create empty list items for filling the visible area
-        let mut items: Vec<ListItem> = Vec::with_capacity(visible_height);
+        let mut items: Vec<Line> = Vec::with_capacity(visible_height);
         
         if total_lines > 0 {
             // Calculate the start index for the visible region
@@ -260,14 +260,14 @@ impl TuiState {
                 // Use an iterator to be more explicit about the range
                 items = (adjusted_start..end_idx)
                     .filter_map(|i| lines.get(i))
-                    .map(|line| ListItem::new(line.converted_line.clone()))
+                    .map(|line| line.converted_line.clone())
                     .collect();
             }
         }
         
         // Fill remaining space with empty lines to ensure old content is cleared
         while items.len() < visible_height {
-            items.push(ListItem::new(Line::from("")));
+            items.push(Line::from(""));
         }
 
         // Create title with scroll info and most recent messages indicator
@@ -285,9 +285,8 @@ impl TuiState {
         
         let title = format!("Conversation ({} lines{})", total_lines, scroll_info);
         
-        let conversation = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(title))
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+        let conversation = Paragraph::new(items)
+            .block(Block::default().borders(Borders::ALL).title(title));
 
         f.render_widget(conversation, area);
     }
