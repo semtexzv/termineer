@@ -23,11 +23,16 @@ use crate::tools::ToolExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 
-// Token limit thresholds for Claude's 200k context window
-// We need to account for both input tokens and expected output tokens
-const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 160000; // 80% of 200k tokens
-const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 180000; // 90% of 200k tokens
-const MAX_EXPECTED_OUTPUT_TOKENS: usize = 10000; // Reserve space for model's response
+// Token limit thresholds for debugging (artificially low to trigger token management)
+// Original values commented below for easy restoration
+const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 30000; // Debug: Trigger warnings earlier
+const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 40000; // Debug: Trigger critical earlier  
+const MAX_EXPECTED_OUTPUT_TOKENS: usize = 4000;   // Debug: Reduced output reservation
+
+// Original values for Claude's 200k context window:
+// const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 160000; // 80% of 200k tokens
+// const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 180000; // 90% of 200k tokens
+// const MAX_EXPECTED_OUTPUT_TOKENS: usize = 10000; // Reserve space for model's response
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -200,20 +205,36 @@ impl Agent {
         
         // Check if we're approaching token limits
         if total_estimated_tokens > TOKEN_LIMIT_WARNING_THRESHOLD {
-            crate::bprintln!("{}Warning: Approaching token limit ({} of {}){}",
+            crate::bprintln!("{}WARNING: Approaching debug token limit ({} of {}){}",
                 crate::constants::FORMAT_YELLOW,
                 total_estimated_tokens,
                 TOKEN_LIMIT_CRITICAL_THRESHOLD,
+                crate::constants::FORMAT_RESET);
+            crate::bprintln!("{}DEBUG: This is using the reduced token thresholds for testing{}",
+                crate::constants::FORMAT_YELLOW,
                 crate::constants::FORMAT_RESET);
                 
             // We're approaching limits, ask the LLM which tool outputs are still relevant
             let relevant_changed = self.identify_irrelevant_tool_outputs().await?;
             
+            // Add debug logging to show the current tool indices and their relevance
+            crate::bprintln!("{}DEBUG: Current tool indices and relevance:{}",
+                crate::constants::FORMAT_CYAN,
+                crate::constants::FORMAT_RESET);
+            
+            for (idx, relevant) in &self.tool_relevance {
+                crate::bprintln!("{}DEBUG: Tool index {} - {}{}",
+                    crate::constants::FORMAT_CYAN,
+                    idx, 
+                    if *relevant { "Relevant" } else { "Marked for truncation" },
+                    crate::constants::FORMAT_RESET);
+            }
+                
             if relevant_changed {
                 // Actually truncate the irrelevant outputs
                 let tokens_saved = self.truncate_irrelevant_tool_outputs();
                 
-                crate::bprintln!("{}Truncated irrelevant tool outputs (saved ~{} tokens){}",
+                crate::bprintln!("{}DEBUG: Truncated irrelevant tool outputs (saved ~{} tokens){}",
                     crate::constants::FORMAT_GREEN,
                     tokens_saved,
                     crate::constants::FORMAT_RESET);
@@ -236,10 +257,13 @@ impl Agent {
         
         // Create a temporary message to ask the LLM about tool relevance
         let token_warning_message = format!(
-            "Warning: You are approaching token limits. Please identify which tool outputs are no longer needed.\n\n\
+            "WARNING: TOKEN LIMIT MANAGEMENT ACTIVE. You are approaching token limits and need to identify which tool outputs can be truncated.\n\n\
             You have used the following tool invocations with indices: {}.\n\n\
-            Respond with a comma-separated list of indices that can be truncated, for example: \"truncate: 1,3,5\".\n\
-            Or respond with \"keep_all\" if all outputs are still relevant.",
+            INSTRUCTIONS:\n\
+            - Carefully consider which tool outputs are no longer needed for your current reasoning and task completion\n\
+            - Respond with a comma-separated list of indices that can be truncated, for example: \"truncate: 1,3,5\"\n\
+            - Or respond with \"keep_all\" if all outputs are still relevant and necessary\n\n\
+            Note: This is a debugging test of the token management system.",
             tool_indices.iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", ")
         );
         
@@ -277,17 +301,46 @@ impl Agent {
             .collect::<Vec<String>>()
             .join("");
         
+        // Log the response for debugging
+        crate::bprintln!("{}DEBUG: LLM's response to relevance query: '{}'{}",
+            crate::constants::FORMAT_CYAN,
+            response_text,
+            crate::constants::FORMAT_RESET);
+            
         // Parse the response to get indices to truncate
         if response_text.contains("truncate:") {
             if let Some(indices_str) = response_text.split("truncate:").nth(1) {
+                crate::bprintln!("{}DEBUG: Extracted indices string: '{}'{}",
+                    crate::constants::FORMAT_CYAN,
+                    indices_str,
+                    crate::constants::FORMAT_RESET);
+                    
                 let indices_to_truncate: Vec<usize> = indices_str
                     .split(',')
-                    .filter_map(|s| s.trim().parse::<usize>().ok())
+                    .filter_map(|s| {
+                        let result = s.trim().parse::<usize>();
+                        if result.is_err() {
+                            crate::bprintln!("{}DEBUG: Failed to parse index: '{}'{}",
+                                crate::constants::FORMAT_RED,
+                                s.trim(),
+                                crate::constants::FORMAT_RESET);
+                        }
+                        result.ok()
+                    })
                     .collect();
+                
+                crate::bprintln!("{}DEBUG: Parsed indices to truncate: {:?}{}",
+                    crate::constants::FORMAT_CYAN,
+                    indices_to_truncate,
+                    crate::constants::FORMAT_RESET);
                 
                 if !indices_to_truncate.is_empty() {
                     // Mark these tool outputs as irrelevant
                     for idx in indices_to_truncate {
+                        crate::bprintln!("{}DEBUG: Marking tool index {} as irrelevant{}",
+                            crate::constants::FORMAT_YELLOW,
+                            idx,
+                            crate::constants::FORMAT_RESET);
                         self.tool_relevance.insert(idx, false);
                     }
                     
@@ -295,6 +348,14 @@ impl Agent {
                     return Ok(true);
                 }
             }
+        } else if response_text.contains("keep_all") {
+            crate::bprintln!("{}DEBUG: LLM indicated to keep all tool outputs{}",
+                crate::constants::FORMAT_GREEN,
+                crate::constants::FORMAT_RESET);
+        } else {
+            crate::bprintln!("{}DEBUG: Could not parse LLM response for tool relevance{}",
+                crate::constants::FORMAT_RED,
+                crate::constants::FORMAT_RESET);
         }
         
         // If the response was "keep_all" or we couldn't parse indices, all outputs are still relevant
@@ -1147,6 +1208,12 @@ impl Agent {
         
         // Mark this tool output as relevant
         self.tool_relevance.insert(self.tool_invocation_counter, true);
+        
+        // Log tool invocation for debugging
+        crate::bprintln!("{}DEBUG: Created new tool output with index {}{}",
+            crate::constants::FORMAT_CYAN,
+            self.tool_invocation_counter,
+            crate::constants::FORMAT_RESET);
         
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
