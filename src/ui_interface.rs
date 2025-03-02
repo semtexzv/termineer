@@ -349,8 +349,8 @@ impl TuiState {
         f.render_widget(Clear, chunks[2]);
         self.render_input(f, chunks[2]);
         
-        // Render the command suggestions popup if in command mode
-        if self.command_mode {
+        // Render the command suggestions popup if in command mode and temp output is not visible
+        if self.command_mode && !self.temp_output.visible {
             self.render_command_suggestions(f);
         }
         
@@ -386,7 +386,7 @@ impl TuiState {
         let content_text = self.temp_output.content.join("\n");
         let output_widget = Paragraph::new(content_text)
             .style(Style::default()
-                .fg(Color::White)
+                .fg(Color::LightCyan) // More visible cyan text instead of white
                 .bg(Color::Rgb(180, 80, 0))) // Dark orange background
             .block(Block::default()
                 .borders(Borders::ALL)
@@ -510,7 +510,7 @@ impl TuiState {
                     } else {
                         Span::styled(
                             format!(" {} [{}] ", name, id),
-                            Style::default().fg(Color::White),
+                            Style::default().fg(Color::LightBlue),
                         )
                     }
                 })
@@ -524,7 +524,7 @@ impl TuiState {
         let mut all_spans = agent_spans;
         all_spans.push(Span::styled(
             " ".repeat((area.width as usize).saturating_sub(2)), // -2 for borders
-            Style::default(),
+            Style::default().fg(Color::DarkGray), // Ensure text is visible but subdued
         ));
 
         let header = Paragraph::new(Line::from(all_spans))
