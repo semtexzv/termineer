@@ -509,20 +509,43 @@ impl TuiState {
         f.render_widget(suggestions_widget, popup_area);
     }
 
+    /// Get a simple ASCII indicator for agent state
+    fn get_state_indicator(state: &AgentState) -> &'static str {
+        match state {
+            AgentState::Idle => "•", // Bullet for ready
+            AgentState::Processing => "↻", // Processing symbol
+            AgentState::RunningTool { .. } => "⚙", // Gear for tool execution
+            AgentState::Terminated => "✕", // X for terminated
+            AgentState::Done => "✓", // Checkmark for done
+        }
+    }
+
     /// Render the header with agent list
     fn render_header(&self, f: &mut Frame, area: Rect) {
         // Get agents directly from the agent manager
         let agent_spans = if let Ok(manager) = self.agent_manager.lock() {
             let agents = manager.get_agents();
             
+            // Collect all agent states in a single lock operation
+            let mut agent_states = Vec::new();
+            for (id, _) in &agents {
+                let state = manager.get_agent_state(*id).ok();
+                agent_states.push(state);
+            }
+            
             // Create spans for each agent
-            agents.iter()
-                .map(|(id, name)| {
-                    // Basic span formatting without trying to get state
-                    // Use simplest possible format to avoid rendering issues
+            agents.iter().zip(agent_states.iter())
+                .map(|((id, name), state_opt)| {
+                    // Get state indicator based on agent state
+                    let state_char = if let Some(state) = state_opt {
+                        Self::get_state_indicator(state)
+                    } else {
+                        "?" // Unknown state
+                    };
+                    
                     if *id == self.selected_agent_id {
                         Span::styled(
-                            format!(" {} [{}] ", name, id),
+                            format!(" {} {} [{}] ", state_char, name, id),
                             Style::default()
                                 .fg(Color::Black)
                                 .bg(Color::White)
@@ -530,7 +553,7 @@ impl TuiState {
                         )
                     } else {
                         Span::styled(
-                            format!(" {} [{}] ", name, id),
+                            format!(" {} {} [{}] ", state_char, name, id),
                             Style::default().fg(Color::LightBlue),
                         )
                     }
