@@ -25,6 +25,40 @@ use ratatui::widgets::Clear;
 /// Maximum number of lines to keep in the conversation history view
 const MAX_HISTORY_LINES: usize = 1000;
 
+/// A popup to display command output
+pub struct CommandPopup {
+    /// Title of the popup
+    pub title: String,
+    /// Content of the popup
+    pub content: Vec<String>,
+    /// Whether the popup is visible
+    pub visible: bool,
+}
+
+impl CommandPopup {
+    /// Create a new command popup
+    pub fn new(title: String, content: String) -> Self {
+        let content_lines = content.lines().map(String::from).collect();
+        Self {
+            title,
+            content: content_lines,
+            visible: true,
+        }
+    }
+
+    /// Hide the popup
+    pub fn hide(&mut self) {
+        self.visible = false;
+    }
+
+    /// Show the popup with new content
+    pub fn show(&mut self, title: String, content: String) {
+        self.title = title;
+        self.content = content.lines().map(String::from).collect();
+        self.visible = true;
+    }
+}
+
 /// State for the TUI application
 pub struct TuiState {
     /// Input being typed by the user
@@ -51,6 +85,8 @@ pub struct TuiState {
     pub max_scroll_offset: usize,
     /// Visible content height in lines
     pub visible_height: usize,
+    /// Command popup for displaying command outputs
+    pub command_popup: CommandPopup,
 }
 
 impl TuiState {
@@ -69,6 +105,11 @@ impl TuiState {
             scroll_offset: 0,
             max_scroll_offset: 0,
             visible_height: 0,
+            command_popup: CommandPopup {
+                title: String::new(),
+                content: Vec::new(),
+                visible: false,
+            },
         }
     }
 
@@ -176,6 +217,49 @@ impl TuiState {
         // Render the input prompt
         f.render_widget(Clear, chunks[2]);
         self.render_input(f, chunks[2]);
+        
+        // Render the command popup if visible
+        if self.command_popup.visible {
+            self.render_popup(f);
+        }
+    }
+    
+    /// Render a command popup
+    fn render_popup(&self, f: &mut Frame) {
+        let area = f.size();
+        
+        // Calculate popup size and position
+        let popup_width = area.width.min(80).max(40);
+        let popup_height = area.height.min(20).max(10);
+        
+        let popup_x = (area.width - popup_width) / 2;
+        let popup_y = (area.height - popup_height) / 2;
+        
+        let popup_area = Rect {
+            x: popup_x,
+            y: popup_y,
+            width: popup_width,
+            height: popup_height,
+        };
+        
+        // Clear the area under the popup
+        f.render_widget(Clear, popup_area);
+        
+        // Convert content to Lines for the paragraph
+        let content_lines: Vec<Line> = self.command_popup.content
+            .iter()
+            .map(|line| Line::from(line.clone()))
+            .collect();
+        
+        // Create the popup with border
+        let popup_widget = Paragraph::new(content_lines)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title(format!("{} (Press ESC to close)", self.command_popup.title)))
+            .wrap(Wrap { trim: true });
+        
+        // Render the popup
+        f.render_widget(popup_widget, popup_area);
     }
 
     /// Render the header with agent list
@@ -548,11 +632,15 @@ impl TuiInterface {
                 self.state.update_command_mode();
             }
             
-            // Escape clears the input
+            // Escape either closes popup or clears the input
             KeyCode::Esc => {
-                self.state.input.clear();
-                self.state.cursor_position = 0;
-                self.state.command_mode = false;
+                if self.state.command_popup.visible {
+                    self.state.command_popup.hide();
+                } else {
+                    self.state.input.clear();
+                    self.state.cursor_position = 0;
+                    self.state.command_mode = false;
+                }
             }
             
             // PageUp/PageDown for scrolling
@@ -614,7 +702,10 @@ impl TuiInterface {
         if let Some(last_time) = self.state.last_interrupt_time {
             if now.duration_since(last_time) < DOUBLE_PRESS_WINDOW {
                 // This is a double-press, exit the application
-                self.state.add_to_buffer("Received second Ctrl+C. Exiting application...".to_string());
+                let popup_title = "Exiting Application".to_string();
+                let popup_content = "Received second Ctrl+C. Exiting application...".to_string();
+                self.show_command_result(popup_title, popup_content);
+                
                 self.state.should_quit = true;
                 return Ok(());
             }
@@ -629,10 +720,13 @@ impl TuiInterface {
             manager.get_agent_state(self.state.selected_agent_id).ok()
         };
         
+        let popup_title = "Interrupt".to_string();
+        let mut popup_content = String::new();
+        
         match agent_state {
             // If running a shell command (interruptible tool) or if agent is actively processing
             Some(AgentState::RunningTool { .. }) | Some(AgentState::Processing) => {
-                self.state.add_to_buffer(format!("Interrupting agent. Press Ctrl+C again within 3 seconds to exit."));
+                popup_content = format!("Interrupting agent. Press Ctrl+C again within 3 seconds to exit.");
                 
                 // Use the dedicated interrupt channel with the agent manager
                 let manager = self.agent_manager.lock().unwrap();
@@ -644,17 +738,26 @@ impl TuiInterface {
             
             // If agent is waiting for input (idle or done), just warn about second press
             _ => {
-                self.state.add_to_buffer("Press Ctrl+C again within 3 seconds to exit application.".to_string());
+                popup_content = "Press Ctrl+C again within 3 seconds to exit application.".to_string();
             }
         }
+        
+        // Show result in popup
+        self.show_command_result(popup_title, popup_content);
         
         Ok(())
     }
 
+    /// Show command output in a popup instead of the buffer
+    fn show_command_result(&mut self, title: String, content: String) {
+        self.state.command_popup.show(title, content);
+    }
+    
     /// Handle pound command for agent switching
     async fn handle_pound_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Echo command to buffer
-        self.state.add_to_buffer(format!("> {}", cmd));
+        // Create popup for command result
+        let command_title = format!("Agent Selection: {}", cmd);
+        let mut result = String::new();
         
         // Parse the agent number from the command
         let agent_str = cmd.trim_start_matches('#').trim();
@@ -682,12 +785,12 @@ impl TuiInterface {
                         .map(|handle| handle.name.clone())
                         .unwrap_or_else(|| "Unknown".to_string());
                     
-                    self.state.add_to_buffer(format!("Switched to agent {} [{}]", agent_name, agent_id));
+                    result.push_str(&format!("Switched to agent {} [{}]", agent_name, agent_id));
                 } else {
-                    self.state.add_to_buffer(format!("Failed to get buffer for agent {}", agent_id));
+                    result.push_str(&format!("Failed to get buffer for agent {}", agent_id));
                 }
             } else {
-                self.state.add_to_buffer(format!("Agent with ID {} not found", agent_id));
+                result.push_str(&format!("Agent with ID {} not found", agent_id));
             }
         } else {
             // Try to find agent by name using the manager
@@ -710,22 +813,26 @@ impl TuiInterface {
                 let manager = self.agent_manager.lock().unwrap();
                 if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
                     self.state.agent_buffer = buffer;
-                    self.state.add_to_buffer(format!("Switched to agent {} [{}]", name, agent_id));
+                    result.push_str(&format!("Switched to agent {} [{}]", name, agent_id));
                 } else {
-                    self.state.add_to_buffer(format!("Failed to get buffer for agent {}", name));
+                    result.push_str(&format!("Failed to get buffer for agent {}", name));
                 }
             } else {
-                self.state.add_to_buffer(format!("Agent '{}' not found", agent_str));
+                result.push_str(&format!("Agent '{}' not found", agent_str));
             }
         }
+        
+        // Show result in popup
+        self.show_command_result(command_title, result);
         
         Ok(())
     }
 
     /// Handle command input
     async fn handle_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Echo command to buffer
-        self.state.add_to_buffer(format!("> {}", cmd));
+        // Create title and content for popup
+        let command_title = format!("Command: {}", cmd);
+        let mut result = String::new();
         
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         if parts.is_empty() {
@@ -734,32 +841,33 @@ impl TuiInterface {
 
         match parts[0] {
             "/exit" | "/quit" => {
+                result.push_str("Exiting application...");
                 self.state.should_quit = true;
             }
             "/help" => {
-                self.state.add_to_buffer("Available commands:".to_string());
-                self.state.add_to_buffer("  /help                  - Show this help".to_string());
-                self.state.add_to_buffer("  /exit, /quit           - Exit the application".to_string());
-                self.state.add_to_buffer("  /interrupt             - Interrupt the current agent".to_string());
-                self.state.add_to_buffer("  /model <name>          - Set the model for the current agent".to_string());
-                self.state.add_to_buffer("  /tools <on|off>        - Enable or disable tools".to_string());
-                self.state.add_to_buffer("  /system <text>         - Set the system prompt".to_string());
-                self.state.add_to_buffer("  /reset                 - Reset the conversation".to_string());
-                self.state.add_to_buffer("  #<id>                  - Switch to agent with specified ID".to_string());
-                self.state.add_to_buffer("  #<name>                - Switch to agent with specified name".to_string());
-                self.state.add_to_buffer("".to_string());
-                self.state.add_to_buffer("Scrolling:".to_string());
-                self.state.add_to_buffer("  PageUp/PageDown        - Scroll conversation by half a page".to_string());
-                self.state.add_to_buffer("  Shift+Up/Down          - Scroll conversation by one line".to_string());
-                self.state.add_to_buffer("  Shift+Home/End         - Jump to top/bottom of conversation".to_string());
-                self.state.add_to_buffer("  Mouse wheel            - Scroll conversation".to_string());
+                result.push_str("Available commands:\n");
+                result.push_str("  /help                  - Show this help\n");
+                result.push_str("  /exit, /quit           - Exit the application\n");
+                result.push_str("  /interrupt             - Interrupt the current agent\n");
+                result.push_str("  /model <name>          - Set the model for the current agent\n");
+                result.push_str("  /tools <on|off>        - Enable or disable tools\n");
+                result.push_str("  /system <text>         - Set the system prompt\n");
+                result.push_str("  /reset                 - Reset the conversation\n");
+                result.push_str("  #<id>                  - Switch to agent with specified ID\n");
+                result.push_str("  #<name>                - Switch to agent with specified name\n");
+                result.push_str("\n");
+                result.push_str("Scrolling:\n");
+                result.push_str("  PageUp/PageDown        - Scroll conversation by half a page\n");
+                result.push_str("  Shift+Up/Down          - Scroll conversation by one line\n");
+                result.push_str("  Shift+Home/End         - Jump to top/bottom of conversation\n");
+                result.push_str("  Mouse wheel            - Scroll conversation");
             }
             "/interrupt" => {
                 let manager = self.agent_manager.lock().unwrap();
                 if let Err(e) = manager.interrupt_agent(self.state.selected_agent_id) {
-                    self.state.add_to_buffer(format!("Failed to interrupt agent: {}", e));
+                    result.push_str(&format!("Failed to interrupt agent: {}", e));
                 } else {
-                    self.state.add_to_buffer(format!("Interrupt sent to agent {}", self.state.selected_agent_id));
+                    result.push_str(&format!("Interrupt sent to agent {}", self.state.selected_agent_id));
                 }
             }
             "/model" if parts.len() >= 2 => {
@@ -769,9 +877,9 @@ impl TuiInterface {
                     self.state.selected_agent_id,
                     AgentMessage::Command(AgentCommand::SetModel(model.to_string())),
                 ) {
-                    self.state.add_to_buffer(format!("Failed to set model: {}", e));
+                    result.push_str(&format!("Failed to set model: {}", e));
                 } else {
-                    self.state.add_to_buffer(format!("Model set to {}", model));
+                    result.push_str(&format!("Model set to {}", model));
                 }
             }
             "/tools" if parts.len() >= 2 => {
@@ -779,7 +887,8 @@ impl TuiInterface {
                     "on" | "true" | "1" => true,
                     "off" | "false" | "0" => false,
                     _ => {
-                        self.state.add_to_buffer(format!("Invalid value for tools: {}", parts[1]));
+                        result.push_str(&format!("Invalid value for tools: {}", parts[1]));
+                        self.show_command_result(command_title, result);
                         return Ok(());
                     }
                 };
@@ -789,9 +898,9 @@ impl TuiInterface {
                     self.state.selected_agent_id,
                     AgentMessage::Command(AgentCommand::EnableTools(enabled)),
                 ) {
-                    self.state.add_to_buffer(format!("Failed to set tools: {}", e));
+                    result.push_str(&format!("Failed to set tools: {}", e));
                 } else {
-                    self.state.add_to_buffer(format!("Tools {}", if enabled { "enabled" } else { "disabled" }));
+                    result.push_str(&format!("Tools {}", if enabled { "enabled" } else { "disabled" }));
                 }
             }
             "/system" if parts.len() >= 2 => {
@@ -801,9 +910,9 @@ impl TuiInterface {
                     self.state.selected_agent_id,
                     AgentMessage::Command(AgentCommand::SetSystemPrompt(prompt.to_string())),
                 ) {
-                    self.state.add_to_buffer(format!("Failed to set system prompt: {}", e));
+                    result.push_str(&format!("Failed to set system prompt: {}", e));
                 } else {
-                    self.state.add_to_buffer("System prompt updated".to_string());
+                    result.push_str("System prompt updated");
                 }
             }
             "/reset" => {
@@ -812,16 +921,19 @@ impl TuiInterface {
                     self.state.selected_agent_id,
                     AgentMessage::Command(AgentCommand::ResetConversation),
                 ) {
-                    self.state.add_to_buffer(format!("Failed to reset conversation: {}", e));
+                    result.push_str(&format!("Failed to reset conversation: {}", e));
                 } else {
-                    self.state.add_to_buffer("Conversation reset".to_string());
+                    result.push_str("Conversation reset");
                 }
             }
             _ => {
-                self.state.add_to_buffer(format!("Unknown command: {}", parts[0]));
+                result.push_str(&format!("Unknown command: {}", parts[0]));
             }
         }
 
+        // Display the command result in a popup
+        self.show_command_result(command_title, result);
+        
         Ok(())
     }
 }
