@@ -877,8 +877,8 @@ impl TuiInterface {
                         self.state.cursor_position = 0;
                         self.state.pound_command_mode = false;
                     } else {
-                        // Add user input to buffer
-                        self.state.add_to_buffer(format!("> {}", input));
+                        // Don't add user input to buffer here, agent will handle it
+                        // No need to prefix with chevron as the agent will format it properly
 
                         // Send to selected agent
                         let manager = self.agent_manager.lock().unwrap();
