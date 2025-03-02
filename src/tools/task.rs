@@ -1,9 +1,10 @@
-use crate::agent::{Agent, AgentId};
+use crate::agent::{Agent, AgentId, AgentMessage, AgentState};
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
-use crate::llm::{Content, MessageInfo};
+use crate::llm::{create_backend_for_task, Content, MessageInfo};
 use crate::tools::ToolResult;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
+use crate::prompts::{ToolDocOptions, generate_system_prompt};
 
 pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the args string to check for model parameter
@@ -87,14 +88,113 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
             );
         }
     }
+    
+    // Create a configuration for the subtask
+    let mut config = Config::new();
+    
+    // Set the model if specified
+    if let Some(model) = model_name {
+        config.model = model;
+    }
+    
+    // Create message channels for communicating with the agent
+    let (_sender, receiver) = mpsc::channel(100);
+    let (state_sender, _state_receiver) = watch::channel(AgentState::Idle);
 
-    // Temporarily simplified implementation that returns a success message
-    // instead of actually creating a subtask
-    // This is a workaround until the missing functions are implemented
-    let result = format!(
-        "Task '{}' processed with instructions:\n\n{}",
-        task_name, task_instructions
-    );
+    // Generate a task-specific ID
+    let task_id = AgentId(999); // Use a dummy ID for now
+
+    // Create a tool executor that's silent depending on the parent's silent mode
+    // and set the system prompt
+    let tool_options = ToolDocOptions::default();
+    let system_prompt = generate_system_prompt(&tool_options);
+    config.system_prompt = Some(system_prompt);
+    
+    // Create the agent
+    let mut agent = match Agent::new(task_id, format!("task_{}", task_name), config, receiver, state_sender) {
+        Ok(agent) => agent,
+        Err(e) => {
+            let error_msg = format!("Failed to create agent for task: {}", e);
+            if !silent_mode {
+                crate::berror_println!("{}", error_msg);
+            }
+            return ToolResult {
+                success: false,
+                agent_output: error_msg,
+            };
+        }
+    };
+    
+    // Create a simple implementation that just adds the message to conversation
+    // This avoids potential recursion with send_message
+    // Add user message to conversation history
+    agent.conversation.push(crate::llm::Message::text(
+        "user",
+        task_instructions.to_string(),
+        crate::llm::MessageInfo::User,
+    ));
+
+    // Send the request using our LLM provider directly
+    let system_prompt = agent.config.system_prompt.as_deref();
+    let thinking_budget = Some(agent.config.thinking_budget);
+
+    let response = match agent.llm.send_message(
+        &agent.conversation,
+        system_prompt,
+        agent.stop_sequences.as_deref(),
+        thinking_budget,
+        None, // No cache points for tasks
+        None, // Use default max_tokens
+    ).await {
+        Ok(res) => res,
+        Err(e) => {
+            let error_msg = format!("Error executing task: {}", e);
+            if !silent_mode {
+                crate::berror_println!("{}", error_msg);
+            }
+            return ToolResult {
+                success: false,
+                agent_output: error_msg,
+            };
+        }
+    };
+
+    // Extract content from response
+    let mut assistant_response = String::new();
+    for content in &response.content {
+        if let crate::llm::Content::Text { text } = content {
+            assistant_response.push_str(text);
+        }
+    }
+
+    // Add the assistant's response to conversation
+    agent.conversation.push(crate::llm::Message::text(
+        "assistant",
+        assistant_response.clone(),
+        crate::llm::MessageInfo::Assistant,
+    ));
+
+    // Get all conversation messages
+    let conversation = agent.conversation.clone();
+
+    // Collect all assistant responses
+    let mut result = String::new();
+    for message in conversation {
+        if message.role == "assistant" {
+            // Skip tool calls and just get the text content
+            if !matches!(message.info, MessageInfo::ToolCall { .. }) {
+                if let Content::Text { text } = &message.content {
+                    result.push_str(text);
+                    result.push_str("\n\n");
+                }
+            }
+        }
+    }
+
+    // If we have no result, use the assistant response directly
+    if result.is_empty() {
+        result = assistant_response;
+    }
 
     // Print completion message if not in silent mode
     if !silent_mode {

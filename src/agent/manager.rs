@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use super::agent::Agent;
-use super::types::{AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode};
+use super::types::{AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode, StateReceiver};
 use crate::config::Config;
 use crate::output::{SharedBuffer, CURRENT_BUFFER};
 
@@ -26,30 +26,10 @@ pub struct AgentHandle {
 
     /// Buffer of this agent (for display purposes)
     pub buffer: SharedBuffer,
-    
-    /// Current state of the agent (stored as atomic for thread safety)
-    state: AtomicU8,
-}
 
-impl AgentHandle {
-    /// Get the current state of the agent
-    pub fn get_state(&self) -> AgentState {
-        match self.state.load(Ordering::Relaxed) {
-            0 => AgentState::Idle,
-            1 => AgentState::Processing,
-            2 => AgentState::RunningTool { 
-                tool: "unknown".to_string(), 
-                interruptible: false 
-            },
-            _ => AgentState::Terminated,
-        }
-    }
-    
-    /// Update the state of the agent
-    pub fn update_state(&self, state: AgentState) {
-        let state_code = state.to_code() as u8;
-        self.state.store(state_code, Ordering::Relaxed);
-    }
+    /// State of this agent
+    pub state: StateReceiver,
+
 }
 
 /// Manager for multiple agent instances
@@ -74,6 +54,7 @@ impl AgentManager {
     pub fn create_agent(&mut self, name: String, config: Config) -> Result<AgentId, AgentError> {
         // Create message channel for this agent
         let (sender, receiver) = mpsc::channel(100);
+        let (state_sender, state) = watch::channel(AgentState::Idle);
 
         // Generate unique ID
         let id = AgentId(self.next_id);
@@ -82,7 +63,7 @@ impl AgentManager {
         let buffer = SharedBuffer::new(100);
 
         // Create the agent
-        let agent = match Agent::new(id, name.clone(), config, receiver) {
+        let agent = match Agent::new(id, name.clone(), config, receiver, state_sender) {
             Ok(agent) => agent,
             Err(e) => return Err(AgentError::CreationFailed(e.to_string())),
         };
@@ -97,7 +78,7 @@ impl AgentManager {
             sender,
             join_handle,
             buffer,
-            state: AtomicU8::new(0), // Default to Idle state
+            state
         };
 
         self.agents.insert(id, handle);
@@ -137,10 +118,15 @@ impl AgentManager {
     /// Get the current state of an agent
     pub fn get_agent_state(&self, id: AgentId) -> Result<AgentState, AgentError> {
         if let Some(handle) = self.agents.get(&id) {
-            Ok(handle.get_state())
+            Ok(handle.state.borrow().clone())
         } else {
             Err(AgentError::AgentNotFound(id))
         }
+    }
+    
+    /// Get a reference to an agent handle by ID
+    pub fn get_agent_handle(&self, id: AgentId) -> Option<&AgentHandle> {
+        self.agents.get(&id)
     }
     
     /// Interrupt an agent

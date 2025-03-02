@@ -1,11 +1,8 @@
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use crossterm::terminal;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-// No need for terminal modes when using buffer-based output
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
 
@@ -131,7 +128,7 @@ pub async fn execute_shell(
     let stdout_running_clone = Arc::clone(&command_running);
     let stdout_silent = silent_mode;
 
-    tokio::spawn(async move {
+    crate::output::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         let mut _line_count = 0;
 
@@ -166,7 +163,7 @@ pub async fn execute_shell(
     let stderr_running_clone = Arc::clone(&command_running);
     let stderr_silent = silent_mode;
 
-    tokio::spawn(async move {
+    crate::output::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         let mut _line_count = 0;
 
@@ -196,58 +193,15 @@ pub async fn execute_shell(
         // No need to manually flush output when using buffer system
     });
 
-    // Create a task to handle keyboard interruptions
-    if !silent_mode {
-        let keyboard_interrupt_data = Arc::clone(&interrupt_data_clone);
-        let keyboard_command_running = Arc::clone(&command_running);
-
-        tokio::spawn(async move {
-            loop {
-                // Check for Ctrl+C with a longer poll time to not miss keypresses
-                // Note: This still uses std blocking calls as crossterm isn't async
-                if terminal::enable_raw_mode().is_ok()
-                    && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false)
-                {
-                    if let Ok(Event::Key(key)) = event::read() {
-                        if key.code == KeyCode::Char('c')
-                            && key.modifiers.contains(KeyModifiers::CONTROL)
-                        {
-                            // Set interrupt with reason
-                            let mut data = keyboard_interrupt_data.lock().unwrap();
-                            data.interrupt("User interrupted command with Ctrl+C".to_string());
-
-                            // Exit the keyboard handling task
-                            break;
-                        }
-                    }
-                }
-
-                // Check if the process is already done
-                {
-                    let data = keyboard_interrupt_data.lock().unwrap();
-                    if data.is_interrupted() {
-                        break; // Process was interrupted or completed
-                    }
-                }
-
-                // Check if command finished on its own
-                if !*keyboard_command_running.lock().await {
-                    // Terminal mode changes handled elsewhere when using buffer system
-                    break;
-                }
-
-                // Small sleep to avoid CPU spinning
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            }
-        });
-    }
+    // No longer handling keyboard interruptions directly in the shell tool
+    // Interrupts now come from the UI layer through the InterruptData
 
     // Spawn the main monitoring task
     let main_command_str = command_str.clone();
     let main_sender = sender.clone();
     let main_silent_mode = silent_mode;
 
-    tokio::spawn(async move {
+    crate::output::spawn(async move {
         // Main process monitoring variables
         let mut was_interrupted = false;
         let mut interrupt_reason = String::new();
@@ -323,8 +277,6 @@ pub async fn execute_shell(
         // Wait a moment for stdout/stderr to finish processing
         sleep(Duration::from_millis(50)).await;
 
-        // Terminal mode changes handled elsewhere when using buffer system
-
         // Determine success based on exit status or interruption
         let success = if was_interrupted {
             true // Interruption is successful
@@ -349,9 +301,6 @@ pub async fn execute_shell(
 
         // Print status message
         if !main_silent_mode {
-            // Ensure we're in normal mode for console output
-            // Terminal mode changes handled elsewhere when using buffer system
-
             // Use output buffer for completion status
             if was_interrupted {
                 crate::btool_println!(

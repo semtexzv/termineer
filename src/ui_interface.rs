@@ -3,7 +3,7 @@
 //! This module implements a Text User Interface (TUI) using ratatui,
 //! providing a more interactive and visually appealing interface.
 
-use crate::agent::{AgentManager, AgentCommand, AgentId, AgentMessage};
+use crate::agent::{AgentManager, AgentCommand, AgentId, AgentMessage, AgentState};
 use crate::output::SharedBuffer;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -20,6 +20,7 @@ use ratatui::{
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use ratatui::widgets::Clear;
 
 /// Maximum number of lines to keep in the conversation history view
 const MAX_HISTORY_LINES: usize = 1000;
@@ -32,14 +33,18 @@ pub struct TuiState {
     pub cursor_position: usize,
     /// Currently selected agent ID
     pub selected_agent_id: AgentId,
-    /// List of all agent IDs
-    pub agent_ids: Vec<AgentId>,
+    /// List of all agents with their IDs and names
+    pub agents: Vec<(AgentId, String)>,
     /// Buffer for the selected agent's output.
     pub agent_buffer: SharedBuffer,
     /// Whether the application should exit
     pub should_quit: bool,
     /// Command mode indicator (when input starts with '/')
     pub command_mode: bool,
+    /// Pound command mode indicator (when input starts with '#')
+    pub pound_command_mode: bool,
+    /// Last time Ctrl+C was pressed (for double-press exit)
+    pub last_interrupt_time: Option<std::time::Instant>,
     /// Reference to the agent manager
     agent_manager: Arc<Mutex<AgentManager>>,
 }
@@ -47,14 +52,24 @@ pub struct TuiState {
 impl TuiState {
     /// Create a new TUI state
     pub fn new(selected_agent_id: AgentId, agent_buffer: SharedBuffer, agent_manager: Arc<Mutex<AgentManager>>) -> Self {
+        // Get agent name for the selected ID
+        let name = agent_manager
+            .lock()
+            .unwrap()
+            .get_agent_handle(selected_agent_id)
+            .map(|h| h.name.clone())
+            .unwrap_or_else(|| "Main".to_string());
+        
         Self {
             input: String::new(),
             cursor_position: 0,
             selected_agent_id,
-            agent_ids: vec![selected_agent_id],
+            agents: vec![(selected_agent_id, name)],
             agent_buffer,
             should_quit: false,
             command_mode: false,
+            pound_command_mode: false,
+            last_interrupt_time: None,
             agent_manager,
         }
     }
@@ -62,6 +77,7 @@ impl TuiState {
     /// Check if the current input is a command
     pub fn update_command_mode(&mut self) {
         self.command_mode = self.input.starts_with('/');
+        self.pound_command_mode = self.input.starts_with('#');
     }
 
     /// Add agent output to the buffer
@@ -73,19 +89,27 @@ impl TuiState {
     }
 
     /// Update the list of agents
-    pub fn update_agent_list(&mut self, agent_ids: Vec<AgentId>) {
-        self.agent_ids = agent_ids;
+    pub fn update_agent_list(&mut self, agents: Vec<(AgentId, String)>) {
+        self.agents = agents;
         
         // Ensure selected agent is in the list
-        if !self.agent_ids.contains(&self.selected_agent_id) && !self.agent_ids.is_empty() {
-            self.selected_agent_id = self.agent_ids[0];
+        let agent_ids: Vec<AgentId> = self.agents.iter().map(|(id, _)| *id).collect();
+        if !agent_ids.contains(&self.selected_agent_id) && !self.agents.is_empty() {
+            self.selected_agent_id = self.agents[0].0;
+            // Update buffer to the new agent
+            if let Ok(manager) = self.agent_manager.lock() {
+                if let Ok(buffer) = manager.get_agent_buffer(self.selected_agent_id) {
+                    self.agent_buffer = buffer;
+                }
+            }
         }
     }
 
     /// Draw the UI components
     fn ui(&self, f: &mut Frame) {
         let size = f.size();
-
+        f.render_widget(Clear, size);
+        
         // Create the layout with header, content, and input areas
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -109,12 +133,12 @@ impl TuiState {
     /// Render the header with agent list
     fn render_header(&self, f: &mut Frame, area: Rect) {
         let agent_spans: Vec<Span> = self
-            .agent_ids
+            .agents
             .iter()
-            .map(|id| {
+            .map(|(id, name)| {
                 if *id == self.selected_agent_id {
                     Span::styled(
-                        format!(" Agent {} ", id),
+                        format!(" {} [{}] ", name, id),
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::White)
@@ -122,7 +146,7 @@ impl TuiState {
                     )
                 } else {
                     Span::styled(
-                        format!(" Agent {} ", id),
+                        format!(" {} [{}] ", name, id),
                         Style::default().fg(Color::White),
                     )
                 }
@@ -173,18 +197,27 @@ impl TuiState {
 
     /// Render the input area
     fn render_input(&self, f: &mut Frame, area: Rect) {
-        // Create input text with styling
+        // Create input text with styling based on mode
         let input_style = if self.command_mode {
             Style::default().fg(Color::Yellow)
+        } else if self.pound_command_mode {
+            Style::default().fg(Color::Green)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(Color::Black)
         };
 
         // Get the agent state from the agent manager
         let agent_state_str = self.get_agent_state_string();
         
+        // Get the current agent name
+        let agent_name = self.agents
+            .iter()
+            .find(|(id, _)| *id == self.selected_agent_id)
+            .map(|(_, name)| name.as_str())
+            .unwrap_or("Unknown");
+        
         // Create title with agent state
-        let title = format!("Input [Agent {} | {}]", self.selected_agent_id, agent_state_str);
+        let title = format!("Input [{} [{}] | {}]", agent_name, self.selected_agent_id, agent_state_str);
 
         let input_text = Paragraph::new(self.input.as_str())
             .style(input_style)
@@ -205,6 +238,10 @@ impl TuiState {
     fn get_agent_state_string(&self) -> String {
         if self.command_mode {
             return "Command Mode".to_string();
+        }
+        
+        if self.pound_command_mode {
+            return "Agent Selection Mode".to_string();
         }
         
         // Try to get the state from the agent manager
@@ -265,9 +302,6 @@ impl TuiInterface {
                     self.handle_key_event(key).await?;
                 }
             }
-
-            // Process any output from agents
-            self.update_agent_output().await?;
         }
 
         // Restore terminal
@@ -284,9 +318,9 @@ impl TuiInterface {
     /// Handle key events
     async fn handle_key_event(&mut self, key: KeyEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match key.code {
-            // Exit on Ctrl+c
+            // Multi-level interrupt with Ctrl+C
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.state.should_quit = true;
+                self.handle_ctrl_c_interrupt().await?;
             }
             
             // Submit on Enter
@@ -297,6 +331,8 @@ impl TuiInterface {
                 if !input.is_empty() {
                     if input.starts_with('/') {
                         self.handle_command(&input).await?;
+                    } else if input.starts_with('#') {
+                        self.handle_pound_command(&input).await?;
                     } else {
                         // Add user input to buffer
                         self.state.add_to_buffer(format!("> {}", input));
@@ -373,6 +409,123 @@ impl TuiInterface {
         Ok(())
     }
 
+    /// Handle Ctrl+C interrupt with multi-level behavior
+    async fn handle_ctrl_c_interrupt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Define the double-press window (3 seconds)
+        const DOUBLE_PRESS_WINDOW: std::time::Duration = std::time::Duration::from_secs(3);
+        
+        // Get current time
+        let now = std::time::Instant::now();
+        
+        // Check if this is a double-press (second Ctrl+C within window)
+        if let Some(last_time) = self.state.last_interrupt_time {
+            if now.duration_since(last_time) < DOUBLE_PRESS_WINDOW {
+                // This is a double-press, exit the application
+                self.state.add_to_buffer("Received second Ctrl+C. Exiting application...".to_string());
+                self.state.should_quit = true;
+                return Ok(());
+            }
+        }
+        
+        // This is the first press or outside the double-press window
+        self.state.last_interrupt_time = Some(now);
+        
+        // Get current agent state
+        let agent_state = {
+            let manager = self.agent_manager.lock().unwrap();
+            manager.get_agent_state(self.state.selected_agent_id).ok()
+        };
+        
+        match agent_state {
+            // If running a shell command (interruptible tool)
+            Some(AgentState::RunningTool { tool, interruptible }) if interruptible => {
+                self.state.add_to_buffer(format!("Interrupting shell command. Press Ctrl+C again within 3 seconds to exit."));
+                
+                // Interrupt the shell command but continue agent processing
+                let manager = self.agent_manager.lock().unwrap();
+                manager.interrupt_agent(self.state.selected_agent_id)?;
+            },
+            
+            // If agent is actively processing
+            Some(AgentState::Processing) => {
+                self.state.add_to_buffer(format!("Interrupting agent processing. Press Ctrl+C again within 3 seconds to exit."));
+                
+                // Interrupt the agent
+                let manager = self.agent_manager.lock().unwrap();
+                manager.interrupt_agent(self.state.selected_agent_id)?;
+            },
+            
+            // If agent is waiting for input (idle or done), just warn about second press
+            _ => {
+                self.state.add_to_buffer("Press Ctrl+C again within 3 seconds to exit application.".to_string());
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Handle pound command for agent switching
+    async fn handle_pound_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Echo command to buffer
+        self.state.add_to_buffer(format!("> {}", cmd));
+        
+        // Parse the agent number from the command
+        let agent_str = cmd.trim_start_matches('#').trim();
+        
+        // Try to parse as a number first (for ID-based selection)
+        if let Ok(agent_id) = agent_str.parse::<u64>() {
+            let agent_id = AgentId(agent_id);
+            
+            // Check if this agent exists
+            let agent_exists = self.state.agents.iter().any(|(id, _)| *id == agent_id);
+            
+            if agent_exists {
+                // Switch to this agent
+                self.state.selected_agent_id = agent_id;
+                
+                // Update buffer to show the selected agent's output
+                let manager = self.agent_manager.lock().unwrap();
+                if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
+                    self.state.agent_buffer = buffer;
+                    
+                    // Get agent name
+                    let agent_name = self.state.agents.iter()
+                        .find(|(id, _)| *id == agent_id)
+                        .map(|(_, name)| name.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    
+                    self.state.add_to_buffer(format!("Switched to agent {} [{}]", agent_name, agent_id));
+                } else {
+                    self.state.add_to_buffer(format!("Failed to get buffer for agent {}", agent_id));
+                }
+            } else {
+                self.state.add_to_buffer(format!("Agent with ID {} not found", agent_id));
+            }
+        } else {
+            // Try to find agent by name
+            let agent = self.state.agents.iter()
+                .find(|(_, name)| name.to_lowercase() == agent_str.to_lowercase());
+                
+            if let Some((agent_id, name)) = agent {
+                // Switch to this agent
+                self.state.selected_agent_id = *agent_id;
+                
+                // Update buffer to show the selected agent's output
+                let manager = self.agent_manager.lock().unwrap();
+                if let Ok(buffer) = manager.get_agent_buffer(*agent_id) {
+                    self.state.agent_buffer = buffer;
+                    self.state.add_to_buffer(format!("Switched to agent {} [{}]", name, agent_id));
+                } else {
+                    self.state.add_to_buffer(format!("Failed to get buffer for agent {}", name));
+                }
+            } else {
+                self.state.add_to_buffer(format!("Agent '{}' not found", agent_str));
+            }
+        }
+        
+        Ok(())
+    }
+
     /// Handle command input
     async fn handle_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Echo command to buffer
@@ -396,6 +549,8 @@ impl TuiInterface {
                 self.state.add_to_buffer("  /tools <on|off>        - Enable or disable tools".to_string());
                 self.state.add_to_buffer("  /system <text>         - Set the system prompt".to_string());
                 self.state.add_to_buffer("  /reset                 - Reset the conversation".to_string());
+                self.state.add_to_buffer("  #<id>                  - Switch to agent with specified ID".to_string());
+                self.state.add_to_buffer("  #<name>                - Switch to agent with specified name".to_string());
             }
             "/interrupt" => {
                 let manager = self.agent_manager.lock().unwrap();
@@ -468,24 +623,6 @@ impl TuiInterface {
         Ok(())
     }
 
-    /// Update the agent output by checking the buffer
-    async fn update_agent_output(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // For now, we'll implement a simple polling mechanism
-        // In the future, this should use a proper channel or callback system
-        
-        // Update the agent list
-        let agent_ids = {
-            let manager = self.agent_manager.lock().unwrap();
-            manager.list_agents().iter().map(|v| v.0).collect()
-        };
-        self.state.update_agent_list(agent_ids);
-        
-        // In a real implementation, we would have a way to get the agent output
-        // For now, this is a placeholder that would be replaced with actual
-        // buffer consumption logic
-        
-        Ok(())
-    }
 }
 
 impl Drop for TuiInterface {

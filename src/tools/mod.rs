@@ -89,7 +89,7 @@ impl ToolExecutor {
         }
 
         // Execute the appropriate tool with silent mode flag. Shell handled externally
-        match tool_name.as_str() {
+        let result = match tool_name.as_str() {
             "read" => execute_read(args, &body, self.silent_mode).await,
             "write" => execute_write(args, &body, self.silent_mode).await,
             "patch" => execute_patch(args, &body, self.silent_mode).await,
@@ -103,7 +103,9 @@ impl ToolExecutor {
                 }
                 ToolResult::error(format!("Unknown tool: {:?}", tool_name))
             }
-        }
+        };
+        
+        result
     }
 
     /// Parse tool content into name, args, and body

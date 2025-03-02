@@ -64,10 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         // Create the main agent
         match manager.create_agent("main".to_string(), config) {
-            Ok(id) => {
-                println!("Main agent created with ID {}", id);
-                id
-            }
+            Ok(id) => id,
             Err(e) => {
                 execute!(
                     io::stderr(),

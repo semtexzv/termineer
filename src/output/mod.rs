@@ -8,6 +8,10 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::task;
 
+// Global reference to the AgentManager for state updates
+use std::sync::OnceLock;
+pub static AGENT_MANAGER: OnceLock<Arc<Mutex<crate::agent::AgentManager>>> = OnceLock::new();
+
 /// Types of output lines that can be stored in the buffer
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutputType {
@@ -157,3 +161,13 @@ where
 {
     tokio::spawn(CURRENT_BUFFER.scope(buffer, async move { future.await }))
 }
+
+
+pub fn spawn<F, T>(future: F) -> task::JoinHandle<T>
+where
+    F: futures::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    spawn_with_buffer(CURRENT_BUFFER.get(), future)
+}
+

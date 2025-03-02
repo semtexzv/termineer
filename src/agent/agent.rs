@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::types::{AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState};
+use super::types::{AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, StateSender};
 use crate::config::Config;
 use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START};
 use crate::conversation::{is_done_tool, parse_assistant_response};
@@ -15,6 +15,8 @@ use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
+
+use tokio::sync::watch;
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -62,6 +64,9 @@ pub struct Agent {
     /// Receiver for agent messages
     receiver: AgentReceiver,
 
+    /// Sender of state updates
+    sender: StateSender,
+
     /// Current state of the agent
     state: AgentState,
 
@@ -74,9 +79,30 @@ impl Agent {
     pub fn new(
         id: AgentId,
         name: String,
-        config: Config,
+        mut config: Config,
         receiver: AgentReceiver,
+        sender: StateSender,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        // Initialize system prompt if not already set
+        if config.system_prompt.is_none() {
+            // Create appropriate tool options based on whether tools are enabled
+            let tool_options = if config.enable_tools {
+                crate::prompts::ToolDocOptions::default()
+            } else {
+                crate::prompts::ToolDocOptions::readonly()
+            };
+            
+            // Generate the system prompt based on the minimal flag
+            let prompt = if config.use_minimal_prompt {
+                crate::prompts::generate_minimal_system_prompt(&tool_options)
+            } else {
+                crate::prompts::generate_system_prompt(&tool_options)
+            };
+            
+            // Set the system prompt in the config
+            config.system_prompt = Some(prompt);
+        }
+
         // Create LLM backend using factory
         let llm = crate::llm::create_backend(&config)?;
 
@@ -97,15 +123,20 @@ impl Agent {
             ]),
             cache_points: BTreeSet::new(),
             receiver,
+            sender,
             state: AgentState::Idle,
             interrupt_shell: None,
         })
+    }
+    fn set_state(&mut self, state: AgentState) {
+        self.state = state.clone();
+        self.sender.send(self.state.clone()).unwrap()
     }
 
     /// Run the agent, processing messages until terminated
     pub async fn run(mut self) {
         crate::bprintln!("Agent '{}' started", self.name);
-        self.state = AgentState::Idle;
+        self.set_state(AgentState::Idle);
 
         // Main agent loop
         'main: loop {
@@ -115,12 +146,12 @@ impl Agent {
                 msg = self.receiver.recv() => {
                     match msg {
                         Some(AgentMessage::UserInput(input)) => {
-                            self.state = AgentState::Processing;
+                            self.set_state(AgentState::Processing);
                             crate::bprintln!("Processing: {}", input);
                             if let Err(e) = self.process_input(&input).await {
                                 crate::berror_println!("Error processing input: {}", e);
                             }
-                            self.state = AgentState::Idle;
+                            self.set_state(AgentState::Idle);
                         },
                         Some(AgentMessage::Interrupt) => {
                             self.handle_interrupt().await;
@@ -148,36 +179,53 @@ impl Agent {
 
     /// Process a user input message
     async fn process_input(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Tracks whether we should continue processing (for multi-turn tool execution)
-        let mut continue_processing = true;
-        let mut is_done = false;
+        // If the agent is already in Done state, don't process further input
+        if matches!(self.state, AgentState::Done) {
+            crate::bprintln!("Agent has completed its task. Use /reset to start a new conversation.");
+            return Ok(());
+        }
 
         // First message from user
         let mut result = self.send_message(input).await?;
-        continue_processing = result.continue_processing;
+        let mut continue_processing = result.continue_processing;
 
-        // Continue processing if needed (multi-turn tool execution)
-        while continue_processing && !is_done {
-            // Check for interruption between turns
-            if matches!(self.state, AgentState::Processing) {
-                // Continue to the next turn
-                match self.send_message("").await {
-                    Ok(next_result) => {
-                        result = next_result;
-                        continue_processing = result.continue_processing;
-                    }
-                    Err(e) => {
-                        crate::berror_println!("Error during continued processing: {}", e);
-                        break;
-                    }
-                }
-            } else {
-                // We're in a terminal state or interrupted
+        // Main agent loop - continue until we're done or interrupted
+        while continue_processing {
+            // Check if we're done (e.g., done tool was used)
+            if self.is_done() {
+                // Update state and exit the loop
+                self.state = AgentState::Done;
+                crate::bprintln!("Agent has completed its task.");
                 break;
             }
 
-            // Check if we're done (e.g., done tool was used)
-            is_done = self.is_done();
+            // Check if we've been interrupted or terminated
+            if matches!(self.state, AgentState::Terminated) {
+                crate::bprintln!("Agent processing was terminated.");
+                break;
+            }
+            
+            // If we're in Idle state but continue_processing is true, something is wrong
+            // This is a safety check in case state transitions elsewhere are inconsistent
+            if matches!(self.state, AgentState::Idle) {
+                crate::bprintln!("Agent processing was interrupted (inconsistent state detected).");
+                break;
+            }
+
+            // Keep processing - we need to be in Processing state to continue
+            self.state = AgentState::Processing;
+            
+            // Try to continue to the next turn without user input
+            match self.send_message("").await {
+                Ok(next_result) => {
+                    result = next_result;
+                    continue_processing = result.continue_processing;
+                }
+                Err(e) => {
+                    crate::berror_println!("Error during continued processing: {}", e);
+                    break;
+                }
+            }
         }
 
         Ok(())
@@ -460,8 +508,9 @@ impl Agent {
         self.conversation
             .push(Message::text("user", agent_response, message_info));
 
-        // Reset state
-        self.state = AgentState::Idle;
+        // Reset state only to Processing since we're continuing processing
+        // (continue_processing is always true here)
+        self.state = AgentState::Processing;
 
         // Return with continue_processing flag set to true
         Ok(MessageResult {
@@ -642,9 +691,14 @@ impl Agent {
                 MessageInfo::Assistant,
             ));
 
+            // If this is a regular response, set the state back to Idle
+            // so the agent waits for the next user input
+            self.state = AgentState::Idle;
+            crate::bprintln!("Agent waiting for next user input.");
+
             return Ok(MessageResult {
                 response: assistant_message,
-                continue_processing: false,
+                continue_processing: false, // Stop processing, wait for user input
                 token_usage: response.usage,
             });
         }
@@ -652,6 +706,10 @@ impl Agent {
         // At this point, we know we have a tool invocation
         let tool_name = parsed.tool_name.unwrap();
         let tool_content = parsed.tool_content.unwrap();
+
+        // Log tool invocation to buffer
+        crate::bprintln!("=== Tool invocation detected: {} ===", tool_name);
+        crate::bprintln!("Tool content: {}", tool_content);
 
         // Display token stats before any other output (if not in silent mode)
         if !self.tool_executor.is_silent() {
@@ -694,14 +752,28 @@ impl Agent {
             interruptible,
         };
 
+        // Log before tool execution
+        crate::bprintln!("=== Executing tool: {} ===", tool_name);
+        
         // Execute the tool
         let tool_result = self.tool_executor.execute(&tool_content).await;
-
-        // Reset state
-        self.state = AgentState::Idle;
+        
+        // Log after tool execution
+        crate::bprintln!("=== Tool execution completed ===");
+        crate::bprintln!("Success: {}", tool_result.success);
+        crate::bprintln!("Output length: {} characters", tool_result.agent_output.len());
 
         // Check if this is the "done" tool
         let is_done = is_done_tool(&tool_name);
+
+        // Only reset to Idle if we're not going to continue processing
+        // If this is not the "done" tool, we should stay in Processing state
+        // to avoid being interrupted by the check in process_input()
+        if !is_done {
+            self.state = AgentState::Processing;  // Keep processing if continuing
+        } else {
+            self.state = AgentState::Idle;  // Reset to Idle if done
+        }
 
         // Format the agent response with appropriate delimiters
         let agent_response = if tool_result.success {
@@ -717,7 +789,10 @@ impl Agent {
         };
 
         // Display tool output to user using the buffer system if not in silent mode
+        crate::bprintln!("=== Preparing to display tool output to user ===");
         if !self.tool_executor.is_silent() {
+            crate::bprintln!("Silent mode is OFF - should display output");
+            
             // Display tool title
             crate::btool_println!(
                 &tool_name,
@@ -726,8 +801,12 @@ impl Agent {
             );
             
             // Display the actual tool output
+            crate::bprintln!("------ TOOL OUTPUT START ------");
             crate::bprintln!("{}", tool_result.agent_output);
+            crate::bprintln!("------ TOOL OUTPUT END ------");
             crate::bprintln!();
+        } else {
+            crate::bprintln!("Silent mode is ON - suppressing output display");
         }
 
         // Return value to use in the process flow
@@ -755,8 +834,12 @@ impl Agent {
             }
         }
 
-        // If this was the "done" tool, return with continue_processing=false
+        // If this was the "done" tool, set state to Done and return with continue_processing=false
         if is_done {
+            // Update state to Done
+            self.state = AgentState::Done;
+            crate::bprintln!("Agent has marked task as completed.");
+            
             return Ok(MessageResult {
                 response: result_for_response,
                 continue_processing: false,
@@ -765,6 +848,7 @@ impl Agent {
         }
 
         // Return with continue_processing flag set to true to indicate tool processing should continue
+        // The process_input loop will handle sending the next empty message
         Ok(MessageResult {
             response: result_for_response,
             continue_processing: true,
@@ -796,6 +880,11 @@ impl Agent {
         self.conversation.clear();
         // Clear all cache points when conversation is cleared
         self.cache_points.clear();
+        // Reset state to Idle if it was Done
+        if matches!(self.state, AgentState::Done) {
+            self.state = AgentState::Idle;
+            crate::bprintln!("Agent state reset to Idle.");
+        }
     }
 
     /// Set the system prompt

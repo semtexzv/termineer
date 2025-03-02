@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 /// Unique identifier for an agent
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -54,6 +54,7 @@ pub enum AgentStateCode {
     Processing = 1,
     RunningTool = 2,
     Terminated = 3,
+    Done = 4,
 }
 
 /// Possible states of an agent
@@ -70,6 +71,9 @@ pub enum AgentState {
 
     /// Agent has been terminated
     Terminated,
+    
+    /// Agent has completed its task (done tool used)
+    Done,
 }
 
 impl AgentState {
@@ -80,6 +84,7 @@ impl AgentState {
             AgentState::Processing => AgentStateCode::Processing,
             AgentState::RunningTool { .. } => AgentStateCode::RunningTool,
             AgentState::Terminated => AgentStateCode::Terminated,
+            AgentState::Done => AgentStateCode::Done,
         }
     }
     
@@ -90,6 +95,7 @@ impl AgentState {
             AgentState::Processing => "Thinking...".to_string(),
             AgentState::RunningTool { tool, .. } => format!("Running: {}", tool),
             AgentState::Terminated => "Terminated".to_string(),
+            AgentState::Done => "Task completed".to_string(),
         }
     }
 }
@@ -118,3 +124,6 @@ pub type AgentSender = mpsc::Sender<AgentMessage>;
 
 /// Type alias for an agent message receiver
 pub type AgentReceiver = mpsc::Receiver<AgentMessage>;
+
+pub type StateSender = watch::Sender<AgentState>;
+pub type StateReceiver = watch::Receiver<AgentState>;
