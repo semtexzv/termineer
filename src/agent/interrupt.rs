@@ -55,7 +55,11 @@ impl InterruptCoordinator {
                     .await
                 {
                     Ok(_) => {
-                        crate::bprintln!("Shell interrupted by user signal");
+                        crate::bprintln!("{}{}{} by user signal{}",
+                            crate::constants::FORMAT_BOLD,
+                            crate::constants::FORMAT_BLUE,
+                            "Shell interrupted",
+                            crate::constants::FORMAT_RESET);
                     },
                     Err(e) => {
                         // Channel error - shell might have completed just before interrupt
@@ -65,7 +69,11 @@ impl InterruptCoordinator {
                         if let Err(e) = agent_tx.try_send(()) {
                             crate::berror_println!("Failed to interrupt agent after shell interrupt failure: {}", e);
                         } else {
-                            crate::bprintln!("Falling back to agent interrupt");
+                            crate::bprintln!("{}{}{} to agent interrupt{}",
+                                crate::constants::FORMAT_BOLD,
+                                crate::constants::FORMAT_BLUE,
+                                "Falling back",
+                                crate::constants::FORMAT_RESET);
                         }
                     }
                 }

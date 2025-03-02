@@ -159,11 +159,17 @@ impl Agent {
                 // Handle any possible interrupts (routed to us by the monitor)
                 // This has highest priority (biased select)
                 _ = agent_interrupt_rx.recv() => {
+                    // Add interrupt message to conversation
                     self.conversation.push(Message::text(
                         "user",
                         "*Processing was interrupted by user*".to_string(),
                         MessageInfo::User,
                     ));
+                    // Display with bold dark blue formatting
+                    crate::bprintln!("{}{}*Processing was interrupted by user*{}",
+                        crate::constants::FORMAT_BOLD,
+                        crate::constants::FORMAT_BLUE,
+                        crate::constants::FORMAT_RESET);
                     self.set_state(AgentState::Idle);
                     continue;
                 }
@@ -438,7 +444,12 @@ impl Agent {
                                         );
 
                                         // Log the interruption before moving the reason
-                                        crate::bprintln!("LLM requested interruption: {}", reason);
+                                        crate::bprintln!("{}{}{} requested: {}{}",
+                                            crate::constants::FORMAT_BOLD,
+                                            crate::constants::FORMAT_BLUE,
+                                            "LLM interruption",
+                                            reason,
+                                            crate::constants::FORMAT_RESET);
 
                                         // Set interrupt flag with reason
                                         {
@@ -486,8 +497,13 @@ impl Agent {
                             "High-priority interrupt received".to_string()
                         );
 
-                        // Log the interrupt before moving the reason
-                        crate::bprintln!("Shell command interrupted by high-priority signal: {}", reason);
+                        // Log the interrupt with bold dark blue formatting
+                        crate::bprintln!("{}{}{} interrupted: {}{}",
+                            crate::constants::FORMAT_BOLD,
+                            crate::constants::FORMAT_BLUE,
+                            "Shell command",
+                            reason,
+                            crate::constants::FORMAT_RESET);
 
                         let mut data = interrupt_data.lock().unwrap();
                         data.interrupt(reason.clone());
@@ -514,8 +530,12 @@ impl Agent {
                         };
                         
                         interruption_reason_str = reason.clone();
-                        crate::bprintln!("Shell interrupt flag detected: {}", 
-                                        reason.unwrap_or_else(|| "Unknown reason".to_string()));
+                        crate::bprintln!("{}{}{} detected: {}{}",
+                            crate::constants::FORMAT_BOLD,
+                            crate::constants::FORMAT_BLUE,
+                            "Shell interrupt",
+                            reason.unwrap_or_else(|| "Unknown reason".to_string()),
+                            crate::constants::FORMAT_RESET);
                     }
                 },
             }
@@ -606,8 +626,11 @@ impl Agent {
             Your decision:"
         );
 
-        // Log interruption check (debug mode only)
-        crate::bprintln!("Checking if shell command should be interrupted...");
+        // Log interruption check with blue formatting
+        crate::bprintln!("{}{}Checking if shell command should be interrupted...{}",
+            crate::constants::FORMAT_BLUE,
+            crate::constants::FORMAT_BOLD,
+            crate::constants::FORMAT_RESET);
 
         // Create a temporary message to add to conversation
         let temp_message = Message::text("user", interruption_check_message, MessageInfo::User);
@@ -705,9 +728,18 @@ impl Agent {
 
         // Log the decision
         if should_interrupt {
-            crate::bprintln!("LLM requested interruption: {}", reason);
+            crate::bprintln!("{}{}{} requested: {}{}",
+                                            crate::constants::FORMAT_BOLD,
+                                            crate::constants::FORMAT_BLUE,
+                                            "LLM interruption",
+                                            reason,
+                                            crate::constants::FORMAT_RESET);
         } else {
-            crate::bprintln!("LLM decided to continue execution");
+            crate::bprintln!("{}{}{} to continue execution{}",
+                crate::constants::FORMAT_BLUE,
+                crate::constants::FORMAT_BOLD,
+                "LLM decided",
+                crate::constants::FORMAT_RESET);
         }
 
         Ok(InterruptionCheck {
