@@ -400,7 +400,7 @@ impl TuiState {
             .block(Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Rgb(255, 140, 0))) // Brighter orange border
-                .title(format!("{} (Press ESC to dismiss)", self.temp_output.title))
+                .title(format!("{} (Press ESC or Enter to dismiss)", self.temp_output.title))
                 .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
             .wrap(Wrap { trim: true });
         
@@ -790,8 +790,9 @@ impl TuiInterface {
             
             // Submit on Enter
             KeyCode::Enter => {
-                // Ignore if temporary output is visible
+                // If temporary output is visible, dismiss it and return
                 if self.state.temp_output.visible {
+                    self.state.temp_output.hide();
                     return Ok(());
                 }
                 
