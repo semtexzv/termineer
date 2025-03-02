@@ -518,12 +518,11 @@ impl TuiState {
             // Create spans for each agent
             agents.iter()
                 .map(|(id, name)| {
-                    // Get the state emoji for this agent
-                    let state_emoji = self.get_agent_state_emoji(*id);
-                    
+                    // Basic span formatting without trying to get state
+                    // Use simplest possible format to avoid rendering issues
                     if *id == self.selected_agent_id {
                         Span::styled(
-                            format!(" {} {} [{}] ", state_emoji, name, id),
+                            format!(" {} [{}] ", name, id),
                             Style::default()
                                 .fg(Color::Black)
                                 .bg(Color::White)
@@ -531,7 +530,7 @@ impl TuiState {
                         )
                     } else {
                         Span::styled(
-                            format!(" {} {} [{}] ", state_emoji, name, id),
+                            format!(" {} [{}] ", name, id),
                             Style::default().fg(Color::LightBlue),
                         )
                     }
@@ -707,10 +706,16 @@ impl TuiState {
         }
     }
     
-    /// Get an emoji for the agent state - simplified version that shouldn't break rendering
-    fn get_agent_state_emoji(&self, agent_id: AgentId) -> &'static str {
-        // For safety, just return a fixed emoji for now
-        "🤖"
+    /// Get a status indicator for the agent state using ASCII symbols
+    fn get_agent_state_indicator(state: Option<&AgentState>) -> &'static str {
+        match state {
+            Some(AgentState::Idle) => "•", // Bullet for ready
+            Some(AgentState::Processing) => "↻", // Processing symbol
+            Some(AgentState::RunningTool { .. }) => "⚙", // Gear for tool execution
+            Some(AgentState::Terminated) => "✕", // X for terminated
+            Some(AgentState::Done) => "✓", // Checkmark for done
+            None => "?", // Question mark for unknown state
+        }
     }
     
     /// Get a string representation of the selected agent's state
