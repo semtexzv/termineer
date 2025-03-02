@@ -23,11 +23,11 @@ use crate::tools::ToolExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 
-// Token limit thresholds for debugging (artificially low to trigger token management)
+// Token limit thresholds for debugging (extremely low to trigger token management)
 // Original values commented below for easy restoration
-const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 30000; // Debug: Trigger warnings earlier
-const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 40000; // Debug: Trigger critical earlier  
-const MAX_EXPECTED_OUTPUT_TOKENS: usize = 4000;   // Debug: Reduced output reservation
+const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 5000;  // Debug: Trigger warnings with minimal usage
+const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 8000; // Debug: Trigger critical with minimal usage
+const MAX_EXPECTED_OUTPUT_TOKENS: usize = 1000;     // Debug: Minimal output reservation
 
 // Original values for Claude's 200k context window:
 // const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 160000; // 80% of 200k tokens
@@ -178,39 +178,30 @@ impl Agent {
     
     /// Check if token usage is approaching limits and handle if needed
     async fn check_token_usage(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Use actual token counts from the last request if available
+        // Use a more aggressive token estimation for debugging
         let mut estimated_input_tokens = 0;
         
-        // Find the most recent token usage data to get a baseline
-        let mut last_known_token_count = None;
-        for i in (0..self.conversation.len()).rev() {
-            if let MessageInfo::Assistant = self.conversation[i].info {
-                // Find the most recent response where we have token counts
-                // In a real implementation, we'd maintain a running total throughout the conversation
-                if i + 1 < self.conversation.len() {
-                    // For estimation purposes, the input tokens of the next message would be
-                    // approximately what was counted as output tokens plus new messages
-                    last_known_token_count = Some(i);
-                    break;
-                }
+        // Get a baseline count by looking at conversation history
+        // For debugging, we'll use an aggressive multiplier to trigger the feature easily
+        let debug_multiplier = 2.0; // Make token count appear higher than it really is
+        
+        // Count all messages in the conversation
+        for msg in &self.conversation {
+            if let Content::Text { text } = &msg.content {
+                // Approximate 3 characters per token (more aggressive than usual 4)
+                let msg_tokens = (text.len() as f32 / 3.0 * debug_multiplier) as usize;
+                estimated_input_tokens += msg_tokens;
             }
         }
         
-        // If we have a recent token count, use it as a baseline
-        // Otherwise, estimate based on character counts
-        if last_known_token_count.is_none() {
-            // No token usage data available, estimate based on character count
-            for msg in &self.conversation {
-                if let Content::Text { text } = &msg.content {
-                    // Approximate 4 characters per token as a rough estimate
-                    estimated_input_tokens += text.len() / 4;
-                }
-            }
-        } else {
-            // Use known token counts and add estimates for new messages
-            // This is a more accurate approach when we have actual token usage data
-            // In a real implementation, we would track token counts incrementally
-            estimated_input_tokens = 10000; // Conservative baseline
+        // For debugging, add a fixed baseline to ensure we hit the threshold
+        if self.conversation.len() > 5 {
+            // Add a baseline after a few messages to trigger the feature more easily
+            estimated_input_tokens += 3000;
+            
+            crate::bprintln!("{}DEBUG: Added baseline tokens to trigger token management{}",
+                crate::constants::FORMAT_YELLOW,
+                crate::constants::FORMAT_RESET);
         }
         
         // Add buffer for the expected output tokens
@@ -1139,8 +1130,19 @@ impl Agent {
         &mut self,
         interrupt_coordinator: &InterruptCoordinator,
     ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
+        // Always show current token usage for debugging
+        crate::bprintln!("{}DEBUG: Checking token usage before sending message...{}",
+            crate::constants::FORMAT_CYAN,
+            crate::constants::FORMAT_RESET);
+            
         // Check if we're approaching token limits and handle if needed
-        let _ = self.check_token_usage().await?;
+        let token_check_result = self.check_token_usage().await?;
+        
+        if token_check_result {
+            crate::bprintln!("{}DEBUG: Token management performed truncation{}",
+                crate::constants::FORMAT_GREEN,
+                crate::constants::FORMAT_RESET);
+        }
         
         // Add .autoswe file content to beginning of conversation if it hasn't been added yet
         if self.conversation.is_empty() && tokio::fs::try_exists(".autoswe").await? {
@@ -1381,6 +1383,33 @@ impl Agent {
             // Cache frequently, especially for larger responses
             if usage.input_tokens + usage.output_tokens > 300 {
                 self.cache_here();
+            }
+            
+            // Check token usage after tool execution to see if we need to truncate
+            if usage.input_tokens + usage.output_tokens > 500 {
+                crate::bprintln!("{}DEBUG: Large tool output detected, checking token usage...{}",
+                    crate::constants::FORMAT_YELLOW,
+                    crate::constants::FORMAT_RESET);
+                    
+                // Check if we need to truncate after this tool execution
+                match self.check_token_usage().await {
+                    Ok(true) => {
+                        crate::bprintln!("{}DEBUG: Token truncation performed after tool execution{}",
+                            crate::constants::FORMAT_GREEN,
+                            crate::constants::FORMAT_RESET);
+                    },
+                    Ok(false) => {
+                        crate::bprintln!("{}DEBUG: No truncation needed after tool execution{}",
+                            crate::constants::FORMAT_CYAN,
+                            crate::constants::FORMAT_RESET);
+                    },
+                    Err(e) => {
+                        crate::bprintln!("{}DEBUG: Error checking token usage: {}{}",
+                            crate::constants::FORMAT_RED,
+                            e,
+                            crate::constants::FORMAT_RESET);
+                    }
+                }
             }
         }
 
