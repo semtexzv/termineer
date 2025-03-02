@@ -819,9 +819,14 @@ impl TuiInterface {
             
             // Submit on Enter or insert newline with Shift+Enter
             KeyCode::Enter => {
-                // If temporary output is visible, dismiss it and return
+                // If temporary output is visible, dismiss it, reset state, and return
                 if self.state.temp_output.visible {
                     self.state.temp_output.hide();
+                    // Clear input and hide suggestions when dismissing output
+                    self.state.input.clear();
+                    self.state.cursor_position = 0;
+                    self.state.command_mode = false;
+                    self.state.command_suggestions.hide();
                     return Ok(());
                 }
                 
@@ -850,9 +855,19 @@ impl TuiInterface {
                     }
                     
                     if input.starts_with('/') {
+                        // Handle command and ensure input is cleared
                         self.handle_command(&input).await?;
+                        // Clear the input after submitting command
+                        self.state.input.clear();
+                        self.state.cursor_position = 0;
+                        self.state.command_mode = false;
                     } else if input.starts_with('#') {
+                        // Handle pound command and ensure input is cleared
                         self.handle_pound_command(&input).await?;
+                        // Clear the input after submitting command
+                        self.state.input.clear();
+                        self.state.cursor_position = 0;
+                        self.state.pound_command_mode = false;
                     } else {
                         // Add user input to buffer
                         self.state.add_to_buffer(format!("> {}", input));
@@ -1294,6 +1309,8 @@ impl TuiInterface {
 
     /// Show command output in the temporary window
     fn show_command_result(&mut self, title: String, content: String) {
+        // Hide command suggestions whenever showing command output
+        self.state.command_suggestions.hide();
         self.state.temp_output.show(title, content);
     }
     
