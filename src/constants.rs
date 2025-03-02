@@ -5,8 +5,10 @@
 // Tool delimiters
 pub const TOOL_START: &str = "<tool>";
 pub const TOOL_END: &str = "</tool>";
+pub const TOOL_RESULT_START_PREFIX: &str = "<tool_result";
 pub const TOOL_RESULT_START: &str = "<tool_result>";
 pub const TOOL_RESULT_END: &str = "</tool_result>";
+pub const TOOL_ERROR_START_PREFIX: &str = "<tool_error";
 pub const TOOL_ERROR_START: &str = "<tool_error>";
 pub const TOOL_ERROR_END: &str = "</tool_error>";
 

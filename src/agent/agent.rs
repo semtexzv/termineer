@@ -13,7 +13,7 @@ use super::types::{
     StateSender,
 };
 use crate::config::Config;
-use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START};
+use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_START_PREFIX, TOOL_RESULT_END};
 use crate::conversation::{is_done_tool, parse_assistant_response};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::tools::shell::{execute_shell, ShellOutput};
@@ -71,9 +71,22 @@ pub struct Agent {
 
     /// Current state of the agent
     state: AgentState,
+    
+    /// Counter for tool invocations, used for indexing tool results
+    tool_invocation_counter: usize,
 }
 
 impl Agent {
+    /// Generate a tool result start tag with the current tool invocation index
+    fn tool_result_start_tag(&self) -> String {
+        format!("<tool_result index=\"{}\">", self.tool_invocation_counter)
+    }
+    
+    /// Generate a tool error start tag with the current tool invocation index
+    fn tool_error_start_tag(&self) -> String {
+        format!("<tool_error index=\"{}\">", self.tool_invocation_counter)
+    }
+    
     /// Create a new agent with the given configuration and communication channels
     pub fn new(
         id: AgentId,
@@ -121,12 +134,13 @@ impl Agent {
             conversation: Vec::new(),
             readonly_mode: false,
             stop_sequences: Some(vec![
-                TOOL_RESULT_START.to_string(),
-                TOOL_ERROR_START.to_string(),
+                TOOL_RESULT_START_PREFIX.to_string(),
+                TOOL_ERROR_START_PREFIX.to_string(),
             ]),
             cache_points: BTreeSet::new(),
             sender,
             state: AgentState::Idle,
+            tool_invocation_counter: 0,
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -444,9 +458,10 @@ impl Agent {
                                 }
 
                                 // Create partial tool result message WITHOUT the ending tag
+                                // Shell tools reuse the same index for both partial outputs and final result
                                 let partial_tool_result = format!(
                                     "{}\n{}",
-                                    TOOL_RESULT_START, partial_output
+                                    self.tool_result_start_tag(), partial_output
                                 );
 
                                 // Mark this point in conversation as a cache point
@@ -593,12 +608,12 @@ impl Agent {
         let agent_response = if success || interrupting {
             format!(
                 "{}\n{}\n{}",
-                TOOL_RESULT_START, result_message, TOOL_RESULT_END
+                self.tool_result_start_tag(), result_message, TOOL_RESULT_END
             )
         } else {
             format!(
                 "{}\n{}\n{}",
-                TOOL_ERROR_START, result_message, TOOL_ERROR_END
+                self.tool_error_start_tag(), result_message, TOOL_ERROR_END
             )
         };
 
@@ -895,6 +910,9 @@ impl Agent {
             },
         ));
 
+        // Increment the tool invocation counter for all tools
+        self.tool_invocation_counter += 1;
+        
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
             // Use a new dedicated interrupt channel
@@ -911,6 +929,9 @@ impl Agent {
             interruptible,
         };
 
+        // Increment the tool invocation counter
+        self.tool_invocation_counter += 1;
+        
         // Execute the tool
         let tool_result = self.tool_executor.execute(&tool_content).await;
 
@@ -930,12 +951,12 @@ impl Agent {
         let agent_response = if tool_result.success {
             format!(
                 "{}\n{}\n{}",
-                TOOL_RESULT_START, tool_result.agent_output, TOOL_RESULT_END
+                self.tool_result_start_tag(), tool_result.agent_output, TOOL_RESULT_END
             )
         } else {
             format!(
                 "{}\n{}\n{}",
-                TOOL_ERROR_START, tool_result.agent_output, TOOL_ERROR_END
+                self.tool_error_start_tag(), tool_result.agent_output, TOOL_ERROR_END
             )
         };
 
