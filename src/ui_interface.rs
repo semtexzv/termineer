@@ -59,6 +59,103 @@ impl CommandPopup {
     }
 }
 
+/// Command suggestion entry
+#[derive(Clone, Debug)]
+pub struct CommandSuggestion {
+    /// Command name (including the slash)
+    pub name: String,
+    /// Command description
+    pub description: String,
+}
+
+/// Command suggestions popup for auto-completion
+pub struct CommandSuggestionsPopup {
+    /// List of all available commands
+    pub all_commands: Vec<CommandSuggestion>,
+    /// Filtered commands matching the current input
+    pub filtered_commands: Vec<CommandSuggestion>,
+    /// Currently selected command index
+    pub selected_index: usize,
+    /// Whether the popup is visible
+    pub visible: bool,
+}
+
+impl CommandSuggestionsPopup {
+    /// Create a new command suggestions popup
+    pub fn new() -> Self {
+        // Initialize with all available commands
+        let all_commands = vec![
+            CommandSuggestion { name: "/help".to_string(), description: "Show available commands".to_string() },
+            CommandSuggestion { name: "/exit".to_string(), description: "Exit the application".to_string() },
+            CommandSuggestion { name: "/quit".to_string(), description: "Exit the application".to_string() },
+            CommandSuggestion { name: "/interrupt".to_string(), description: "Interrupt the current agent".to_string() },
+            CommandSuggestion { name: "/model".to_string(), description: "Set the model for the current agent".to_string() },
+            CommandSuggestion { name: "/tools".to_string(), description: "Enable or disable tools".to_string() },
+            CommandSuggestion { name: "/system".to_string(), description: "Set the system prompt".to_string() },
+            CommandSuggestion { name: "/reset".to_string(), description: "Reset the conversation".to_string() },
+        ];
+        
+        Self {
+            all_commands: all_commands.clone(),
+            filtered_commands: all_commands,
+            selected_index: 0,
+            visible: false,
+        }
+    }
+    
+    /// Show the suggestions popup and filter based on current input
+    pub fn show(&mut self, current_input: &str) {
+        self.visible = true;
+        self.update_suggestions(current_input);
+    }
+    
+    /// Hide the suggestions popup
+    pub fn hide(&mut self) {
+        self.visible = false;
+    }
+    
+    /// Update filtered suggestions based on current input
+    pub fn update_suggestions(&mut self, current_input: &str) {
+        // Skip the leading slash for matching
+        let search_text = current_input.trim_start_matches('/');
+        
+        // If empty, show all commands
+        if search_text.is_empty() {
+            self.filtered_commands = self.all_commands.clone();
+            self.selected_index = 0;
+            return;
+        }
+        
+        // Filter commands that match the input prefix
+        self.filtered_commands = self.all_commands
+            .iter()
+            .filter(|cmd| {
+                cmd.name.trim_start_matches('/').starts_with(search_text)
+            })
+            .cloned()
+            .collect();
+        
+        // Reset selection index
+        self.selected_index = 0;
+    }
+    
+    /// Select the next suggestion
+    pub fn next(&mut self) {
+        if !self.filtered_commands.is_empty() {
+            self.selected_index = (self.selected_index + 1) % self.filtered_commands.len();
+        }
+    }
+    
+    /// Get the currently selected command if any
+    pub fn selected_command(&self) -> Option<&CommandSuggestion> {
+        if self.filtered_commands.is_empty() {
+            None
+        } else {
+            self.filtered_commands.get(self.selected_index)
+        }
+    }
+}
+
 /// State for the TUI application
 pub struct TuiState {
     /// Input being typed by the user
@@ -87,6 +184,8 @@ pub struct TuiState {
     pub visible_height: usize,
     /// Command popup for displaying command outputs
     pub command_popup: CommandPopup,
+    /// Command suggestions popup for auto-completion
+    pub command_suggestions: CommandSuggestionsPopup,
 }
 
 impl TuiState {
@@ -110,13 +209,32 @@ impl TuiState {
                 content: Vec::new(),
                 visible: false,
             },
+            command_suggestions: CommandSuggestionsPopup::new(),
         }
     }
 
     /// Check if the current input is a command
     pub fn update_command_mode(&mut self) {
+        let was_command_mode = self.command_mode;
+        
+        // Update command mode flags
         self.command_mode = self.input.starts_with('/');
         self.pound_command_mode = self.input.starts_with('#');
+        
+        // Handle command suggestions popup
+        if self.command_mode {
+            // If we just entered command mode or input changed, update suggestions
+            if !was_command_mode || self.input.len() == 1 {
+                // Just entered command mode, show suggestions
+                self.command_suggestions.show(&self.input);
+            } else {
+                // Already in command mode, update filter
+                self.command_suggestions.update_suggestions(&self.input);
+            }
+        } else {
+            // Not in command mode, hide suggestions
+            self.command_suggestions.hide();
+        }
     }
 
     /// Add agent output to the buffer
@@ -218,7 +336,12 @@ impl TuiState {
         f.render_widget(Clear, chunks[2]);
         self.render_input(f, chunks[2]);
         
-        // Render the command popup if visible
+        // Render the command suggestions popup if in command mode
+        if self.command_mode {
+            self.render_command_suggestions(f);
+        }
+        
+        // Render the command popup if visible (this renders on top of everything)
         if self.command_popup.visible {
             self.render_popup(f);
         }
@@ -260,6 +383,95 @@ impl TuiState {
         
         // Render the popup
         f.render_widget(popup_widget, popup_area);
+    }
+    
+    /// Render command suggestions popup
+    fn render_command_suggestions(&self, f: &mut Frame) {
+        // Only render if suggestions are visible and we have any
+        if !self.command_suggestions.visible || self.command_suggestions.filtered_commands.is_empty() {
+            return;
+        }
+        
+        let area = f.size();
+        
+        // Calculate total rows needed (one per command)
+        let num_commands = self.command_suggestions.filtered_commands.len();
+        
+        // Set a maximum height for the popup
+        let popup_height = num_commands.min(8) as u16 + 2; // +2 for borders
+        
+        // Calculate width based on longest command and description
+        let max_cmd_width = self.command_suggestions.filtered_commands
+            .iter()
+            .map(|cmd| cmd.name.len())
+            .max()
+            .unwrap_or(10) as u16;
+            
+        let max_desc_width = self.command_suggestions.filtered_commands
+            .iter()
+            .map(|cmd| cmd.description.len())
+            .max()
+            .unwrap_or(30) as u16;
+        
+        // Set popup width with some padding
+        let popup_width = (max_cmd_width + max_desc_width + 10).min(area.width.saturating_sub(4)).max(30);
+        
+        // Position popup below input area, aligned with current cursor position
+        let input_area_y = area.height.saturating_sub(3); // Input is 3 lines from bottom
+        
+        // Align with cursor but ensure it fits on screen
+        let popup_x = self.cursor_position.min(area.width.saturating_sub(popup_width) as usize) as u16;
+        let popup_y = input_area_y.saturating_sub(popup_height);
+        
+        let popup_area = Rect {
+            x: popup_x,
+            y: popup_y,
+            width: popup_width,
+            height: popup_height,
+        };
+        
+        // Clear the area under the popup
+        f.render_widget(Clear, popup_area);
+        
+        // Create lines for each suggestion with proper highlighting
+        let mut content_lines: Vec<Line> = Vec::with_capacity(num_commands);
+        
+        for (index, suggestion) in self.command_suggestions.filtered_commands.iter().enumerate() {
+            // Determine if this is the selected suggestion
+            let is_selected = index == self.command_suggestions.selected_index;
+            
+            // Create style for command name based on selection
+            let cmd_style = if is_selected {
+                Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            
+            // Create style for description
+            let desc_style = if is_selected {
+                Style::default().bg(Color::White).fg(Color::Black)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            
+            // Format the line with proper spacing
+            let line = Line::from(vec![
+                Span::styled(suggestion.name.clone(), cmd_style),
+                Span::styled(" - ", desc_style),
+                Span::styled(suggestion.description.clone(), desc_style),
+            ]);
+            
+            content_lines.push(line);
+        }
+        
+        // Create the suggestions widget
+        let suggestions_widget = Paragraph::new(content_lines)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title("Commands (TAB to complete)"));
+        
+        // Render the suggestions
+        f.render_widget(suggestions_widget, popup_area);
     }
 
     /// Render the header with agent list
@@ -578,6 +790,11 @@ impl TuiInterface {
                     self.state.input.remove(self.state.cursor_position - 1);
                     self.state.cursor_position -= 1;
                     self.state.update_command_mode();
+                    
+                    // Handle special case: check if we're still in command mode
+                    if self.state.command_mode {
+                        self.state.command_suggestions.update_suggestions(&self.state.input);
+                    }
                 }
             }
             
@@ -586,6 +803,11 @@ impl TuiInterface {
                 if self.state.cursor_position < self.state.input.len() {
                     self.state.input.remove(self.state.cursor_position);
                     self.state.update_command_mode();
+                    
+                    // Update command suggestions if still in command mode
+                    if self.state.command_mode {
+                        self.state.command_suggestions.update_suggestions(&self.state.input);
+                    }
                 }
             }
             
@@ -630,12 +852,43 @@ impl TuiInterface {
                 self.state.input.insert(self.state.cursor_position, c);
                 self.state.cursor_position += 1;
                 self.state.update_command_mode();
+                
+                // Special handling when starting a command - show suggestions immediately
+                if self.state.input == "/" {
+                    self.state.command_suggestions.show("/");
+                }
             }
             
-            // Escape either closes popup or clears the input
+            // Tab key for command completion
+            KeyCode::Tab => {
+                // Only handle Tab in command mode with visible suggestions
+                if self.state.command_mode && self.state.command_suggestions.visible {
+                    // Get the currently selected command
+                    if let Some(selected) = self.state.command_suggestions.selected_command() {
+                        // Replace current input with the selected command
+                        self.state.input = selected.name.clone();
+                        self.state.cursor_position = self.state.input.len();
+                        
+                        // If there's only one suggestion, add a space for parameters
+                        if self.state.command_suggestions.filtered_commands.len() == 1 {
+                            self.state.input.push(' ');
+                            self.state.cursor_position += 1;
+                            // Hide suggestions after completion
+                            self.state.command_suggestions.hide();
+                        } else {
+                            // More than one suggestion, cycle to next
+                            self.state.command_suggestions.next();
+                        }
+                    }
+                }
+            }
+            
+            // Escape either closes popup, hides suggestions, or clears the input
             KeyCode::Esc => {
                 if self.state.command_popup.visible {
                     self.state.command_popup.hide();
+                } else if self.state.command_suggestions.visible {
+                    self.state.command_suggestions.hide();
                 } else {
                     self.state.input.clear();
                     self.state.cursor_position = 0;
