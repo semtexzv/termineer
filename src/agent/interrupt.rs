@@ -1,0 +1,95 @@
+//! Interrupt coordination for agents
+//!
+//! This module provides structures and functions for coordinating interrupt
+//! signals between shell tools and the main agent processing loop.
+
+use std::future::Future;
+use crate::agent::types::{InterruptReceiver, InterruptSender, InterruptSignal};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+/// Coordinator for routing interrupts between shell commands and agent processing
+pub struct InterruptCoordinator {
+    /// Optional container for shell interrupt data when a shell is running
+    interrupt_data: Mutex<Option<InterruptSender>>,
+
+    /// Channel for interrupting the agent itself
+    agent_interrupt_tx: mpsc::Sender<()>,
+}
+
+impl InterruptCoordinator {
+    /// Create a new interrupt coordinator
+    pub fn new(agent_interrupt_tx: mpsc::Sender<()>) -> Self {
+        Self {
+            interrupt_data: Mutex::new(None),
+            agent_interrupt_tx,
+        }
+    }
+
+    /// Set whether a shell is running and update interrupt data
+    pub fn set_shell_running(&self, running: bool, data: Option<InterruptSender>) {
+        // Then update the interrupt channel
+        *self.interrupt_data.lock().unwrap() = data;
+    }
+
+    /// Check if a shell is currently running
+    pub fn is_shell_running(&self) -> bool {
+        self.interrupt_data.lock().unwrap().is_some()
+    }
+
+    /// Handle an interrupt based on current state
+    pub fn handle_interrupt(&self) -> impl Future<Output=()> + Send + 'static {
+        let data = { self.interrupt_data.lock().unwrap().clone() };
+        let agent_tx = self.agent_interrupt_tx.clone();
+        
+        async move {
+            // Shell has priority - interrupt shell if running
+            if let Some(interrupt) = data {
+                // Send interrupt with reason
+                match interrupt
+                    .send(InterruptSignal::new(Some(
+                        "User requested interruption (Ctrl+C)".to_string(),
+                    )))
+                    .await
+                {
+                    Ok(_) => {
+                        crate::bprintln!("Shell interrupted by user signal");
+                    },
+                    Err(e) => {
+                        // Channel error - shell might have completed just before interrupt
+                        crate::berror_println!("Failed to interrupt shell: {}", e);
+                        
+                        // Fall back to agent interrupt if shell interrupt fails
+                        if let Err(e) = agent_tx.try_send(()) {
+                            crate::berror_println!("Failed to interrupt agent after shell interrupt failure: {}", e);
+                        } else {
+                            crate::bprintln!("Falling back to agent interrupt");
+                        }
+                    }
+                }
+            } else {
+                // No shell running - interrupt agent processing
+                if let Err(e) = agent_tx.try_send(()) {
+                    crate::berror_println!("Failed to interrupt agent: {}", e);
+                }
+            }
+        }
+    }
+}
+
+/// Spawn a task to monitor for Ctrl+C signals and route them appropriately
+pub fn spawn_interrupt_monitor(
+    coordinator: Arc<InterruptCoordinator>,
+    mut interrupt_receiver: InterruptReceiver,
+) -> JoinHandle<()> {
+    crate::output::spawn(async move {
+        loop {
+            if let Some(_) = interrupt_receiver.recv().await {
+                // Handle the interrupt using the coordinator
+                coordinator.handle_interrupt().await;
+            }
+        }
+    })
+}

@@ -38,15 +38,8 @@ pub enum AgentMessage {
     /// Regular user input to be processed
     UserInput(String),
     
-    /// Queued message to be processed after current tool execution completes
-    QueuedUserInput(String),
-
     /// Special command for the agent
     Command(AgentCommand),
-
-    /// Request to interrupt current operation (deprecated, use interrupt channel instead)
-    /// Kept for backward compatibility
-    Interrupt,
 
     /// Request to terminate the agent
     Terminate,
@@ -109,7 +102,7 @@ impl AgentState {
             AgentState::Done => AgentStateCode::Done,
         }
     }
-    
+
     /// Get a readable string representation of the state
     pub fn as_display_string(&self) -> String {
         match self {
@@ -127,6 +120,9 @@ impl AgentState {
 pub enum AgentError {
     #[error("Agent not found: {0}")]
     AgentNotFound(AgentId),
+    
+    #[error("Agent with name not found: {0}")]
+    AgentNameNotFound(String),
 
     #[error("Failed to deliver message to agent")]
     MessageDeliveryFailed,

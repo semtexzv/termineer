@@ -1,15 +1,16 @@
 //! Manager for multiple agent instances
 
-use std::collections::HashMap;
-use tokio::task::JoinHandle;
-use tokio::sync::{mpsc, watch};
-use std::sync::atomic::{AtomicU8, Ordering};
-
 use super::agent::Agent;
-use super::types::{AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode, StateReceiver, 
-    InterruptSender, InterruptReceiver, InterruptSignal};
+use super::types::{
+    AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode, InterruptReceiver,
+    InterruptSender, InterruptSignal, StateReceiver,
+};
+use crate::agent::AgentReceiver;
 use crate::config::Config;
 use crate::output::{SharedBuffer, CURRENT_BUFFER};
+use std::collections::HashMap;
+use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 
 /// Handle to an agent task
 pub struct AgentHandle {
@@ -21,7 +22,7 @@ pub struct AgentHandle {
 
     /// Channel for sending messages to the agent
     pub sender: AgentSender,
-    
+
     /// Channel for sending high-priority interrupt signals
     pub interrupt_sender: InterruptSender,
 
@@ -36,9 +37,22 @@ pub struct AgentHandle {
 }
 
 /// Manager for multiple agent instances
+///
+/// Provides capabilities for managing multiple agents, including:
+/// - Creating and terminating agents
+/// - Looking up agents by ID or name
+/// - Sending messages and interruption signals
+/// - Tracking agent state and status
+///
+/// The manager maintains two indices:
+/// 1. A primary index by AgentId for fast ID-based lookups
+/// 2. A secondary index by name for convenient name-based lookups
 pub struct AgentManager {
-    /// Map of agent ID to agent handle
+    /// Map of agent ID to agent handle (primary index)
     agents: HashMap<AgentId, AgentHandle>,
+    
+    /// Map of agent name to agent ID for efficient name lookups (secondary index)
+    name_index: HashMap<String, AgentId>,
 
     /// Next agent ID to assign
     next_id: u64,
@@ -49,6 +63,7 @@ impl AgentManager {
     pub fn new() -> Self {
         Self {
             agents: HashMap::new(),
+            name_index: HashMap::new(),
             next_id: 1,
         }
     }
@@ -57,10 +72,10 @@ impl AgentManager {
     pub fn create_agent(&mut self, name: String, config: Config) -> Result<AgentId, AgentError> {
         // Create message channel for this agent
         let (sender, receiver) = mpsc::channel(100);
-        
+
         // Create dedicated interrupt channel
         let (interrupt_sender, interrupt_receiver) = mpsc::channel(10);
-        
+
         let (state_sender, state) = watch::channel(AgentState::Idle);
 
         // Generate unique ID
@@ -69,14 +84,14 @@ impl AgentManager {
 
         let buffer = SharedBuffer::new(100);
 
-        // Create the agent with both channels
-        let agent = match Agent::new(id, name.clone(), config, receiver, interrupt_receiver, state_sender) {
+        // Create the agent with state channel
+        let agent = match Agent::new(id, name.clone(), config, state_sender) {
             Ok(agent) => agent,
             Err(e) => return Err(AgentError::CreationFailed(e.to_string())),
         };
 
         // Spawn agent as a task with its own buffer
-        let join_handle = spawn_agent_task(agent, buffer.clone());
+        let join_handle = spawn_agent_task(agent, buffer.clone(), receiver, interrupt_receiver);
 
         // Create and store handle with both senders
         let handle = AgentHandle {
@@ -86,20 +101,57 @@ impl AgentManager {
             interrupt_sender,
             join_handle,
             buffer,
-            state
+            state,
         };
 
+        // Store the name in the index first
+        self.name_index.insert(handle.name.clone(), id);
+        
+        // Then store the agent handle with its ID
         self.agents.insert(id, handle);
 
         Ok(id)
     }
 
-    /// Get a list of all agents
+    /// Get a list of all agents as (ID, name) pairs
     pub fn list_agents(&self) -> Vec<(AgentId, String)> {
         self.agents
             .iter()
             .map(|(id, handle)| (*id, handle.name.clone()))
             .collect()
+    }
+    
+    /// Get a list of all agent names
+    pub fn list_agent_names(&self) -> Vec<String> {
+        self.agents
+            .iter()
+            .map(|(_, handle)| handle.name.clone())
+            .collect()
+    }
+    
+    /// Get the total number of agents
+    pub fn agent_count(&self) -> usize {
+        self.agents.len()
+    }
+    
+    /// Get the name of an agent by ID
+    pub fn get_agent_name(&self, id: AgentId) -> Option<String> {
+        self.agents.get(&id).map(|handle| handle.name.clone())
+    }
+    
+    /// Check if an agent with the given name exists
+    pub fn has_agent_with_name(&self, name: &str) -> bool {
+        self.name_index.contains_key(name)
+    }
+    
+    /// Find an agent ID by partial name match (case-insensitive)
+    /// Returns the first match if multiple agents match the pattern
+    pub fn find_agent_id_by_partial_name(&self, partial_name: &str) -> Option<AgentId> {
+        let lowercase_partial = partial_name.to_lowercase();
+        self.name_index
+            .iter()
+            .find(|(name, _)| name.to_lowercase().contains(&lowercase_partial))
+            .map(|(_, id)| *id)
     }
 
     /// Send a message to an agent
@@ -114,11 +166,18 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
-
     
+    /// Send a message to an agent by name
+    pub fn send_message_by_name(&self, name: &str, message: AgentMessage) -> Result<(), AgentError> {
+        match self.get_agent_id_by_name(name) {
+            Some(id) => self.send_message(id, message),
+            None => Err(AgentError::AgentNameNotFound(name.to_string())),
+        }
+    }
+
     pub fn get_agent_buffer(&self, id: AgentId) -> Result<SharedBuffer, AgentError> {
         if let Some(handle) = self.agents.get(&id) {
-            return Ok(handle.buffer.clone())
+            return Ok(handle.buffer.clone());
         } else {
             Err(AgentError::AgentNotFound(id))
         }
@@ -131,19 +190,52 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
-    
+
     /// Get a reference to an agent handle by ID
     pub fn get_agent_handle(&self, id: AgentId) -> Option<&AgentHandle> {
         self.agents.get(&id)
     }
     
+    /// Get an agent ID by name
+    /// Returns None if no agent with that name exists
+    pub fn get_agent_id_by_name(&self, name: &str) -> Option<AgentId> {
+        self.name_index.get(name).copied()
+    }
+    
+    /// Get an agent handle by name
+    /// Returns None if no agent with that name exists
+    pub fn get_agent_handle_by_name(&self, name: &str) -> Option<&AgentHandle> {
+        self.get_agent_id_by_name(name)
+            .and_then(|id| self.get_agent_handle(id))
+    }
+    
+    /// Get an agent buffer by name
+    /// Returns an error if the agent doesn't exist
+    pub fn get_agent_buffer_by_name(&self, name: &str) -> Result<SharedBuffer, AgentError> {
+        match self.get_agent_id_by_name(name) {
+            Some(id) => self.get_agent_buffer(id),
+            None => Err(AgentError::AgentNameNotFound(name.to_string())),
+        }
+    }
+    
+    /// Get the current state of an agent by name
+    /// Returns an error if the agent doesn't exist
+    pub fn get_agent_state_by_name(&self, name: &str) -> Result<AgentState, AgentError> {
+        match self.get_agent_id_by_name(name) {
+            Some(id) => self.get_agent_state(id),
+            None => Err(AgentError::AgentNameNotFound(name.to_string())),
+        }
+    }
+
     /// Interrupt an agent through the dedicated interrupt channel
     pub fn interrupt_agent(&self, id: AgentId) -> Result<(), AgentError> {
         if let Some(handle) = self.agents.get(&id) {
             // Send through the dedicated interrupt channel with optional reason
             handle
                 .interrupt_sender
-                .try_send(InterruptSignal::new(Some("User requested interruption".to_string())))
+                .try_send(InterruptSignal::new(Some(
+                    "User requested interruption".to_string(),
+                )))
                 .map_err(|_| AgentError::MessageDeliveryFailed)?;
             Ok(())
         } else {
@@ -151,8 +243,20 @@ impl AgentManager {
         }
     }
     
+    /// Interrupt an agent by name
+    pub fn interrupt_agent_by_name(&self, name: &str) -> Result<(), AgentError> {
+        match self.get_agent_id_by_name(name) {
+            Some(id) => self.interrupt_agent(id),
+            None => Err(AgentError::AgentNameNotFound(name.to_string())),
+        }
+    }
+
     /// Interrupt an agent with specific reason
-    pub fn interrupt_agent_with_reason(&self, id: AgentId, reason: String) -> Result<(), AgentError> {
+    pub fn interrupt_agent_with_reason(
+        &self,
+        id: AgentId,
+        reason: String,
+    ) -> Result<(), AgentError> {
         if let Some(handle) = self.agents.get(&id) {
             handle
                 .interrupt_sender
@@ -163,25 +267,48 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
+    
+    /// Interrupt an agent by name with specific reason
+    pub fn interrupt_agent_by_name_with_reason(
+        &self,
+        name: &str,
+        reason: String,
+    ) -> Result<(), AgentError> {
+        match self.get_agent_id_by_name(name) {
+            Some(id) => self.interrupt_agent_with_reason(id, reason),
+            None => Err(AgentError::AgentNameNotFound(name.to_string())),
+        }
+    }
 
     /// Terminate an agent
     pub async fn terminate_agent(&mut self, id: AgentId) -> Result<(), AgentError> {
         if let Some(handle) = self.agents.remove(&id) {
             // Send interrupt signal first to stop any tool execution
-            let _ = handle.interrupt_sender.try_send(InterruptSignal::new(
-                Some("Agent terminating".to_string())
-            ));
-            
+            let _ = handle
+                .interrupt_sender
+                .try_send(InterruptSignal::new(Some("Agent terminating".to_string())));
+
             // Then send terminate message
             let _ = handle.sender.try_send(AgentMessage::Terminate);
 
             // During shutdown, don't wait for the task to complete
             // Just abort it to avoid any issues with buffer access
             handle.join_handle.abort();
+            
+            // Remove from name index
+            self.name_index.remove(&handle.name);
 
             Ok(())
         } else {
             Err(AgentError::AgentNotFound(id))
+        }
+    }
+    
+    /// Terminate an agent by name
+    pub async fn terminate_agent_by_name(&mut self, name: &str) -> Result<(), AgentError> {
+        match self.name_index.get(name).copied() {
+            Some(id) => self.terminate_agent(id).await,
+            None => Err(AgentError::AgentNameNotFound(name.to_string())),
         }
     }
 
@@ -191,22 +318,30 @@ impl AgentManager {
         // This avoids any issues with buffer access during termination
         for (_id, handle) in self.agents.drain() {
             // Send interrupt signal first to stop any tool execution
-            let _ = handle.interrupt_sender.try_send(InterruptSignal::new(
-                Some("Agent terminating".to_string())
-            ));
-            
+            let _ = handle
+                .interrupt_sender
+                .try_send(InterruptSignal::new(Some("Agent terminating".to_string())));
+
             // Then send terminate message
             let _ = handle.sender.try_send(AgentMessage::Terminate);
 
             // Abort the task
             handle.join_handle.abort();
         }
+        
+        // Clear the name index
+        self.name_index.clear();
     }
 }
 
 /// Spawn an agent as a tokio task with its own buffer
-fn spawn_agent_task(agent: Agent, buffer: SharedBuffer) -> JoinHandle<()> {
+fn spawn_agent_task(
+    agent: Agent,
+    buffer: SharedBuffer,
+    agent_receiver: AgentReceiver,
+    interrupt_receiver: InterruptReceiver
+) -> JoinHandle<()> {
     tokio::spawn(CURRENT_BUFFER.scope(buffer, async move {
-        agent.run().await;
+        agent.run(agent_receiver, interrupt_receiver).await;
     }))
 }

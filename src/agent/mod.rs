@@ -4,11 +4,13 @@
 //! - Core Agent implementation
 //! - Agent Manager
 //! - Agent types and communication
+//! - Interrupt handling
 
 // Re-export the agent submodules
 mod agent;
 mod manager;
-mod types;
+pub mod types;
+mod interrupt;
 
 // Re-export public types from the submodules
 pub use agent::Agent;

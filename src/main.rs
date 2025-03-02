@@ -4,6 +4,7 @@
 //! supporting multiple agents, tool execution, and conversation management.
 
 mod agent;
+mod ansi_converter;
 mod commands;
 mod config;
 mod constants;
@@ -93,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Initialize and run the TUI interface
     let mut tui = TuiInterface::new(agent_manager.clone(), main_agent_id)?;
-    tui.run().await;
+    tui.run().await.unwrap();
 
     // When TUI exits, terminate all agents
     {

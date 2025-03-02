@@ -13,7 +13,7 @@ use crossterm::{
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame, Terminal,
 };
@@ -47,6 +47,12 @@ pub struct TuiState {
     pub last_interrupt_time: Option<std::time::Instant>,
     /// Reference to the agent manager
     agent_manager: Arc<Mutex<AgentManager>>,
+    /// Scroll offset for the conversation view (0 = top of conversation)
+    pub scroll_offset: usize,
+    /// Maximum scroll offset based on content and view size
+    pub max_scroll_offset: usize,
+    /// Visible content height in lines
+    pub visible_height: usize,
 }
 
 impl TuiState {
@@ -71,6 +77,9 @@ impl TuiState {
             pound_command_mode: false,
             last_interrupt_time: None,
             agent_manager,
+            scroll_offset: 0,
+            max_scroll_offset: 0,
+            visible_height: 0,
         }
     }
 
@@ -104,6 +113,52 @@ impl TuiState {
             }
         }
     }
+    
+    /// Update scroll bounds based on current content and visible area
+    pub fn update_scroll(&mut self) {
+        let total_lines = self.agent_buffer.lines().len();
+        
+        // Calculate new max_scroll_offset
+        let new_max_scroll_offset = if total_lines > self.visible_height {
+            total_lines - self.visible_height
+        } else {
+            0
+        };
+        
+        // Check if we were already at the most recent messages (at max_scroll_offset)
+        let was_at_most_recent = self.scroll_offset == self.max_scroll_offset;
+        
+        // Update the max scroll offset
+        self.max_scroll_offset = new_max_scroll_offset;
+        
+        // If we were viewing the most recent messages, auto-scroll to keep showing them
+        if was_at_most_recent {
+            self.scroll_offset = self.max_scroll_offset;
+        } 
+        // Otherwise just make sure we don't exceed the new maximum
+        else if self.scroll_offset > self.max_scroll_offset {
+            self.scroll_offset = self.max_scroll_offset;
+        }
+    }
+    
+    /// Scroll the conversation view
+    pub fn scroll(&mut self, delta: isize) {
+        let new_offset = if delta.is_negative() {
+            // Scrolling up (showing older messages)
+            self.scroll_offset.saturating_sub(delta.abs() as usize)
+        } else {
+            // Scrolling down (showing newer messages)
+            self.scroll_offset.saturating_add(delta as usize)
+        };
+        
+        // Clamp to valid range
+        self.scroll_offset = new_offset.min(self.max_scroll_offset);
+    }
+    
+    /// Scroll to the bottom of the conversation (most recent messages)
+    pub fn scroll_to_bottom(&mut self) {
+        self.scroll_offset = self.max_scroll_offset;
+    }
 
     /// Draw the UI components
     fn ui(&self, f: &mut Frame) {
@@ -121,17 +176,21 @@ impl TuiState {
             .split(size);
 
         // Render the header with agent list
+        f.render_widget(Clear, chunks[0]);
         self.render_header(f, chunks[0]);
 
         // Render the content area with conversation history
+        f.render_widget(Clear, chunks[1]);
         self.render_content(f, chunks[1]);
 
         // Render the input prompt
+        f.render_widget(Clear, chunks[2]);
         self.render_input(f, chunks[2]);
     }
 
     /// Render the header with agent list
     fn render_header(&self, f: &mut Frame, area: Rect) {
+        // First, create spans for each agent
         let agent_spans: Vec<Span> = self
             .agents
             .iter()
@@ -153,7 +212,15 @@ impl TuiState {
             })
             .collect();
 
-        let header = Paragraph::new(Line::from(agent_spans))
+        // Add a final span with empty content to fill remaining space
+        // This ensures old content is fully cleared
+        let mut all_spans = agent_spans;
+        all_spans.push(Span::styled(
+            " ".repeat((area.width as usize).saturating_sub(2)), // -2 for borders
+            Style::default(),
+        ));
+
+        let header = Paragraph::new(Line::from(all_spans))
             .block(Block::default().borders(Borders::ALL).title("Agents"));
 
         f.render_widget(header, area);
@@ -168,28 +235,50 @@ impl TuiState {
         // -2 for the top and bottom borders of the block
         let visible_height = area.height.saturating_sub(2) as usize;
         
-        // Create list items from the visible lines
-        // Show the most recent `visible_height` lines
-        let items: Vec<ListItem> = if total_lines > visible_height {
-            // For efficiency: reverse the iterator to start from the end,
-            // take the newest visible_height items, then reverse back to display in order
-            lines.iter()
-                .rev()
-                .take(visible_height)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .map(|s| ListItem::new(s.content.as_str()))
-                .collect()
-        } else {
-            // If we have fewer lines than visible height, show all lines
-            lines.iter()
-                .map(|s| ListItem::new(s.content.as_str()))
-                .collect()
-        };
+        // Create empty list items for filling the visible area
+        let mut items: Vec<ListItem> = Vec::with_capacity(visible_height);
+        
+        if total_lines > 0 {
+            // Calculate the start index for the visible region
+            let start_idx = if self.scroll_offset < total_lines {
+                self.scroll_offset
+            } else {
+                0
+            };
+            
+            // Get the visible range of lines
+            let end_idx = (start_idx + visible_height).min(total_lines);
+            
+            // Extract the lines for the visible range
+            if start_idx < total_lines {
+                items = lines.range(start_idx..end_idx)
+                    .map(|line| ListItem::new(line.converted_line.clone()))
+                    .collect();
+            }
+        }
+        
+        // Fill remaining space with empty lines to ensure old content is cleared
+        while items.len() < visible_height {
+            items.push(ListItem::new(Line::from("")));
+        }
 
+        // Create title with scroll info and most recent messages indicator
+        let scroll_info = if total_lines > visible_height {
+            let latest_indicator = if self.scroll_offset == self.max_scroll_offset {
+                " (Most Recent ↓)"
+            } else {
+                ""
+            };
+            
+            format!(" | Scroll: {}/{}{}", self.scroll_offset, self.max_scroll_offset, latest_indicator)
+        } else {
+            String::new()
+        };
+        
+        let title = format!("Conversation ({} lines{})", total_lines, scroll_info);
+        
         let conversation = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(format!("Conversation ({} lines)", total_lines)))
+            .block(Block::default().borders(Borders::ALL).title(title))
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
         f.render_widget(conversation, area);
@@ -218,8 +307,19 @@ impl TuiState {
         
         // Create title with agent state
         let title = format!("Input [{} [{}] | {}]", agent_name, self.selected_agent_id, agent_state_str);
+        
+        // Calculate available width for input (accounting for borders)
+        let available_width = area.width.saturating_sub(2) as usize;
+        
+        // Create a padded input string to ensure we overwrite any previous content
+        // This is important when new input is shorter than old input
+        let mut padded_input = self.input.clone();
+        if padded_input.len() < available_width {
+            // Add spaces to fill the available width
+            padded_input.push_str(&" ".repeat(available_width - padded_input.len()));
+        }
 
-        let input_text = Paragraph::new(self.input.as_str())
+        let input_text = Paragraph::new(padded_input)
             .style(input_style)
             .block(Block::default().borders(Borders::ALL).title(title))
             .wrap(Wrap { trim: true });
@@ -254,7 +354,6 @@ impl TuiState {
         // Fallback if we can't get the state
         "Ready".to_string()
     }
-
 }
 
 /// TUI interface for the AutoSWE application
@@ -276,7 +375,7 @@ impl TuiInterface {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, event::EnableMouseCapture)?;
         let backend = ratatui::backend::CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
@@ -293,14 +392,43 @@ impl TuiInterface {
     /// Run the TUI interface
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         while !self.state.should_quit {
-            // Draw the UI
-            self.terminal.draw(|f| self.state.ui(f))?;
-
-            // Handle events
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    self.handle_key_event(key).await?;
+            // Process all pending events first
+            let mut events_processed = false;
+            
+            // Process events in a batch until there are none left
+            while event::poll(Duration::from_millis(0))? {
+                events_processed = true;
+                match event::read()? {
+                    Event::Key(key) => {
+                        self.handle_key_event(key).await?;
+                    },
+                    Event::Mouse(mouse) => {
+                        self.handle_mouse_event(mouse).await?;
+                    },
+                    Event::Resize(_, _) => {
+                        // Terminal resize - bounds will be updated in draw
+                    },
+                    _ => {}
                 }
+                
+                // Exit early if quit flag was set by an event handler
+                if self.state.should_quit {
+                    break;
+                }
+            }
+            
+            // Draw the UI after processing all pending events
+            self.terminal.draw(|f| {
+                // Update visible height based on frame size
+                let content_height = f.size().height.saturating_sub(6) as usize; // Account for headers and borders
+                self.state.visible_height = content_height;
+                self.state.update_scroll();
+                self.state.ui(f);
+            })?;
+            
+            // If no events were processed, wait a bit to avoid busy-waiting
+            if !events_processed {
+                event::poll(Duration::from_millis(16))?;
             }
         }
 
@@ -308,7 +436,8 @@ impl TuiInterface {
         disable_raw_mode()?;
         execute!(
             self.terminal.backend_mut(),
-            LeaveAlternateScreen
+            LeaveAlternateScreen,
+            event::DisableMouseCapture
         )?;
         self.terminal.show_cursor()?;
 
@@ -378,14 +507,26 @@ impl TuiInterface {
                 }
             }
             
-            // Home
+            // Home key handling
             KeyCode::Home => {
-                self.state.cursor_position = 0;
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    // Shift+Home: Scroll to top/oldest messages (offset = 0)
+                    self.state.scroll_offset = 0;
+                } else {
+                    // Regular Home: Move cursor to start of input
+                    self.state.cursor_position = 0;
+                }
             }
             
-            // End
+            // End key handling
             KeyCode::End => {
-                self.state.cursor_position = self.state.input.len();
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    // Shift+End: Scroll to bottom/newest messages (offset = max)
+                    self.state.scroll_to_bottom();
+                } else {
+                    // Regular End: Move cursor to end of input
+                    self.state.cursor_position = self.state.input.len();
+                }
             }
             
             // Regular character input
@@ -402,7 +543,47 @@ impl TuiInterface {
                 self.state.command_mode = false;
             }
             
+            // PageUp/PageDown for scrolling
+            KeyCode::PageUp => {
+                // Scroll up (showing older messages)
+                let scroll_amount = self.state.visible_height / 2;
+                self.state.scroll(-(scroll_amount as isize));
+            }
+            
+            KeyCode::PageDown => {
+                // Scroll down (showing newer messages)
+                let scroll_amount = self.state.visible_height / 2;
+                self.state.scroll(scroll_amount as isize);
+            }
+            
+            // Up/Down with shift for line-by-line scrolling
+            KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.state.scroll(-1);
+            }
+            
+            KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.state.scroll(1);
+            }
+            
             // Ignore other keys
+            _ => {}
+        }
+        
+        Ok(())
+    }
+
+    /// Handle mouse events (simplified version)
+    async fn handle_mouse_event(&mut self, mouse: event::MouseEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Simple mouse wheel scrolling implementation
+        match mouse.kind {
+            event::MouseEventKind::ScrollDown => {
+                // Scroll down (increase offset to show newer/more recent messages)
+                self.state.scroll(3);
+            },
+            event::MouseEventKind::ScrollUp => {
+                // Scroll up (decrease offset to show older messages)
+                self.state.scroll(-3);
+            },
             _ => {}
         }
         
@@ -545,6 +726,12 @@ impl TuiInterface {
                 self.state.add_to_buffer("  /reset                 - Reset the conversation".to_string());
                 self.state.add_to_buffer("  #<id>                  - Switch to agent with specified ID".to_string());
                 self.state.add_to_buffer("  #<name>                - Switch to agent with specified name".to_string());
+                self.state.add_to_buffer("".to_string());
+                self.state.add_to_buffer("Scrolling:".to_string());
+                self.state.add_to_buffer("  PageUp/PageDown        - Scroll conversation by half a page".to_string());
+                self.state.add_to_buffer("  Shift+Up/Down          - Scroll conversation by one line".to_string());
+                self.state.add_to_buffer("  Shift+Home/End         - Jump to top/bottom of conversation".to_string());
+                self.state.add_to_buffer("  Mouse wheel            - Scroll conversation".to_string());
             }
             "/interrupt" => {
                 let manager = self.agent_manager.lock().unwrap();
@@ -616,7 +803,6 @@ impl TuiInterface {
 
         Ok(())
     }
-
 }
 
 impl Drop for TuiInterface {
@@ -625,7 +811,8 @@ impl Drop for TuiInterface {
         let _ = disable_raw_mode();
         let _ = execute!(
             self.terminal.backend_mut(),
-            LeaveAlternateScreen
+            LeaveAlternateScreen,
+            event::DisableMouseCapture
         );
     }
 }

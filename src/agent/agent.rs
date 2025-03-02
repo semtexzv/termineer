@@ -7,8 +7,11 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::types::{AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, StateSender, 
-    InterruptReceiver, InterruptSignal};
+use super::interrupt::{spawn_interrupt_monitor, InterruptCoordinator};
+use super::types::{
+    AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, InterruptReceiver,
+    StateSender,
+};
 use crate::config::Config;
 use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START};
 use crate::conversation::{is_done_tool, parse_assistant_response};
@@ -17,7 +20,8 @@ use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
 
-use tokio::sync::watch;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -62,23 +66,11 @@ pub struct Agent {
     /// Cache points for conversation history
     pub cache_points: BTreeSet<usize>,
 
-    /// Receiver for agent messages
-    receiver: AgentReceiver,
-    
-    /// Dedicated receiver for interrupt signals
-    interrupt_receiver: InterruptReceiver,
-    
-    /// Queue for pending messages to be processed after current operation
-    message_queue: Vec<String>,
-
     /// Sender of state updates
     sender: StateSender,
 
     /// Current state of the agent
     state: AgentState,
-
-    /// Current shell interrupt data, if any
-    interrupt_shell: Option<Arc<Mutex<InterruptData>>>,
 }
 
 impl Agent {
@@ -87,10 +79,8 @@ impl Agent {
         id: AgentId,
         name: String,
         mut config: Config,
-        receiver: AgentReceiver,
-        interrupt_receiver: InterruptReceiver,
         sender: StateSender,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Initialize system prompt if not already set
         if config.system_prompt.is_none() {
             // Create appropriate tool options based on whether tools are enabled
@@ -99,20 +89,25 @@ impl Agent {
             } else {
                 crate::prompts::ToolDocOptions::readonly()
             };
-            
+
             // Generate the system prompt based on the minimal flag
             let prompt = if config.use_minimal_prompt {
                 crate::prompts::generate_minimal_system_prompt(&tool_options)
             } else {
                 crate::prompts::generate_system_prompt(&tool_options)
             };
-            
+
             // Set the system prompt in the config
             config.system_prompt = Some(prompt);
         }
 
         // Create LLM backend using factory
-        let llm = crate::llm::create_backend(&config)?;
+        let llm = crate::llm::create_backend(&config).map_err(|e| {
+            Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "Failed to create LLM backend: {}",
+                e
+            ))
+        })?;
 
         // Initialize tool executor (not readonly, not silent)
         let tool_executor = ToolExecutor::new(false, false);
@@ -130,12 +125,8 @@ impl Agent {
                 TOOL_ERROR_START.to_string(),
             ]),
             cache_points: BTreeSet::new(),
-            receiver,
-            interrupt_receiver,
-            message_queue: Vec::new(),
             sender,
             state: AgentState::Idle,
-            interrupt_shell: None,
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -144,199 +135,150 @@ impl Agent {
     }
 
     /// Run the agent, processing messages until terminated
-    pub async fn run(mut self) {
+    pub async fn run(
+        mut self,
+        mut agent_receiver: AgentReceiver,
+        interrupt_receiver: InterruptReceiver,
+    ) {
         crate::bprintln!("Agent '{}' started", self.name);
         self.set_state(AgentState::Idle);
 
+        // Setup interrupt coordination channels
+        let (agent_interrupt_tx, mut agent_interrupt_rx) = mpsc::channel(10);
+        let coordinator = Arc::new(InterruptCoordinator::new(agent_interrupt_tx));
+        let _interrupt_monitor = spawn_interrupt_monitor(coordinator.clone(), interrupt_receiver);
+
         // Main agent loop
         'main: loop {
-            // Using tokio::select to handle multiple async operations
+            // Store the current state to make borrow checker happy
+            let current_state = self.state.clone();
+
             tokio::select! {
-                // Process incoming messages from UI
-                msg = self.receiver.recv() => {
-                    match msg {
-                        Some(AgentMessage::UserInput(input)) => {
-                            if !matches!(self.state, AgentState::Idle | AgentState::Done) {
-                                // If the agent is busy, queue the message for later processing
-                                crate::bprintln!("Agent busy - queueing message: {}", input);
-                                self.message_queue.push(input);
-                            } else {
-                                // Process the message immediately
-                                self.set_state(AgentState::Processing);
-                                crate::bprintln!("Processing: {}", input);
-                                if let Err(e) = self.process_input(&input).await {
-                                    crate::berror_println!("Error processing input: {}", e);
-                                }
-                                self.set_state(AgentState::Idle);
-                                
-                                // Process any queued messages
-                                self.process_message_queue().await;
+                biased;
+                
+                // Handle any possible interrupts (routed to us by the monitor)
+                // This has highest priority (biased select)
+                _ = agent_interrupt_rx.recv() => {
+                    self.conversation.push(Message::text(
+                        "user",
+                        "*Processing was interrupted by user*".to_string(),
+                        MessageInfo::User,
+                    ));
+                    self.set_state(AgentState::Idle);
+                    continue;
+                }
+                
+                // Call LLM (Interruptible) - only when in Processing state
+                result = self.send_message(&coordinator), if matches!(current_state, AgentState::Processing) => {
+                    match result {
+                        Ok(result) => {
+                            if !result.continue_processing {
+                                crate::bprintln!("Agent has completed its task.");
+                                self.set_state(AgentState::Done)
                             }
                         },
-                        Some(AgentMessage::QueuedUserInput(input)) => {
-                            // Message that was previously queued
-                            self.set_state(AgentState::Processing);
-                            crate::bprintln!("Processing queued message: {}", input);
-                            if let Err(e) = self.process_input(&input).await {
-                                crate::berror_println!("Error processing queued input: {}", e);
-                            }
+                        Err(e) => {
+                            crate::berror_println!("Error during processing: {}", e);
                             self.set_state(AgentState::Idle);
+                        }
+                    }
+                    
+                    // Process any pending messages that arrived during LLM processing
+                    'queue: loop {
+                        match agent_receiver.try_recv() {
+                            Ok(msg) => {
+                                self.handle_message(msg).await;
+
+                                // Check if we've been terminated after handling message
+                                if matches!(self.state, AgentState::Terminated) {
+                                    break 'main;
+                                }
+                            },
+                            Err(TryRecvError::Empty) => {
+                                // We've processed all messages, continue
+                                break 'queue;
+                            }
+                            Err(TryRecvError::Disconnected) => {
+                                crate::bprintln!("Agent '{}' channel closed, terminating", self.name);
+                                break 'main;
+                            }
+                        }
+                    }
+                }
+                
+                // Wait for and process messages when idle or done
+                msg = agent_receiver.recv(), if matches!(current_state, AgentState::Done | AgentState::Idle) => {
+                    match msg {
+                        Some(message) => {
+                            self.handle_message(message).await;
                             
-                            // Continue processing other queued messages
-                            self.process_message_queue().await;
-                        },
-                        Some(AgentMessage::Interrupt) => {
-                            // Legacy interrupt message - use dedicated channel in the future
-                            crate::bprintln!("Received legacy interrupt message - consider using dedicated interrupt channel");
-                            self.handle_high_priority_interrupt("Legacy interrupt command".to_string()).await;
-                        },
-                        Some(AgentMessage::Terminate) => {
-                            crate::bprintln!("Agent '{}' received terminate message", self.name);
-                            break 'main; // Exit loop and terminate task
-                        },
-                        Some(AgentMessage::Command(cmd)) => {
-                            self.handle_command(cmd).await;
+                            // Check if we've been terminated after handling message
+                            if matches!(self.state, AgentState::Terminated) {
+                                break 'main;
+                            }
                         },
                         None => {
-                            // Channel closed - terminate
+                            // Channel closed, terminate agent
                             crate::bprintln!("Agent '{}' channel closed, terminating", self.name);
                             break 'main;
                         }
                     }
-                },
-                
-                // Process high-priority interrupts from the dedicated channel
-                interrupt_signal = self.interrupt_receiver.recv() => {
-                    if let Some(signal) = interrupt_signal {
-                        let reason = signal.reason.unwrap_or_else(|| "No reason provided".to_string());
-                        crate::bprintln!("Received high-priority interrupt: {}", reason);
-                        self.handle_high_priority_interrupt(reason).await;
-                    } else {
-                        // Interrupt channel closed - unusual but not fatal
-                        crate::bprintln!("Agent '{}' interrupt channel closed", self.name);
+                    // Process any pending messages that arrived during LLM processing
+                    'queue: loop {
+                        match agent_receiver.try_recv() {
+                            Ok(msg) => {
+                                self.handle_message(msg).await;
+
+                                // Check if we've been terminated after handling message
+                                if matches!(self.state, AgentState::Terminated) {
+                                    break 'main;
+                                }
+                            },
+                            Err(TryRecvError::Empty) => {
+                                // We've processed all messages, continue
+                                break 'queue;
+                            }
+                            Err(TryRecvError::Disconnected) => {
+                                crate::bprintln!("Agent '{}' channel closed, terminating", self.name);
+                                break 'main;
+                            }
+                        }
                     }
-                },
-                
-                // Process queued messages when agent is idle
-                _ = tokio::time::sleep(Duration::from_millis(50)), if matches!(self.state, AgentState::Idle) && !self.message_queue.is_empty() => {
-                    // Process any queued messages
-                    self.process_message_queue().await;
                 }
+            }
+
+            // Check if we've been terminated
+            if matches!(self.state, AgentState::Terminated) {
+                crate::bprintln!("Agent processing was terminated.");
+                break 'main;
             }
         }
 
         crate::bprintln!("Agent '{}' terminated", self.name);
     }
-    
-    /// Process queued messages one by one
-    async fn process_message_queue(&mut self) {
-        if self.message_queue.is_empty() {
-            return;
-        }
-        
-        crate::bprintln!("Processing message queue ({} messages pending)", self.message_queue.len());
-        
-        // Take the first message from the queue
-        if let Some(message) = self.message_queue.pop() {
-            self.set_state(AgentState::Processing);
-            crate::bprintln!("Processing from queue: {}", message);
-            if let Err(e) = self.process_input(&message).await {
-                crate::berror_println!("Error processing queued input: {}", e);
-            }
-            self.set_state(AgentState::Idle);
-            
-            // Note: We don't recursively process the queue here to avoid stack overflow
-            // The next queued message will be processed in the next loop iteration
-        }
-    }
-    
-    /// Handle a high-priority interrupt
-    async fn handle_high_priority_interrupt(&mut self, reason: String) {
-        match &self.state {
-            AgentState::RunningTool { tool, .. } => {
-                crate::bprintln!("High-priority interrupt received while running tool: {}", tool);
 
-                // Interrupt shell execution
-                if let Some(interrupt_data) = &self.interrupt_shell {
-                    let mut data = interrupt_data.lock().unwrap();
-                    data.interrupt(reason);
-                    crate::bprintln!("Tool interrupted by high-priority signal");
-                }
-                
-                // Force state to Idle after tool interruption
-                self.set_state(AgentState::Idle);
+    /// Handle incoming messages and commands
+    async fn handle_message(&mut self, msg: AgentMessage) {
+        match msg {
+            AgentMessage::UserInput(input) => {
+                // Add message to conversation and start processing
+                self.conversation.push(Message::text(
+                    "user",
+                    input.clone(),
+                    MessageInfo::User,
+                ));
+                self.set_state(AgentState::Processing);
+                crate::bprintln!("Processing: {}", input);
             },
-            AgentState::Processing => {
-                // Force current processing to stop
-                crate::bprintln!("High-priority interrupt received while processing");
-                self.set_state(AgentState::Idle);
+            AgentMessage::Command(cmd) => {
+                self.handle_command(cmd).await;
             },
-            _ => {
-                crate::bprintln!("High-priority interrupt received while idle/done - no action needed");
-            }
+            AgentMessage::Terminate => {
+                crate::bprintln!("Agent '{}' received terminate message", self.name);
+                self.set_state(AgentState::Terminated);
+            },
         }
     }
-
-    /// Process a user input message
-    async fn process_input(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // If the agent is already in Done state, don't process further input
-        if matches!(self.state, AgentState::Done) {
-            crate::bprintln!("Agent has completed its task. Use /reset to start a new conversation.");
-            return Ok(());
-        }
-
-        // First message from user
-        let mut result = self.send_message(input).await?;
-        let mut continue_processing = result.continue_processing;
-
-        // Main agent loop - continue until we're done or interrupted
-        while continue_processing {
-            // Check if we're done (e.g., done tool was used)
-            if self.is_done() {
-                // Update state and exit the loop
-                self.state = AgentState::Done;
-                crate::bprintln!("Agent has completed its task.");
-                break;
-            }
-
-            // Check if we've been interrupted or terminated
-            if matches!(self.state, AgentState::Terminated) {
-                crate::bprintln!("Agent processing was terminated.");
-                break;
-            }
-            
-            // If we're in Idle state but continue_processing is true, something is wrong
-            // This is a safety check in case state transitions elsewhere are inconsistent
-            if matches!(self.state, AgentState::Idle) {
-                crate::bprintln!("Agent processing was interrupted (inconsistent state detected).");
-                break;
-            }
-
-            // Keep processing - we need to be in Processing state to continue
-            self.state = AgentState::Processing;
-            
-            // Try to continue to the next turn without user input
-            match self.send_message("").await {
-                Ok(next_result) => {
-                    result = next_result;
-                    continue_processing = result.continue_processing;
-                }
-                Err(e) => {
-                    crate::berror_println!("Error during continued processing: {}", e);
-                    break;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Handle an interrupt message (legacy method - forwards to high_priority_interrupt)
-    async fn handle_interrupt(&mut self) {
-        // Forward to the new high-priority interrupt handler
-        self.handle_high_priority_interrupt("User requested interruption (legacy)".to_string()).await;
-    }
-
     /// Handle a command message
     async fn handle_command(&mut self, cmd: AgentCommand) {
         match cmd {
@@ -362,29 +304,17 @@ impl Agent {
         }
     }
 
-    /// Check if the agent has completed its task
-    fn is_done(&self) -> bool {
-        self.conversation
-            .last()
-            .map(|m| {
-                matches!(&m.info,
-                    MessageInfo::ToolResult { tool_name } | MessageInfo::ToolError { tool_name }
-                    if tool_name == "done"
-                )
-            })
-            .unwrap_or(false)
-    }
-
     /// Execute a shell command with streaming output and interruption capability
     async fn execute_streaming_shell(
         &mut self,
         command: &str,
-    ) -> Result<MessageResult, Box<dyn std::error::Error>> {
+        interrupt_coordinator: &InterruptCoordinator,
+    ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
         // Update state to running tool
-        self.state = AgentState::RunningTool {
+        self.set_state(AgentState::RunningTool {
             tool: "shell".to_string(),
             interruptible: true,
-        };
+        });
 
         // Extract the command from the tool content
         let command_str = command.to_string();
@@ -397,12 +327,31 @@ impl Agent {
 
         // Create interrupt data for coordination
         let interrupt_data = Arc::new(Mutex::new(InterruptData::new()));
-        // Store for potential external interruption
-        self.interrupt_shell = Some(Arc::clone(&interrupt_data));
+        
+        // Create channel for high-priority interrupt signals
+        let (interrupt_tx, mut interrupt_rx) = mpsc::channel(10);
+
+        // Record start time for statistics
+        let start_time = std::time::Instant::now();
+
+        // Update coordinator to indicate shell is running and should receive priority interrupts
+        interrupt_coordinator.set_shell_running(true, Some(interrupt_tx));
 
         // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
-        let mut rx = execute_shell(&cmd_args, "", interrupt_data.clone(), silent_mode).await?;
+        let mut rx = match execute_shell(&cmd_args, "", interrupt_data.clone(), silent_mode).await {
+            Ok(rx) => rx,
+            Err(e) => {
+                // Make sure to clean up interrupt state if startup fails
+                interrupt_coordinator.set_shell_running(false, None);
+                self.set_state(AgentState::Processing);
+                
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                    "Shell execution error: {}",
+                    e
+                )));
+            }
+        };
 
         // Buffer to collect output for the conversation history
         let mut partial_output = String::new();
@@ -417,10 +366,22 @@ impl Agent {
 
         // Track time between interruption checks (to prevent excessive API calls)
         let mut last_check_time = std::time::Instant::now();
-        let min_check_interval = Duration::from_secs(10); // Check every 10 seconds - reduces API costs
+        
+        // Configure interruption check interval based on command type
+        // Shorter for commands that produce a lot of output quickly
+        let min_check_interval = if cmd_args.contains("grep") || 
+                                   cmd_args.contains("find") || 
+                                   cmd_args.contains("watch") {
+            Duration::from_secs(5)  // Check more frequently for verbose commands
+        } else {
+            Duration::from_secs(10) // Standard interval for most commands
+        };
 
         // Track if we have a partial tool result in the conversation
         let mut has_partial_result = false;
+        
+        // Track output size for adaptive interruption checks
+        let mut output_lines = 0;
 
         // Loop to receive output and check for interruption
         loop {
@@ -432,11 +393,18 @@ impl Agent {
                             // Add to full output record
                             partial_output.push_str(&line);
                             partial_output.push('\n');
+                            output_lines += 1;
 
-                            // Check for interruption every N seconds
-                            if !interrupting && last_check_time.elapsed() > min_check_interval {
+                            // Check for interruption based on time or output volume
+                            let should_check_interrupt = 
+                                !interrupting && 
+                                (last_check_time.elapsed() > min_check_interval ||
+                                 (output_lines > 100 && last_check_time.elapsed() > Duration::from_secs(3)));
+
+                            if should_check_interrupt {
                                 // Update last check time
                                 last_check_time = std::time::Instant::now();
+                                output_lines = 0; // Reset counter
 
                                 // Remove previous partial result if it exists
                                 if has_partial_result {
@@ -471,6 +439,9 @@ impl Agent {
                                             "No specific reason provided".to_string()
                                         );
 
+                                        // Log the interruption before moving the reason
+                                        crate::bprintln!("LLM requested interruption: {}", reason);
+
                                         // Set interrupt flag with reason
                                         {
                                             let mut data = interrupt_data.lock().unwrap();
@@ -488,81 +459,73 @@ impl Agent {
                             // Add to full output record
                             partial_output.push_str(&line);
                             partial_output.push('\n');
+                            output_lines += 1;
                         },
                         Some(ShellOutput::Complete(tool_result)) => {
                             // Command completed, store results
                             success = tool_result.success;
                             result_message = tool_result.agent_output;
                             // Clear interrupt_shell as the command is done
-                            self.interrupt_shell = None;
+                            // Update coordinator to indicate shell is no longer running
+                            interrupt_coordinator.set_shell_running(false, None);
                             break;
                         },
                         None => {
                             // Channel closed, command must be done
                             // Clear interrupt_shell as the command is done
-                            self.interrupt_shell = None;
+                            // Update coordinator to indicate shell is no longer running
+                            interrupt_coordinator.set_shell_running(false, None);
                             break;
                         }
                     }
                 },
-                
+
                 // Check for high-priority interrupts from dedicated channel
-                interrupt_signal = self.interrupt_receiver.try_recv() => {
-                    match interrupt_signal {
-                        Ok(signal) => {
-                            // Handle immediate interrupt from dedicated channel
-                            let reason = signal.reason.unwrap_or_else(|| 
-                                "High-priority interrupt received".to_string()
-                            );
-                            
-                            let mut data = interrupt_data.lock().unwrap();
-                            data.interrupt(reason.clone());
-                            
-                            interrupting = true;
-                            interruption_reason_str = Some(reason);
-                            crate::bprintln!("Shell command interrupted by high-priority signal");
-                        },
-                        Err(_) => { /* No interrupt available or channel closed */ }
+                interrupt_signal = interrupt_rx.recv() => {
+                    if let Some(signal) = interrupt_signal {
+                        // Handle immediate interrupt from dedicated channel
+                        let reason = signal.reason.unwrap_or_else(||
+                            "High-priority interrupt received".to_string()
+                        );
+
+                        // Log the interrupt before moving the reason
+                        crate::bprintln!("Shell command interrupted by high-priority signal: {}", reason);
+
+                        let mut data = interrupt_data.lock().unwrap();
+                        data.interrupt(reason.clone());
+
+                        interrupting = true;
+                        interruption_reason_str = Some(reason);
+                    } else {
+                        // Channel closed unexpectedly
+                        crate::berror_println!("Shell interrupt channel closed unexpectedly");
                     }
                 },
 
-                // Check regular message channel for backward compatibility
+                // Periodic check for interruption flag
                 _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                    // Check for regular messages too (backward compatibility)
-                    match self.receiver.try_recv() {
-                        Ok(msg) => {
-                            match msg {
-                                AgentMessage::Interrupt => {
-                                    // Handle external interruption (legacy approach)
-                                    let mut data = interrupt_data.lock().unwrap();
-                                    data.interrupt("User requested interruption (legacy)".to_string());
-                                    interrupting = true;
-                                    interruption_reason_str = Some("User requested interruption".to_string());
-                                },
-                                AgentMessage::Terminate => {
-                                    // Handle termination request
-                                    let mut data = interrupt_data.lock().unwrap();
-                                    data.interrupt("Agent terminating".to_string());
-                                    self.state = AgentState::Terminated;
-                                    break;
-                                },
-                                AgentMessage::UserInput(input) => {
-                                    // Queue user input for later processing
-                                    crate::bprintln!("Received user input during shell execution - queueing for later: {}", input);
-                                    self.message_queue.push(input);
-                                },
-                                _ => {
-                                    // Ignore other messages during shell execution
-                                }
-                            }
-                        },
-                        Err(_) => {
-                            // No messages available or channel closed - continue
-                        }
+                    // Check if already interrupted
+                    if interrupt_data.lock().unwrap().is_interrupted() && !interrupting {
+                        // This would happen if the interrupt came from somewhere else
+                        interrupting = true;
+                        
+                        // Get the reason if available
+                        let reason = {
+                            let data = interrupt_data.lock().unwrap();
+                            data.reason().cloned()
+                        };
+                        
+                        interruption_reason_str = reason.clone();
+                        crate::bprintln!("Shell interrupt flag detected: {}", 
+                                        reason.unwrap_or_else(|| "Unknown reason".to_string()));
                     }
                 },
             }
         }
+
+        // Log execution time
+        let execution_time = start_time.elapsed();
+        crate::bprintln!("Shell command execution completed in {:.2}s", execution_time.as_secs_f64());
 
         // Properly finish the partial tool result if it exists
         if has_partial_result {
@@ -576,7 +539,7 @@ impl Agent {
                 .as_ref()
                 .map_or("Sufficient information gathered".to_string(), |r| r.clone());
             result_message = format!("{}\n\n[COMMAND INTERRUPTED: {}]", partial_output, reason);
-            // When interrupted by LLM, this is NOT an error, it's a successful interruption
+            // When interrupted by LLM or user, this is NOT an error, it's a successful interruption
             success = true;
         } else {
             result_message = format!("{}\n\n[COMMAND COMPLETED SUCCESSFULLY]", partial_output);
@@ -611,9 +574,8 @@ impl Agent {
         self.conversation
             .push(Message::text("user", agent_response, message_info));
 
-        // Reset state only to Processing since we're continuing processing
-        // (continue_processing is always true here)
-        self.state = AgentState::Processing;
+        // Reset state to Processing since we're continuing processing
+        self.set_state(AgentState::Processing);
 
         // Return with continue_processing flag set to true
         Ok(MessageResult {
@@ -626,11 +588,11 @@ impl Agent {
     /// Sends a message to the LLM to check if it wants to interrupt the shell command
     async fn check_for_interruption(
         &mut self,
-    ) -> Result<InterruptionCheck, Box<dyn std::error::Error>> {
-        // Save current cache points
+    ) -> Result<InterruptionCheck, Box<dyn std::error::Error + Send + Sync>> {
+        // Save current cache points for efficient token usage
         let current_cache_points = self.cache_points.clone();
 
-        // Create a shorter prompt for the interruption check
+        // Create a tailored prompt for the interruption check
         let interruption_check_message = format!(
             "========== COMMAND INTERRUPTION CHECK ==========\n\
             Evaluate if this command should be interrupted based on its current output.\n\
@@ -639,6 +601,7 @@ impl Agent {
             - You have enough information to proceed\n\
             - The output is repetitive or redundant\n\
             - Errors indicate the command won't recover\n\
+            - The command is producing excessive output with limited value\n\
             \n\
             RESPONSE FORMAT:\n\
             - To continue: '<continue/>'\n\
@@ -647,6 +610,9 @@ impl Agent {
             If interrupting, provide exactly ONE SENTENCE explaining why.\n\
             Your decision:"
         );
+
+        // Log interruption check (debug mode only)
+        crate::bprintln!("Checking if shell command should be interrupted...");
 
         // Create a temporary message to add to conversation
         let temp_message = Message::text("user", interruption_check_message, MessageInfo::User);
@@ -657,12 +623,16 @@ impl Agent {
         // Use "</interrupt>" as stop sequence to allow content between tags
         let stop_sequences = vec!["</interrupt>".to_string(), "<continue/>".to_string()];
 
-        // Allow 100 tokens for interruption reason
+        // Allow 100 tokens for interruption reason (limited to keep costs low)
         let max_tokens_for_check = 100;
 
-        let response = self
-            .llm
-            .send_message(
+        // Start a timeout for the interruption check
+        let timeout_duration = tokio::time::Duration::from_secs(10);
+        
+        // Handle the LLM response with proper error conversion and timeout
+        let response = match tokio::time::timeout(
+            timeout_duration,
+            self.llm.send_message(
                 &self.conversation,
                 self.config.system_prompt.as_deref(), // Use the existing system prompt
                 Some(&stop_sequences),
@@ -670,18 +640,46 @@ impl Agent {
                 Some(&current_cache_points),
                 Some(max_tokens_for_check),
             )
-            .await?;
+        ).await {
+            Ok(result) => match result {
+                Ok(response) => response,
+                Err(e) => {
+                    // Convert the error to a Send + Sync error by using the string representation
+                    crate::berror_println!("Interruption check failed: {}", e);
+                    
+                    // Remove the temporary message before returning
+                    self.conversation.pop();
+                    
+                    return Err(format!("Interruption check failed: {}", e).into());
+                }
+            },
+            Err(_) => {
+                // Timeout occurred - clean up and return no interruption
+                crate::berror_println!("Interruption check timed out after {} seconds", timeout_duration.as_secs());
+                
+                // Remove the temporary message before returning
+                self.conversation.pop();
+                
+                return Ok(InterruptionCheck {
+                    interrupted: false,
+                    reason: None,
+                });
+            }
+        };
 
         // Remove the temporary message
         self.conversation.pop();
 
+        // Check if we got a proper stop sequence
         if response.stop_reason.as_deref() != Some("stop_sequence") {
+            crate::bprintln!("Interruption check completed: continue execution");
             return Ok(InterruptionCheck {
                 interrupted: false,
                 reason: None,
             });
         }
 
+        // Extract and process the stop sequence
         let stop_sequence = response.stop_sequence.unwrap();
         let content = response
             .content
@@ -710,6 +708,13 @@ impl Agent {
             (false, String::new())
         };
 
+        // Log the decision
+        if should_interrupt {
+            crate::bprintln!("LLM requested interruption: {}", reason);
+        } else {
+            crate::bprintln!("LLM decided to continue execution");
+        }
+
         Ok(InterruptionCheck {
             interrupted: should_interrupt,
             reason: if should_interrupt { Some(reason) } else { None },
@@ -719,8 +724,8 @@ impl Agent {
     /// Send a message to the LLM backend and process the response
     pub async fn send_message(
         &mut self,
-        user_message: &str,
-    ) -> Result<MessageResult, Box<dyn std::error::Error>> {
+        interrupt_coordinator: &InterruptCoordinator,
+    ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
         // Add .autoswe file content to beginning of conversation if it hasn't been added yet
         if self.conversation.is_empty() && tokio::fs::try_exists(".autoswe").await? {
             let working = std::env::current_dir()?;
@@ -736,20 +741,12 @@ impl Agent {
                 .push(Message::text("user", content, MessageInfo::User));
         }
 
-        if !user_message.is_empty() {
-            // Add user message to conversation history
-            self.conversation.push(Message::text(
-                "user",
-                user_message.to_string(),
-                MessageInfo::User,
-            ));
-        }
-
         // Send the request using our LLM provider
         let system_prompt = self.config.system_prompt.as_deref();
         let thinking_budget = Some(self.config.thinking_budget);
 
-        let response = self
+        // Handle the LLM response with proper error conversion
+        let response = match self
             .llm
             .send_message(
                 &self.conversation,
@@ -759,7 +756,14 @@ impl Agent {
                 Some(&self.cache_points),
                 None, // Use default max_tokens
             )
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                // Convert the error to a Send + Sync error by using the string representation
+                return Err(format!("LLM request failed: {}", e).into());
+            }
+        };
 
         // Extract content from response
         let mut assistant_message = String::new();
@@ -810,10 +814,6 @@ impl Agent {
         let tool_name = parsed.tool_name.unwrap();
         let tool_content = parsed.tool_content.unwrap();
 
-        // Log tool invocation to buffer
-        crate::bprintln!("=== Tool invocation detected: {} ===", tool_name);
-        crate::bprintln!("Tool content: {}", tool_content);
-
         // Display token stats before any other output (if not in silent mode)
         if !self.tool_executor.is_silent() {
             // Use buffer-based printing
@@ -843,8 +843,10 @@ impl Agent {
 
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
-            // Execute shell command with streaming output and interruption capability
-            let shell_result = self.execute_streaming_shell(&tool_content).await?;
+            // Use a new dedicated interrupt channel
+            let shell_result = self
+                .execute_streaming_shell(&tool_content, &interrupt_coordinator)
+                .await?;
             return Ok(shell_result);
         }
 
@@ -855,27 +857,19 @@ impl Agent {
             interruptible,
         };
 
-        // Log before tool execution
-        crate::bprintln!("=== Executing tool: {} ===", tool_name);
-        
         // Execute the tool
         let tool_result = self.tool_executor.execute(&tool_content).await;
-        
-        // Log after tool execution
-        crate::bprintln!("=== Tool execution completed ===");
-        crate::bprintln!("Success: {}", tool_result.success);
-        crate::bprintln!("Output length: {} characters", tool_result.agent_output.len());
 
         // Check if this is the "done" tool
         let is_done = is_done_tool(&tool_name);
 
         // Only reset to Idle if we're not going to continue processing
         // If this is not the "done" tool, we should stay in Processing state
-        // to avoid being interrupted by the check in process_input()
+        // to maintain the correct state in the agent loop
         if !is_done {
-            self.state = AgentState::Processing;  // Keep processing if continuing
+            self.state = AgentState::Processing; // Keep processing if continuing
         } else {
-            self.state = AgentState::Idle;  // Reset to Idle if done
+            self.state = AgentState::Idle; // Reset to Idle if done
         }
 
         // Format the agent response with appropriate delimiters
@@ -890,27 +884,6 @@ impl Agent {
                 TOOL_ERROR_START, tool_result.agent_output, TOOL_ERROR_END
             )
         };
-
-        // Display tool output to user using the buffer system if not in silent mode
-        crate::bprintln!("=== Preparing to display tool output to user ===");
-        if !self.tool_executor.is_silent() {
-            crate::bprintln!("Silent mode is OFF - should display output");
-            
-            // Display tool title
-            crate::btool_println!(
-                &tool_name,
-                "Tool result from {}:",
-                tool_name
-            );
-            
-            // Display the actual tool output
-            crate::bprintln!("------ TOOL OUTPUT START ------");
-            crate::bprintln!("{}", tool_result.agent_output);
-            crate::bprintln!("------ TOOL OUTPUT END ------");
-            crate::bprintln!();
-        } else {
-            crate::bprintln!("Silent mode is ON - suppressing output display");
-        }
 
         // Return value to use in the process flow
         let result_for_response = tool_result.agent_output.clone();
@@ -927,8 +900,15 @@ impl Agent {
             }
         };
 
+
+        let response_len = agent_response.len();
+
         self.conversation
             .push(Message::text("user", agent_response, message_info));
+
+        if response_len > 500 {
+            self.cache_here();
+        }
 
         // Cache frequently.
         if let Some(usage) = &response.usage {
@@ -942,7 +922,7 @@ impl Agent {
             // Update state to Done
             self.state = AgentState::Done;
             crate::bprintln!("Agent has marked task as completed.");
-            
+
             return Ok(MessageResult {
                 response: result_for_response,
                 continue_processing: false,
@@ -951,7 +931,7 @@ impl Agent {
         }
 
         // Return with continue_processing flag set to true to indicate tool processing should continue
-        // The process_input loop will handle sending the next empty message
+        // The agent run loop will handle sending the next empty message
         Ok(MessageResult {
             response: result_for_response,
             continue_processing: true,

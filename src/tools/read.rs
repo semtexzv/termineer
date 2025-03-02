@@ -349,12 +349,12 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
                 // Add directories with trailing slash and bold formatting
                 for dir in &dirs {
                     let dir_name = dir.trim_end_matches('/');
-                    output.push_str(&format!("{}{}/{}\n", FORMAT_BOLD, dir_name, FORMAT_RESET));
+                    output.push_str(&format!("{}{}{}/{}\n", FORMAT_BOLD, FORMAT_GRAY, dir_name, FORMAT_RESET));
                 }
 
                 // Add files
                 for file in &files {
-                    output.push_str(&format!("{}\n", file));
+                    output.push_str(&format!("{}{}{}\n", FORMAT_GRAY, file, FORMAT_RESET));
                 }
 
                 // Use buffer-based printing

@@ -90,8 +90,6 @@ pub async fn execute_shell(
 
     // Print initial status message
     if !silent_mode {
-        // Use buffer system for output - no need to worry about terminal mode
-
         // Use output buffer for shell status message
         crate::btool_println!(
             "shell",
@@ -206,6 +204,9 @@ pub async fn execute_shell(
         let mut was_interrupted = false;
         let mut interrupt_reason = String::new();
         let mut exit_status = None;
+        
+        // Add a timestamp for tracking performance
+        let start_time = std::time::Instant::now();
 
         // Main process monitoring loop
         loop {
@@ -221,6 +222,7 @@ pub async fn execute_shell(
                     // Check if interruption requested
                     let is_interrupted;
                     {
+                        // Use a scoped block to limit the lock duration
                         let interrupt_data = interrupt_data_clone.lock().unwrap();
                         is_interrupted = interrupt_data.is_interrupted();
                         if is_interrupted {
@@ -234,9 +236,43 @@ pub async fn execute_shell(
                     }
 
                     if is_interrupted {
-                        // Kill the process
+                        // Log the interrupt
+                        if !main_silent_mode {
+                            crate::btool_println!(
+                                "shell",
+                                "{}🔴 Interrupt:{} Stopping command execution: {}",
+                                FORMAT_BOLD,
+                                FORMAT_RESET,
+                                interrupt_reason
+                            );
+                        }
+                        
+                        // Kill the process and wait for it to terminate
                         was_interrupted = true;
-                        let _ = child.kill().await;
+                        
+                        // First try a graceful termination
+                        match child.kill().await {
+                            Ok(_) => {
+                                if !main_silent_mode {
+                                    crate::btool_println!(
+                                        "shell",
+                                        "Command process terminated successfully"
+                                    );
+                                }
+                            },
+                            Err(e) => {
+                                // Process might have already exited
+                                if !main_silent_mode {
+                                    crate::btool_println!(
+                                        "shell",
+                                        "Note: Could not kill process (it may have already exited): {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                        
+                        // Mark as no longer running
                         *command_running.lock().await = false;
                         break;
                     }
@@ -247,8 +283,6 @@ pub async fn execute_shell(
 
                     // Log error
                     if !main_silent_mode {
-                        // Using buffer system for output - terminal modes handled elsewhere
-
                         // Use output buffer for error message
                         crate::btool_println!(
                             "shell",
@@ -272,6 +306,16 @@ pub async fn execute_shell(
 
             // Brief delay to avoid CPU spinning
             sleep(Duration::from_millis(10)).await;
+        }
+        
+        // Log execution time for performance tracking
+        let execution_time = start_time.elapsed();
+        if !main_silent_mode && execution_time.as_secs() >= 1 {
+            crate::btool_println!(
+                "shell",
+                "Command execution time: {:.2}s",
+                execution_time.as_secs_f64()
+            );
         }
 
         // Wait a moment for stdout/stderr to finish processing

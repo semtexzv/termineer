@@ -1,4 +1,5 @@
 use crate::agent::{Agent, AgentId, AgentMessage, AgentState};
+use crate::agent::types::InterruptSignal;
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::llm::{create_backend_for_task, Content, MessageInfo};
@@ -98,7 +99,9 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     }
     
     // Create message channels for communicating with the agent
-    let (_sender, receiver) = mpsc::channel(100);
+    let (_sender, receiver) = mpsc::channel::<AgentMessage>(100);
+    // Create dedicated interrupt channel
+    let (_interrupt_sender, interrupt_receiver) = mpsc::channel::<InterruptSignal>(10);
     let (state_sender, _state_receiver) = watch::channel(AgentState::Idle);
 
     // Generate a task-specific ID
@@ -111,7 +114,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     config.system_prompt = Some(system_prompt);
     
     // Create the agent
-    let mut agent = match Agent::new(task_id, format!("task_{}", task_name), config, receiver, state_sender) {
+    let mut agent = match Agent::new(task_id, format!("task_{}", task_name), config, state_sender) {
         Ok(agent) => agent,
         Err(e) => {
             let error_msg = format!("Failed to create agent for task: {}", e);

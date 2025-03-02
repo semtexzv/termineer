@@ -27,6 +27,10 @@ pub enum OutputType {
     Debug,
 }
 
+use std::sync::RwLock;
+use ratatui::text::Line as RatatuiLine;
+use crate::ansi_converter::ansi_to_line;
+
 /// A single line of output with its type
 #[derive(Debug, Clone)]
 pub struct OutputLine {
@@ -38,6 +42,8 @@ pub struct OutputLine {
     pub formatting: Option<String>,
     /// Timestamp when the line was added
     pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Cached converted line for TUI rendering
+    pub converted_line: RatatuiLine<'static>,
 }
 
 /// Shared buffer queue protected by a mutex
@@ -87,11 +93,14 @@ impl SharedBuffer {
         content: impl Into<String>,
         formatting: Option<String>,
     ) -> Result<(), String> {
+        let content = content.into();
+        let converted_line = ansi_to_line(&content);
         let line = OutputLine {
             output_type,
             content: content.into(),
             formatting,
             timestamp: Utc::now(),
+            converted_line,
         };
 
         self.push(line)
@@ -132,12 +141,15 @@ impl SharedBuffer {
             if line.is_empty() {
                 continue;
             }
+
+            let converted_line = ansi_to_line(line);
             
             let output_line = OutputLine {
                 output_type: output_type.clone(),
                 content: line.to_string(),
                 formatting: formatting.clone(),
                 timestamp: Utc::now(),
+                converted_line,
             };
             
             self.push(output_line)?;
