@@ -241,12 +241,25 @@ impl TuiState {
                 0
             };
             
+            // When at maximum scroll offset (bottom), we want to ensure the last line is visible
+            // This requires special handling
+            let adjusted_start = if self.scroll_offset == self.max_scroll_offset && total_lines > visible_height {
+                // Ensure we show the last line by adjusting start index
+                // This forces display of the range ending with the last line
+                total_lines - visible_height
+            } else {
+                // Normal scroll position
+                start_idx
+            };
+            
             // Get the visible range of lines
-            let end_idx = (start_idx + visible_height).min(total_lines);
+            let end_idx = (adjusted_start + visible_height).min(total_lines);
             
             // Extract the lines for the visible range
-            if start_idx < total_lines {
-                items = lines.range(start_idx..end_idx)
+            if adjusted_start < total_lines {
+                // Use an iterator to be more explicit about the range
+                items = (adjusted_start..end_idx)
+                    .filter_map(|i| lines.get(i))
                     .map(|line| ListItem::new(line.converted_line.clone()))
                     .collect();
             }

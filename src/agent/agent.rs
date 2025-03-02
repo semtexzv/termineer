@@ -801,7 +801,6 @@ impl Agent {
             // If this is a regular response, set the state back to Idle
             // so the agent waits for the next user input
             self.state = AgentState::Idle;
-            crate::bprintln!("Agent waiting for next user input.");
 
             return Ok(MessageResult {
                 response: assistant_message,
