@@ -25,24 +25,42 @@ use ratatui::widgets::Clear;
 /// Maximum number of lines to keep in the conversation history view
 const MAX_HISTORY_LINES: usize = 1000;
 
-/// Structure to store command output for the input area
-pub struct CommandOutput {
-    /// Title of the output (command that was run)
+/// Temporary output window that overlays the input area and can grow upward
+pub struct TemporaryOutput {
+    /// Title of the output window
     pub title: String,
-    /// Content of the output
-    pub content: String,
+    /// Content lines of the output
+    pub content: Vec<String>,
     /// Whether the output is visible
     pub visible: bool,
+    /// Maximum number of lines to display
+    pub max_lines: usize,
 }
 
-impl CommandOutput {
-    /// Create new command output
-    pub fn new(title: String, content: String) -> Self {
+impl TemporaryOutput {
+    /// Create a new temporary output
+    pub fn new() -> Self {
         Self {
-            title,
-            content,
-            visible: true,
+            title: String::new(),
+            content: Vec::new(),
+            visible: false,
+            max_lines: 20, // Default max height
         }
+    }
+    
+    /// Count the number of lines needed to display content
+    pub fn count_lines(&self, width: u16) -> usize {
+        self.content.iter().map(|line| {
+            // Calculate how many display lines this content line will take
+            // with wrapping at the specified width
+            let chars = line.chars().count();
+            if chars == 0 {
+                1 // Empty line still takes one line
+            } else {
+                // Number of full lines plus one for any partial line
+                (chars / width as usize) + if chars % width as usize > 0 { 1 } else { 0 }
+            }
+        }).sum()
     }
 
     /// Hide the output
@@ -53,7 +71,7 @@ impl CommandOutput {
     /// Show output with new content
     pub fn show(&mut self, title: String, content: String) {
         self.title = title;
-        self.content = content;
+        self.content = content.lines().map(String::from).collect();
         self.visible = true;
     }
 }
@@ -181,8 +199,8 @@ pub struct TuiState {
     pub max_scroll_offset: usize,
     /// Visible content height in lines
     pub visible_height: usize,
-    /// Command output for displaying in the input area
-    pub command_output: CommandOutput,
+    /// Temporary output window that grows upward from the input area
+    pub temp_output: TemporaryOutput,
     /// Command suggestions popup for auto-completion
     pub command_suggestions: CommandSuggestionsPopup,
 }
@@ -203,11 +221,7 @@ impl TuiState {
             scroll_offset: 0,
             max_scroll_offset: 0,
             visible_height: 0,
-            command_output: CommandOutput {
-                title: String::new(),
-                content: String::new(),
-                visible: false,
-            },
+            temp_output: TemporaryOutput::new(),
             command_suggestions: CommandSuggestionsPopup::new(),
         }
     }
@@ -339,6 +353,46 @@ impl TuiState {
         if self.command_mode {
             self.render_command_suggestions(f);
         }
+        
+        // Render the temporary output window if visible
+        if self.temp_output.visible {
+            self.render_temp_output(f, chunks[2], chunks[1]);
+        }
+    }
+    
+    /// Render the temporary output window that overlays input and grows upward
+    fn render_temp_output(&self, f: &mut Frame, input_area: Rect, content_area: Rect) {
+        // Start with the input area as the base
+        let mut output_area = input_area;
+        
+        // Calculate the total number of lines needed for content
+        let available_width = output_area.width.saturating_sub(4); // Allow for borders and padding
+        let needed_lines = self.temp_output.count_lines(available_width);
+        
+        // Determine how many lines we can extend upward into the content area
+        let max_extension = content_area.height.saturating_sub(5) as usize; // Leave 5 lines of content visible
+        let extension_lines = needed_lines.saturating_sub(1).min(max_extension);
+        
+        // Extend upward if needed
+        if extension_lines > 0 {
+            output_area.y = output_area.y.saturating_sub(extension_lines as u16);
+            output_area.height += extension_lines as u16;
+        }
+        
+        // Clear the area
+        f.render_widget(Clear, output_area);
+        
+        // Create the temporary output widget
+        let content_text = self.temp_output.content.join("\n");
+        let output_widget = Paragraph::new(content_text)
+            .style(Style::default().fg(Color::White))
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title(format!("{} (Press ESC to dismiss)", self.temp_output.title)))
+            .wrap(Wrap { trim: true });
+        
+        // Render the output
+        f.render_widget(output_widget, output_area);
     }
     
     // The render_popup method has been removed as we now show command output in the input area
@@ -546,22 +600,6 @@ impl TuiState {
 
     /// Render the input area
     fn render_input(&self, f: &mut Frame, area: Rect) {
-        // If command output is visible, show it instead of input
-        if self.command_output.visible {
-            // Create title with command info
-            let title = format!("Command Output: {} (Press ESC to dismiss)", self.command_output.title);
-            
-            // Create the command output paragraph
-            let output_text = Paragraph::new(self.command_output.content.clone())
-                .style(Style::default().fg(Color::White))
-                .block(Block::default().borders(Borders::ALL).title(title))
-                .wrap(Wrap { trim: true });
-                
-            // Render the output
-            f.render_widget(output_text, area);
-            return;
-        }
-        
         // Normal input rendering
         let input_style = if self.command_mode {
             Style::default().fg(Color::Yellow)
@@ -605,12 +643,15 @@ impl TuiState {
 
         f.render_widget(input_text, area);
 
-        // Calculate cursor position
-        let cursor_x = self.cursor_position as u16 + 1; // +1 for border
-        let cursor_y = area.y + 1; // +1 for border
-
-        // Show cursor at current position
-        f.set_cursor(cursor_x, cursor_y);
+        // Only show cursor if temporary output is not visible
+        if !self.temp_output.visible {
+            // Calculate cursor position
+            let cursor_x = self.cursor_position as u16 + 1; // +1 for border
+            let cursor_y = area.y + 1; // +1 for border
+            
+            // Show cursor at current position
+            f.set_cursor(cursor_x, cursor_y);
+        }
     }
     
     /// Get a string representation of the selected agent's state
@@ -736,8 +777,8 @@ impl TuiInterface {
             
             // Submit on Enter
             KeyCode::Enter => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -765,8 +806,8 @@ impl TuiInterface {
             
             // Backspace
             KeyCode::Backspace => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -784,8 +825,8 @@ impl TuiInterface {
             
             // Delete
             KeyCode::Delete => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -802,8 +843,8 @@ impl TuiInterface {
             
             // Left arrow
             KeyCode::Left => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -814,8 +855,8 @@ impl TuiInterface {
             
             // Right arrow
             KeyCode::Right => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -850,8 +891,8 @@ impl TuiInterface {
             
             // Regular character input
             KeyCode::Char(c) => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -867,8 +908,8 @@ impl TuiInterface {
             
             // Tab key for command completion
             KeyCode::Tab => {
-                // Ignore if command output is visible
-                if self.state.command_output.visible {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
@@ -894,10 +935,10 @@ impl TuiInterface {
                 }
             }
             
-            // Escape either dismisses output, hides suggestions, or clears the input
+            // Escape either dismisses temp output, hides suggestions, or clears the input
             KeyCode::Esc => {
-                if self.state.command_output.visible {
-                    self.state.command_output.hide();
+                if self.state.temp_output.visible {
+                    self.state.temp_output.hide();
                 } else if self.state.command_suggestions.visible {
                     self.state.command_suggestions.hide();
                 } else {
@@ -920,13 +961,35 @@ impl TuiInterface {
                 self.state.scroll(scroll_amount as isize);
             }
             
-            // Up/Down with shift for line-by-line scrolling
-            KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.state.scroll(-1);
+            // Up arrow handling - navigate suggestions or scroll
+            KeyCode::Up => {
+                // If command suggestions are visible, navigate up through them
+                if self.state.command_mode && self.state.command_suggestions.visible && self.state.command_suggestions.filtered_commands.len() > 0 {
+                    // Navigate to previous suggestion (looping to bottom if at top)
+                    let current = self.state.command_suggestions.selected_index;
+                    let count = self.state.command_suggestions.filtered_commands.len();
+                    
+                    // Calculate previous index with wrap-around
+                    let prev = if current == 0 { count - 1 } else { current - 1 };
+                    self.state.command_suggestions.selected_index = prev;
+                } 
+                // Otherwise handle as scroll with shift modifier
+                else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.state.scroll(-1);
+                }
             }
             
-            KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.state.scroll(1);
+            // Down arrow handling - navigate suggestions or scroll
+            KeyCode::Down => {
+                // If command suggestions are visible, navigate down through them
+                if self.state.command_mode && self.state.command_suggestions.visible && self.state.command_suggestions.filtered_commands.len() > 0 {
+                    // Navigate to next suggestion (looping to top if at bottom)
+                    self.state.command_suggestions.next();
+                } 
+                // Otherwise handle as scroll with shift modifier
+                else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.state.scroll(1);
+                }
             }
             
             // Ignore other keys
@@ -1012,9 +1075,9 @@ impl TuiInterface {
         Ok(())
     }
 
-    /// Show command output in the input area
+    /// Show command output in the temporary window
     fn show_command_result(&mut self, title: String, content: String) {
-        self.state.command_output.show(title, content);
+        self.state.temp_output.show(title, content);
     }
     
     /// Handle pound command for agent switching
