@@ -1,14 +1,13 @@
-use std::io::Write;
-use std::sync::{Arc, Mutex};
-use tokio::process::Command;
-use tokio::io::{BufReader, AsyncBufReadExt};
-use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal;
-use crossterm::terminal::disable_raw_mode;
-use crate::tools::ToolResult;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
+// No need for terminal modes when using buffer-based output
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
+use crate::tools::ToolResult;
 
 /// Data structure for managing interruption with reason
 pub struct InterruptData {
@@ -68,8 +67,8 @@ pub enum ShellOutput {
 pub async fn execute_shell(
     command_to_run: &str,
     body: &str,
-    interrupt_data: Arc<Mutex<InterruptData>>, 
-    silent_mode: bool
+    interrupt_data: Arc<Mutex<InterruptData>>,
+    silent_mode: bool,
 ) -> Result<mpsc::Receiver<ShellOutput>, Box<dyn std::error::Error>> {
     // If body is provided, use it as a script instead of the args
     let command_str = if !body.is_empty() {
@@ -78,24 +77,37 @@ pub async fn execute_shell(
         command_to_run.to_string()
     };
 
-    let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
-    let shell_arg = if cfg!(target_os = "windows") { "/C" } else { "-c" };
+    let shell = if cfg!(target_os = "windows") {
+        "cmd"
+    } else {
+        "sh"
+    };
+    let shell_arg = if cfg!(target_os = "windows") {
+        "/C"
+    } else {
+        "-c"
+    };
 
     // Create a channel for output streaming
     let (sender, receiver) = mpsc::channel(100); // Buffer size of 100 messages
-    
+
     // Print initial status message
     if !silent_mode {
-        // Ensure terminal is in normal mode for console output
-        let _ = disable_raw_mode();
-        
-        println!("{}🐚 Shell:{} {} (streaming - can be interrupted)", 
-                FORMAT_BOLD, FORMAT_RESET, command_str);
+        // Use buffer system for output - no need to worry about terminal mode
+
+        // Use output buffer for shell status message
+        crate::btool_println!(
+            "shell",
+            "{}🐚 Shell:{} {} (streaming - can be interrupted)",
+            FORMAT_BOLD,
+            FORMAT_RESET,
+            command_str
+        );
     }
-    
+
     // Clone the interrupt data for thread use
     let thread_interrupt_data = Arc::clone(&interrupt_data);
-    
+
     // Start the actual command
     let mut child = Command::new(shell)
         .arg(shell_arg)
@@ -103,105 +115,103 @@ pub async fn execute_shell(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
-            
+
     // Take the stdout and stderr handles
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     // Command status (using tokio::sync::Mutex now)
     let command_running = Arc::new(tokio::sync::Mutex::new(true));
-    
+
     // Interrupt data clone for checking
     let interrupt_data_clone = Arc::clone(&thread_interrupt_data);
-    
+
     // Stdout reader task
     let stdout_sender = sender.clone();
     let stdout_running_clone = Arc::clone(&command_running);
     let stdout_silent = silent_mode;
-    
+
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
-        let mut line_count = 0;
-        
+        let mut _line_count = 0;
+
         while let Ok(Some(line)) = reader.next_line().await {
             // Display line if not in silent mode
             if !stdout_silent {
-                print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
-                
-                // Flush periodically for better performance
-                line_count += 1;
-                if line_count % 10 == 0 {
-                    std::io::stdout().flush().unwrap_or(());
-                }
+                // Use output buffer for shell output
+                crate::btool_println!("shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
+                _line_count += 1;
             }
-            
+
             // Send the line through the channel
-            if stdout_sender.send(ShellOutput::Stdout(line.clone())).await.is_err() {
+            if stdout_sender
+                .send(ShellOutput::Stdout(line.clone()))
+                .await
+                .is_err()
+            {
                 break;
             }
-            
+
             // Check if we should exit
             if !*stdout_running_clone.lock().await {
                 break;
             }
         }
-        
-        // Ensure any remaining output is flushed at the end
-        if !stdout_silent {
-            std::io::stdout().flush().unwrap_or(());
-        }
+
+        // No need to manually flush output when using buffer system
     });
-    
+
     // Stderr reader task
     let stderr_sender = sender.clone();
     let stderr_running_clone = Arc::clone(&command_running);
     let stderr_silent = silent_mode;
-    
+
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
-        let mut line_count = 0;
-        
+        let mut _line_count = 0;
+
         while let Ok(Some(line)) = reader.next_line().await {
             // Display line if not in silent mode
             if !stderr_silent {
-                print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
-                
-                // Flush periodically for better performance
-                line_count += 1;
-                if line_count % 10 == 0 {
-                    std::io::stdout().flush().unwrap_or(());
-                }
+                // Use output buffer for shell stderr output
+                crate::btool_println!("shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
+                _line_count += 1;
             }
-            
+
             // Send the line through the channel
-            if stderr_sender.send(ShellOutput::Stderr(line.clone())).await.is_err() {
+            if stderr_sender
+                .send(ShellOutput::Stderr(line.clone()))
+                .await
+                .is_err()
+            {
                 break;
             }
-            
+
             // Check if we should exit
             if !*stderr_running_clone.lock().await {
                 break;
             }
         }
-        
-        // Ensure any remaining output is flushed at the end
-        if !stderr_silent {
-            std::io::stdout().flush().unwrap_or(());
-        }
+
+        // No need to manually flush output when using buffer system
     });
-    
+
     // Create a task to handle keyboard interruptions
     if !silent_mode {
         let keyboard_interrupt_data = Arc::clone(&interrupt_data_clone);
         let keyboard_command_running = Arc::clone(&command_running);
-        
+
         tokio::spawn(async move {
             loop {
                 // Check for Ctrl+C with a longer poll time to not miss keypresses
                 // Note: This still uses std blocking calls as crossterm isn't async
-                if terminal::enable_raw_mode().is_ok() && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false) {
+                if terminal::enable_raw_mode().is_ok()
+                    && event::poll(std::time::Duration::from_millis(10)).unwrap_or(false)
+                {
                     if let Ok(Event::Key(key)) = event::read() {
-                        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)
+                        {
                             // Set interrupt with reason
                             let mut data = keyboard_interrupt_data.lock().unwrap();
                             data.interrupt("User interrupted command with Ctrl+C".to_string());
@@ -219,30 +229,30 @@ pub async fn execute_shell(
                         break; // Process was interrupted or completed
                     }
                 }
-                
+
                 // Check if command finished on its own
                 if !*keyboard_command_running.lock().await {
-                    let _ = disable_raw_mode();
+                    // Terminal mode changes handled elsewhere when using buffer system
                     break;
                 }
-                
+
                 // Small sleep to avoid CPU spinning
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             }
         });
     }
-    
+
     // Spawn the main monitoring task
     let main_command_str = command_str.clone();
     let main_sender = sender.clone();
     let main_silent_mode = silent_mode;
-    
+
     tokio::spawn(async move {
         // Main process monitoring variables
         let mut was_interrupted = false;
         let mut interrupt_reason = String::new();
         let mut exit_status = None;
-        
+
         // Main process monitoring loop
         loop {
             // Check if process has completed on its own
@@ -268,7 +278,7 @@ pub async fn execute_shell(
                             }
                         }
                     }
-                    
+
                     if is_interrupted {
                         // Kill the process
                         was_interrupted = true;
@@ -280,25 +290,32 @@ pub async fn execute_shell(
                 Err(e) => {
                     // Error checking process
                     *command_running.lock().await = false;
-                    
+
                     // Log error
                     if !main_silent_mode {
-                        // Ensure terminal is in normal mode
-                        let _ = disable_raw_mode();
-                        
-                        println!("{}🐚 Shell:{} Error monitoring process: {}", 
-                            FORMAT_BOLD, FORMAT_RESET, e);
+                        // Using buffer system for output - terminal modes handled elsewhere
+
+                        // Use output buffer for error message
+                        crate::btool_println!(
+                            "shell",
+                            "{}🐚 Shell:{} Error monitoring process: {}",
+                            FORMAT_BOLD,
+                            FORMAT_RESET,
+                            e
+                        );
                     }
-                    
+
                     // Send error completion
-                    let _ = main_sender.send(ShellOutput::Complete(ToolResult {
-                        success: false,
-                        agent_output: format!("Error monitoring process status: {}", e),
-                    })).await;
+                    let _ = main_sender
+                        .send(ShellOutput::Complete(ToolResult {
+                            success: false,
+                            agent_output: format!("Error monitoring process status: {}", e),
+                        }))
+                        .await;
                     return;
                 }
             }
-            
+
             // Brief delay to avoid CPU spinning
             sleep(Duration::from_millis(10)).await;
         }
@@ -306,7 +323,7 @@ pub async fn execute_shell(
         // Wait a moment for stdout/stderr to finish processing
         sleep(Duration::from_millis(50)).await;
 
-        let _ = disable_raw_mode();
+        // Terminal mode changes handled elsewhere when using buffer system
 
         // Determine success based on exit status or interruption
         let success = if was_interrupted {
@@ -333,27 +350,46 @@ pub async fn execute_shell(
         // Print status message
         if !main_silent_mode {
             // Ensure we're in normal mode for console output
-            let _ = disable_raw_mode();
-            
+            // Terminal mode changes handled elsewhere when using buffer system
+
+            // Use output buffer for completion status
             if was_interrupted {
-                println!("{}🐚 Shell:{} {} (interrupted: {})",
-                    FORMAT_BOLD, FORMAT_RESET, main_command_str, interrupt_reason);
+                crate::btool_println!(
+                    "shell",
+                    "{}🐚 Shell:{} {} (interrupted: {})",
+                    FORMAT_BOLD,
+                    FORMAT_RESET,
+                    main_command_str,
+                    interrupt_reason
+                );
             } else if success {
-                println!("{}🐚 Shell:{} {} (completed successfully)", 
-                    FORMAT_BOLD, FORMAT_RESET, main_command_str);
+                crate::btool_println!(
+                    "shell",
+                    "{}🐚 Shell:{} {} (completed successfully)",
+                    FORMAT_BOLD,
+                    FORMAT_RESET,
+                    main_command_str
+                );
             } else {
-                println!("{}🐚 Shell:{} {} (completed with error)",
-                    FORMAT_BOLD, FORMAT_RESET, main_command_str);
+                crate::btool_println!(
+                    "shell",
+                    "{}🐚 Shell:{} {} (completed with error)",
+                    FORMAT_BOLD,
+                    FORMAT_RESET,
+                    main_command_str
+                );
             }
         }
 
         // Send final completion message with result
-        let _ = main_sender.send(ShellOutput::Complete(ToolResult {
-            success,
-            agent_output,
-        })).await;
+        let _ = main_sender
+            .send(ShellOutput::Complete(ToolResult {
+                success,
+                agent_output,
+            }))
+            .await;
     });
-    
+
     // Return the receiver for streaming output
     Ok(receiver)
 }

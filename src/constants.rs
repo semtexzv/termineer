@@ -10,7 +10,6 @@ pub const TOOL_RESULT_END: &str = "</tool_result>";
 pub const TOOL_ERROR_START: &str = "<tool_error>";
 pub const TOOL_ERROR_END: &str = "</tool_error>";
 
-
 pub const FORMAT_RESET: &str = "\x1b[0m";
 pub const FORMAT_BOLD: &str = "\x1b[1m";
 pub const FORMAT_GRAY: &str = "\x1b[90m";
@@ -38,7 +37,6 @@ pub const HELP_TEMPLATE: &str = r#"
   /system TEXT           - Set a custom system prompt
   /model NAME            - Change the model (e.g., claude-3-opus-20240229)
   /tools on|off          - Enable or disable tools
-  /history-limit NUMBER  - Set max conversation history length 
   /thinking NUMBER       - Set thinking budget in tokens
   /stats                 - Show detailed token usage statistics
   

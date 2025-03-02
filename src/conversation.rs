@@ -2,23 +2,18 @@
 //!
 //! This module handles parsing of LLM responses and formatting for display.
 
-use std::io::{self, Write};
-use crate::constants::{
-    FORMAT_GRAY, FORMAT_RESET,
-    TOOL_START, TOOL_END,
-};
+use crate::constants::{FORMAT_GRAY, FORMAT_RESET, TOOL_END, TOOL_START};
 use crate::llm::TokenUsage;
 
-/// Formats and prints assistant's response to the console with consistent styling
+/// Print the assistant's response to the output buffer
 pub fn print_assistant_response(text: &str) {
-    print!("{}\r\n", text);
-    io::stdout().flush().unwrap();
+    crate::bprintln!("{}", text);
 }
 
-/// Prints token usage statistics in a consistent format
+/// Print token usage statistics to the output buffer
 pub fn print_token_stats(usage: &TokenUsage) {
-    print!(
-        "{}[{} in / {} out] ({} read, {} written){}\r\n",
+    crate::bprintln!(
+        "{}[{} in / {} out] ({} read, {} written){}",
         FORMAT_GRAY,
         usage.input_tokens,
         usage.output_tokens,
@@ -26,7 +21,6 @@ pub fn print_token_stats(usage: &TokenUsage) {
         usage.cache_creation_input_tokens,
         FORMAT_RESET
     );
-    io::stdout().flush().unwrap();
 }
 
 /// Parsed response from the assistant
@@ -59,13 +53,13 @@ pub fn parse_assistant_response(response: &str) -> ParsedResponse {
     if let Some(tool_start_idx) = response.find(TOOL_START) {
         if let Some(tool_end_relative_idx) = response[tool_start_idx..].find(TOOL_END) {
             let tool_end_idx = tool_start_idx + tool_end_relative_idx;
-            
+
             // Get the text before the tool invocation
             let text_before_tool = response[0..tool_start_idx].trim().to_string();
-            
+
             // Extract tool content
             let tool_content = &response[tool_start_idx + TOOL_START.len()..tool_end_idx];
-            
+
             // Extract tool name
             let parts: Vec<&str> = tool_content.trim().splitn(2, char::is_whitespace).collect();
             let tool_name = if !parts.is_empty() {
@@ -73,7 +67,7 @@ pub fn parse_assistant_response(response: &str) -> ParsedResponse {
             } else {
                 "unknown".to_string()
             };
-            
+
             // Return parsed response
             return ParsedResponse {
                 text: text_before_tool,
@@ -83,7 +77,7 @@ pub fn parse_assistant_response(response: &str) -> ParsedResponse {
             };
         }
     }
-    
+
     // Fallback if we couldn't properly parse the tool
     ParsedResponse {
         text: response.to_string(),

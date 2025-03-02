@@ -2,13 +2,13 @@
 //!
 //! Implementation of the LLM provider for Anthropic's Claude models.
 
-use std::collections::BTreeSet;
-use std::time::Duration;
+use crate::jsonpath;
+use crate::llm::{Backend, Content, LlmError, LlmResponse, Message, TokenUsage};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::BTreeSet;
+use std::time::Duration;
 use tokio::time::sleep;
-use crate::jsonpath;
-use crate::llm::{Backend, LlmResponse, LlmError, Message, Content, TokenUsage};
 
 // Constants for the Anthropic API
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -58,10 +58,10 @@ struct MessageResponse {
 pub struct Anthropic {
     /// API key for Anthropic
     api_key: String,
-    
+
     /// Model name to use
     model: String,
-    
+
     /// HTTP client
     client: reqwest::Client,
 }
@@ -69,13 +69,13 @@ pub struct Anthropic {
 impl Anthropic {
     /// Create a new Anthropic provider with the specified API key and model
     pub fn new(api_key: String, model: String) -> Self {
-        Self { 
-            api_key, 
+        Self {
+            api_key,
             model,
             client: reqwest::Client::new(),
         }
     }
-    
+
     /// Send a request to the Anthropic API with retry logic
     async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
@@ -87,7 +87,9 @@ impl Anthropic {
         let base_retry_delay_ms = 1000; // 1 second initial retry delay
 
         loop {
-            let response = self.client.post(API_URL)
+            let response = self
+                .client
+                .post(API_URL)
                 .header("Content-Type", "application/json")
                 .header("X-Api-Key", &self.api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
@@ -99,8 +101,9 @@ impl Anthropic {
             match response {
                 Ok(res) => {
                     if res.status().is_success() {
-                        return res.json::<T>().await
-                            .map_err(|e| LlmError::ApiError(format!("Failed to parse response: {}", e)));
+                        return res.json::<T>().await.map_err(|e| {
+                            LlmError::ApiError(format!("Failed to parse response: {}", e))
+                        });
                     } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                         // Handle rate limiting (429 Too Many Requests)
                         attempts += 1;
@@ -112,7 +115,9 @@ impl Anthropic {
                         }
 
                         // Try to get retry-after header, default to exponential backoff if not present
-                        let retry_after = match res.headers().get("retry-after")
+                        let retry_after = match res
+                            .headers()
+                            .get("retry-after")
                             .and_then(|v| v.to_str().ok())
                             .and_then(|v| v.parse::<u64>().ok())
                         {
@@ -130,16 +135,17 @@ impl Anthropic {
                         continue;
                     } else {
                         let status = res.status();
-                        let error_text = res.text().await
+                        let error_text = res
+                            .text()
+                            .await
                             .unwrap_or_else(|_| "Unknown error".to_string());
-                            
+
                         return Err(LlmError::ApiError(format!(
                             "HTTP error {}: {}",
-                            status,
-                            error_text
+                            status, error_text
                         )));
                     }
-                },
+                }
                 Err(err) => {
                     return Err(LlmError::ApiError(format!("HTTP request error: {}", err)));
                 }
@@ -151,8 +157,8 @@ impl Anthropic {
 #[async_trait::async_trait]
 impl Backend for Anthropic {
     async fn send_message(
-        &self, 
-        messages: &[Message], 
+        &self,
+        messages: &[Message],
         system: Option<&str>,
         stop_sequences: Option<&[String]>,
         thinking_budget: Option<usize>,
@@ -162,7 +168,7 @@ impl Backend for Anthropic {
         // Default max tokens if not provided
         let default_max_tokens = 32768; // Large default for Claude's capabilities
         let tokens = max_tokens.unwrap_or(default_max_tokens);
-        
+
         // Create the message request
         let request = MessageRequest {
             model: self.model.clone(),
@@ -175,24 +181,25 @@ impl Backend for Anthropic {
                 type_: ThinkingType::Enabled,
             }),
         };
-        
+
         // Convert to JSON and prepare for the API
         let mut json = serde_json::to_value(request.clone())
             .map_err(|e| LlmError::ApiError(format!("Failed to serialize request: {}", e)))?;
-        
+
         // Remove info field which is not part of the API schema
         jsonpath::remove(&mut json, "/messages[..]/info")
             .map_err(|e| LlmError::ApiError(format!("Failed to process request: {}", e)))?;
-        
+
+        // Add cache annotation to cached conversation points
         for point in cache_points.iter().flat_map(|v| v.iter()) {
             let path = format!("/messages[{}]/content[-1]/cache_control", point);
             jsonpath::insert(&mut json, &path, json!({"type": "ephemeral"}))
                 .map_err(|e| LlmError::ApiError(format!("Failed to process request: {}", e)))?;
         }
-        
+
         // Send the request
         let response: MessageResponse = self.send_api_request(json).await?;
-        
+
         // Convert to LlmResponse with stop information
         Ok(LlmResponse {
             content: response.content,
@@ -201,11 +208,11 @@ impl Backend for Anthropic {
             stop_sequence: response.stop_sequence,
         })
     }
-    
+
     fn name(&self) -> &str {
         "anthropic"
     }
-    
+
     fn model(&self) -> &str {
         &self.model
     }

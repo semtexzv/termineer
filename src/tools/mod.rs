@@ -1,19 +1,19 @@
-pub mod shell;
-pub mod read;
-pub mod write;
-pub mod patch;
 pub mod done;
 pub mod fetch;
+pub mod patch;
+pub mod read;
+pub mod shell;
 pub mod task;
+pub mod write;
 
 // Re-export all tool functions
-pub use read::execute_read;
-pub use write::execute_write;
-pub use patch::execute_patch;
 pub use done::execute_done;
 pub use fetch::execute_fetch;
+pub use patch::execute_patch;
+pub use read::execute_read;
+pub use shell::{execute_shell, InterruptData, ShellOutput};
 pub use task::execute_task;
-pub use shell::{execute_shell, ShellOutput, InterruptData};
+pub use write::execute_write;
 
 /// Result of executing a tool
 #[derive(Debug, Clone)]
@@ -45,12 +45,16 @@ impl ToolResult {
     }
 }
 
+// Use macros for output instead of direct functions
+
 /// Handles tool execution with consistent processing
 pub struct ToolExecutor {
     /// Whether tools are in read-only mode
     readonly_mode: bool,
     /// Whether to suppress console output
     silent_mode: bool,
+    /// Whether to use the output buffer (true) or direct printing (false)
+    pub use_buffer: bool,
 }
 
 impl ToolExecutor {
@@ -59,13 +63,21 @@ impl ToolExecutor {
         Self {
             readonly_mode,
             silent_mode,
+            use_buffer: true, // Default to using buffer
         }
     }
-    
+
     /// Check if executor is in silent mode
     pub fn is_silent(&self) -> bool {
         self.silent_mode
     }
+
+    /// Set whether to use the buffer or direct printing
+    pub fn set_use_buffer(&mut self, use_buffer: bool) {
+        self.use_buffer = use_buffer;
+    }
+
+    // Removed unused with_buffer method
 
     /// Execute a tool based on content provided by the LLM
     pub async fn execute(&self, tool_content: &str) -> ToolResult {
@@ -74,14 +86,14 @@ impl ToolExecutor {
 
         // In readonly mode, only allow read-only tools (and task which will create readonly subagents)
         if self.readonly_mode && !self.is_readonly_tool(&tool_name) {
-            let error_msg = format!("Tool '{}' is not available in read-only mode", tool_name);
             if !self.silent_mode {
-                println!("{}❌ Error:{} {}", 
-                    crate::constants::FORMAT_BOLD, 
-                    crate::constants::FORMAT_RESET, 
-                    error_msg);
+                // Always use buffer-based printing with direct formatting
+                crate::berror_println!("Tool '{}' is not available in read-only mode", tool_name);
             }
-            return ToolResult::error(error_msg);
+            return ToolResult::error(format!(
+                "Tool '{}' is not available in read-only mode",
+                tool_name
+            ));
         }
 
         // Execute the appropriate tool with silent mode flag. Shell handled externally
@@ -93,14 +105,11 @@ impl ToolExecutor {
             "done" => execute_done(args, &body, self.silent_mode),
             "task" => execute_task(args, &body, self.silent_mode).await,
             _ => {
-                let error_msg = format!("Unknown tool: {:?}", tool_name);
                 if !self.silent_mode {
-                    println!("{}❌ Error:{} {}", 
-                        crate::constants::FORMAT_BOLD, 
-                        crate::constants::FORMAT_RESET, 
-                        error_msg);
+                    // Always use buffer-based printing with direct formatting
+                    crate::berror_println!("Unknown tool: {:?}", tool_name);
                 }
-                ToolResult::error(error_msg)
+                ToolResult::error(format!("Unknown tool: {:?}", tool_name))
             }
         }
     }

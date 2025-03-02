@@ -1,5 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::{SerializeSeq}};
-
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 
 pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
 where

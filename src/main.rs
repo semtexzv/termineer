@@ -1,10 +1,7 @@
-//! autoswe console interface for AI assistants
+//! AutoSWE - AI Agent Console Interface
 //!
-//! A command-line interface for interacting with AI assistants through various backends.
-
-use std::env;
-use std::io::{self, Write};
-use crossterm::terminal;
+//! This application provides a command-line interface for interacting with AI agents,
+//! supporting multiple agents, tool execution, and conversation management.
 
 mod agent;
 mod commands;
@@ -13,226 +10,100 @@ mod constants;
 mod conversation;
 pub mod jsonpath;
 mod llm;
+mod macros;
+mod output;
 mod prompts;
 pub mod serde_element_array;
 mod session;
 mod tools;
+mod ui_interface;
 
-use agent::{Agent, process_user_query};
-use config::{ArgResult, Config};
-use prompts::{generate_minimal_system_prompt, ToolDocOptions};
+use std::io;
+use std::sync::{Arc, Mutex};
 
-/// Read a line of input from the user using standard terminal input
-fn read_line() -> Result<String, Box<dyn std::error::Error>> {
-    // Print the prompt
-    print!("> ");
-    io::stdout().flush()?;
-    
-    // Use standard readline functionality
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    
-    // Trim the trailing newline
-    let input = input.trim_end().to_string();
-    
-    Ok(input)
-}
+use agent::AgentManager;
+use agent::AgentId;
+use config::Config;
+use crossterm::{
+    cursor,
+    execute,
+    style::{Color, Print, ResetColor, SetForegroundColor},
+};
+use ui_interface::TuiInterface;
 
-/// Run in interactive mode with a conversation UI
-async fn run_interactive_mode(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    use constants::{FORMAT_BOLD, FORMAT_RESET};
-    
-    let mut client = Agent::new(config.clone());
+/// Main entry point for the application
+///
+/// Sets up the application environment, creates the main agent,
+/// and initializes the TUI interface.
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Load environment variables from .env file
+    let _ = dotenvy::dotenv();
 
-    // Apply appropriate system prompt if none is provided
-    if client.config.system_prompt.is_none() {
-        // Use default (full) tool options
-        let options = ToolDocOptions::default();
+    // Create the agent manager
+    let agent_manager = Arc::new(Mutex::new(AgentManager::new()));
 
-        if client.config.use_minimal_prompt {
-            // Use minimal prompt if configured
-            let minimal_prompt = generate_minimal_system_prompt(&options);
-            client.set_system_prompt(minimal_prompt);
-        } else {
-            // Use full default system prompt
-            let default_prompt = prompts::generate_system_prompt(&options);
-            client.set_system_prompt(default_prompt);
-        }
-    }
+    // Create the main agent
+    let main_agent_id = {
+        let mut manager = agent_manager.lock().unwrap();
 
-    // Attempt to resume last session if requested
-    if config.resume_last_session {
-        match session::load_last_session(&mut client).await {
-            Ok(_) => print!("Successfully resumed last session\r\n"),
-            Err(e) => print!("Note: Could not resume last session: {}\r\n", e),
-        }
-        io::stdout().flush()?;
-    }
-
-    // Application header with consistent formatting
-    print!("{}AI Assistant Console Interface{}\r\n", FORMAT_BOLD, FORMAT_RESET);
-    print!("Type your message and press Enter to chat with the assistant\r\n");
-    print!("Type '/help' for available commands or '/exit' to quit\r\n");
-
-    if client.config.enable_tools {
-        print!("Tools are ENABLED. The assistant will use tools automatically based on your request.\r\n");
-    } else {
-        print!("Tools are DISABLED. Use /tools on to enable them.\r\n");
-    }
-
-    // Display token optimization settings
-    print!("\r\nToken optimization settings:\r\n");
-    print!(
-        "- Thinking budget: {} tokens\r\n",
-        client.config.thinking_budget
-    );
-    print!(
-        "- System prompt: {}\r\n",
-        if client.config.system_prompt.is_some() {
-            "custom"
-        } else if client.config.use_minimal_prompt {
-            "minimal"
-        } else {
-            "standard"
-        }
-    );
-    print!("\r\n");
-    io::stdout().flush()?;
-
-    loop {
-        let user_input = match read_line() {
-            Ok(input) => input,
+        // Get configuration from environment or use defaults
+        let config = match Config::from_env() {
+            Ok(config) => config,
             Err(e) => {
-                print!("Input error: {}\r\n", e);
-                io::stdout().flush()?;
-                continue;
+                execute!(
+                    io::stderr(),
+                    SetForegroundColor(Color::Red),
+                    Print(format!("Error loading configuration: {}", e)),
+                    ResetColor,
+                    cursor::MoveToNextLine(1),
+                )?;
+                Config::new()
             }
         };
 
-        let user_input = user_input.trim();
-
-        // Handle exit command directly for quick exit
-        if user_input == "/exit" {
-            break;
-        }
-
-        // Handle commands
-        if user_input.starts_with('/') {
-            if let Err(e) = commands::handle_command(&mut client, user_input).await {
-                print!("Command error: {}\r\n", e);
-                io::stdout().flush()?;
+        // Create the main agent
+        match manager.create_agent("main".to_string(), config) {
+            Ok(id) => {
+                println!("Main agent created with ID {}", id);
+                id
             }
-            continue;
-        }
-
-        // Process normal user query
-        if !user_input.is_empty() {
-            // Process the query and handle any errors
-            // Note: The printing of responses is now handled directly in the agent
-            if let Err(e) = process_user_query(&mut client, user_input, false).await {
-                print!("\r\nError: {}\r\n\r\n", e);
-                io::stdout().flush()?;
+            Err(e) => {
+                execute!(
+                    io::stderr(),
+                    SetForegroundColor(Color::Red),
+                    Print(format!("Failed to create main agent: {}", e)),
+                    ResetColor,
+                    cursor::MoveToNextLine(1)
+                )?;
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create main agent: {}", e),
+                ))
+                    as Box<dyn std::error::Error + Send + Sync>);
             }
-        }
-    }
-
-    print!("Goodbye!\r\n");
-    io::stdout().flush()?;
-    
-    Ok(())
-}
-
-/// Run a single query in non-interactive mode
-async fn run_query(config: Config, query: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = Agent::new(config.clone());
-
-    // Apply appropriate system prompt if none is provided
-    if client.config.system_prompt.is_none() {
-        // Use default (full) tool options
-        let options = ToolDocOptions::default();
-
-        if client.config.use_minimal_prompt {
-            // Use minimal prompt if configured
-            let minimal_prompt = generate_minimal_system_prompt(&options);
-            client.set_system_prompt(minimal_prompt);
-        } else {
-            // Use full default system prompt
-            let default_prompt = prompts::generate_system_prompt(&options);
-            client.set_system_prompt(default_prompt);
-        }
-    }
-
-    // Attempt to resume last session if requested
-    if config.resume_last_session {
-        match session::load_last_session(&mut client).await {
-            Ok(_) => print!("Successfully resumed last session\r\n"),
-            Err(e) => print!("Note: Could not resume last session: {}\r\n", e),
-        }
-        io::stdout().flush()?;
-    }
-
-    // Process the query - printing is now handled in the agent
-    let result = process_user_query(&mut client, query, false).await;
-
-    // Only log errors, actual response output is handled in the agent
-    if let Err(e) = &result {
-        // Use stderr for error messages in non-interactive mode
-        eprint!("Error processing query: {}\r\n", e);
-        std::io::stderr().flush()?;
-    }
-
-    // Only care about success/error, not the actual result values
-    result.map(|_| ())
-}
-
-/// Display usage text
-fn print_usage() {
-    use constants::*;
-
-    // Create usage text using template
-    let usage_text = format_template(USAGE_TEMPLATE);
-
-    // Use stderr for usage output
-    eprint!("{}\r\n", usage_text);
-    std::io::stderr().flush().unwrap();
-}
-
-/// Main entry point
-/// This application uses normal terminal mode, with raw mode only enabled in the shell tool when needed
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load .env file if exists
-    let _ = dotenvy::dotenv();
-
-    // Load configuration from environment variables
-    let config = match Config::from_env() {
-        Ok(config) => config,
-        Err(e) => {
-            eprint!("Error: {}\r\n", e);
-            std::io::stderr().flush()?;
-            return Ok(());
         }
     };
 
-    // Apply command line arguments to override configuration
-    let args: Vec<String> = env::args().collect();
-    let mut config = config; // Make config mutable to apply args
+    // Check if stdin is a TTY (interactive terminal) or pipe
+    let is_tty = atty::is(atty::Stream::Stdin);
 
-    // Apply args and get result type (query, interactive, or help)
-    let arg_result = config.apply_args(&args);
-
-    // Handle the different result types
-    match arg_result {
-        Ok(ArgResult::Query(query)) => run_query(config, &query).await?,
-        Ok(ArgResult::Interactive) => run_interactive_mode(config).await?,
-        Ok(ArgResult::ShowHelp) => {
-            print_usage();
-        }
-        Err(e) => {
-            eprint!("{}\r\n", e);
-            std::io::stderr().flush()?;
-        }
+    if !is_tty {
+        // Non-interactive mode not supported with TUI
+        println!("TUI interface requires an interactive terminal. Exiting...");
+        return Ok(());
     }
 
+    // Initialize and run the TUI interface
+    let mut tui = TuiInterface::new(agent_manager.clone(), main_agent_id)?;
+    tui.run().await;
+
+    // When TUI exits, terminate all agents
+    {
+        let mut manager = agent_manager.lock().unwrap();
+        manager.terminate_all().await;
+    }
+    
+    println!("AutoSWE terminated successfully.");
     Ok(())
 }

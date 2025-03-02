@@ -11,10 +11,10 @@ use std::error::Error;
 pub enum ArgResult {
     /// Query provided (non-interactive mode)
     Query(String),
-    
+
     /// No query (interactive mode)
     Interactive,
-    
+
     /// Help requested
     ShowHelp,
 }
@@ -24,19 +24,19 @@ pub enum ArgResult {
 pub struct Config {
     /// Model name to use (will infer provider from this)
     pub model: String,
-    
+
     /// Custom system prompt
     pub system_prompt: Option<String>,
-    
+
     /// Whether to enable tools
     pub enable_tools: bool,
-    
+
     /// Budget for "thinking" capabilities
     pub thinking_budget: usize,
-    
+
     /// Whether to use a minimal system prompt
     pub use_minimal_prompt: bool,
-    
+
     /// Whether to resume the last session
     pub resume_last_session: bool,
 }
@@ -54,7 +54,7 @@ impl Config {
             resume_last_session: false,
         }
     }
-    
+
     /// Create a new configuration with a specific model
     pub fn with_model(model: String) -> Self {
         let mut config = Self::new();
@@ -66,26 +66,26 @@ impl Config {
     pub fn from_env() -> Result<Self, Box<dyn Error>> {
         // Create default configuration
         let mut config = Self::new();
-        
+
         // Check for provider-specific env vars for basic validation
         // This will be handled in detail by each provider, but we do a basic check here
         if env::var("ANTHROPIC_API_KEY").is_err() {
             eprintln!("Warning: ANTHROPIC_API_KEY environment variable not set");
             // We don't return an error here since the provider will handle this
         }
-        
+
         // Override model from environment if provided
         if let Ok(model) = env::var("AUTOSWE_MODEL") {
             config.model = model;
         }
-        
+
         // Override thinking budget from environment if provided
         if let Ok(budget) = env::var("AUTOSWE_THINKING_BUDGET") {
             if let Ok(budget) = budget.parse::<usize>() {
                 config.thinking_budget = budget;
             }
         }
-        
+
         // Override tools enabled from environment if provided
         if let Ok(tools) = env::var("AUTOSWE_ENABLE_TOOLS") {
             config.enable_tools = tools.to_lowercase() == "true" || tools == "1";
@@ -162,7 +162,7 @@ impl Config {
 
         match query {
             Some(q) => Ok(ArgResult::Query(q)),
-            None => Ok(ArgResult::Interactive)
+            None => Ok(ArgResult::Interactive),
         }
     }
 }

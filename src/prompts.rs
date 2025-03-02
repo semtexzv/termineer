@@ -317,44 +317,44 @@ pub fn generate_system_prompt(options: &ToolDocOptions) -> String {
     let mut prompt = String::from(
         "You are an AI assistant connected to a custom console interface with tool support for software engineering tasks.\n"
     );
-    
+
     // Add core principles
     prompt.push_str(CORE_PRINCIPLES);
-    
+
     // Add tool documentation
     prompt.push_str("\n## Available Tools\n");
-    
+
     if options.include_shell {
         prompt.push_str(SHELL_DOC);
     }
-    
+
     if options.include_read {
         prompt.push_str(READ_DOC);
     }
-    
+
     if options.include_write {
         prompt.push_str(WRITE_DOC);
     }
-    
+
     if options.include_patch {
         prompt.push_str(PATCH_DOC);
     }
-    
+
     if options.include_fetch {
         prompt.push_str(FETCH_DOC);
     }
-    
+
     if options.include_task {
         prompt.push_str(TASK_DOC);
     }
-    
+
     if options.include_done {
         prompt.push_str(DONE_DOC);
     }
-    
+
     // Add important guidelines
     prompt.push_str(IMPORTANT_GUIDELINES);
-    
+
     // Replace placeholders with actual values
     format_template_vars(&prompt)
 }
@@ -362,45 +362,49 @@ pub fn generate_system_prompt(options: &ToolDocOptions) -> String {
 /// Generate a minimal system prompt with appropriate tool documentation
 pub fn generate_minimal_system_prompt(options: &ToolDocOptions) -> String {
     let mut prompt = String::from("You are an AI assistant with software engineering expertise. First research thoroughly, then plan carefully before acting. You have these tools:\n\n");
-    
+
     // Add shell tool (minimal) with interruption info
     if options.include_shell {
         prompt.push_str("- {TOOL_START}shell [command]{TOOL_END} - Execute shell commands (interruption possible with <interrupt>reason</interrupt>)\n");
     }
-    
+
     // Add read tool (minimal)
     if options.include_read {
         prompt.push_str("- {TOOL_START}read [offset=N] [limit=M] [filepath(s)]{TOOL_END} - View files/directories\n");
     }
-    
+
     // Add write tool (minimal)
     if options.include_write {
-        prompt.push_str("- {TOOL_START}write [filepath]\n[content]\n{TOOL_END} - Create/replace files\n");
+        prompt.push_str(
+            "- {TOOL_START}write [filepath]\n[content]\n{TOOL_END} - Create/replace files\n",
+        );
     }
-    
+
     // Add patch tool (minimal)
     if options.include_patch {
         prompt.push_str("- {TOOL_START}patch [filepath]\n{PATCH_DELIMITER_BEFORE}\n[old text]\n{PATCH_DELIMITER_AFTER}\n[new text (leave empty to delete content)]\n{PATCH_DELIMITER_END}\n{TOOL_END} - Edit files precisely\n");
     }
-    
+
     // Add fetch tool (minimal)
     if options.include_fetch {
-        prompt.push_str("- {TOOL_START}fetch URL{TOOL_END} - Get web content (HTML auto-converted)\n");
+        prompt.push_str(
+            "- {TOOL_START}fetch URL{TOOL_END} - Get web content (HTML auto-converted)\n",
+        );
     }
-    
+
     // Add task tool (minimal)
     if options.include_task {
         prompt.push_str("- {TOOL_START}task [task name]\n[detailed instructions]\n{TOOL_END} - Create subagent for subtask\n");
     }
-    
+
     // Add done tool (minimal)
     if options.include_done {
         prompt.push_str("- {TOOL_START}done\n[summary]\n{TOOL_END} - Complete task\n");
     }
-    
+
     // Add brief guidelines
     prompt.push_str("\nResearch extensively before planning. Think step-by-step, analyze deeply, consider alternatives, be precise with paths, verify understanding, and document reasoning.");
-    
+
     // Replace placeholders with actual values
     format_template_vars(&prompt)
 }

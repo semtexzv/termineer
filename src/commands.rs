@@ -2,278 +2,186 @@
 //!
 //! This module provides a clean way to handle commands entered in the CLI.
 
-use crate::agent::Agent;
+use std::error::Error;
+use std::sync::{Arc, Mutex};
+
+use crate::agent::{AgentManager, AgentCommand, AgentId, AgentMessage};
 use crate::constants;
 use crate::session;
-use std::error::Error;
-use std::io::{self, Write};
 
 /// Handle a command from the user
 pub async fn handle_command(
-    client: &mut Agent, 
-    input: &str
+    agent_manager: &Arc<Mutex<AgentManager>>,
+    active_agent_id: AgentId,
+    input: &str,
 ) -> Result<(), Box<dyn Error>> {
     let parts: Vec<&str> = input.split_whitespace().collect();
-    if parts.is_empty() { 
-        return Ok(()); 
+    if parts.is_empty() {
+        return Ok(());
     }
-    
+
     let command = parts[0].trim_start_matches('/').to_lowercase();
     let args = &parts[1..];
-    
+
     match command.as_str() {
         "exit" => return Ok(()),
-        "help" => display_help(),
+        "help" => display_help().await?,
         "clear" => {
-            client.clear_conversation();
-            print!("Conversation history cleared.\r\n");
-            io::stdout().flush()?;
-        },
-        "system" => handle_system_command(client, args)?,
-        "model" => handle_model_command(client, args)?,
-        "tools" => handle_tools_command(client, args)?,
-        "thinking" => handle_thinking_command(client, args)?,
-        "session" => handle_session_command(client, args).await?,
+            let manager = agent_manager.lock().unwrap();
+            manager.send_message(
+                active_agent_id,
+                AgentMessage::Command(AgentCommand::ResetConversation),
+            )?;
+            crate::bprintln!("Conversation history cleared.");
+        }
+        "system" => handle_system_command(agent_manager, active_agent_id, args).await?,
+        "model" => handle_model_command(agent_manager, active_agent_id, args).await?,
+        "tools" => handle_tools_command(agent_manager, active_agent_id, args).await?,
+        "thinking" => handle_thinking_command(agent_manager, active_agent_id, args).await?,
+        "session" => handle_session_command(agent_manager, active_agent_id, args).await?,
         _ => {
-            print!("Unknown command. Type /help for available commands.\r\n");
-            io::stdout().flush()?;
-        },
+            crate::bprintln!("Unknown command. Type /help for available commands.");
+        }
     }
-    
+
     Ok(())
 }
 
 /// Display help information
-fn display_help() {
+async fn display_help() -> Result<(), Box<dyn Error>> {
     let help_text = constants::format_template(constants::HELP_TEMPLATE);
-    print!("{}\r\n", help_text);
-    io::stdout().flush().unwrap();
+    crate::bprintln!("{}", help_text);
+    Ok(())
 }
 
 /// Handle the /system command
-fn handle_system_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
+async fn handle_system_command(
+    agent_manager: &Arc<Mutex<AgentManager>>,
+    agent_id: AgentId,
+    args: &[&str],
+) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        print!("Usage: /system YOUR SYSTEM PROMPT TEXT\r\n");
-        io::stdout().flush()?;
+        crate::bprintln!("Usage: /system YOUR SYSTEM PROMPT TEXT");
         return Ok(());
     }
-    
+
     let system_prompt = args.join(" ");
-    client.set_system_prompt(system_prompt);
-    print!("System prompt set.\r\n");
-    io::stdout().flush()?;
-    
+    let manager = agent_manager.lock().unwrap();
+    manager.send_message(
+        agent_id,
+        AgentMessage::Command(AgentCommand::SetSystemPrompt(system_prompt)),
+    )?;
+    crate::bprintln!("System prompt set.");
+
     Ok(())
 }
 
 /// Handle the /model command
-fn handle_model_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
+async fn handle_model_command(
+    agent_manager: &Arc<Mutex<AgentManager>>,
+    agent_id: AgentId,
+    args: &[&str],
+) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        print!("Usage: /model MODEL_NAME\r\n");
-        print!("Examples: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307\r\n");
-        io::stdout().flush()?;
+        crate::bprintln!("Usage: /model MODEL_NAME");
+        crate::bprintln!(
+            "Examples: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307"
+        );
         return Ok(());
     }
-    
+
     let model_name = args[0].to_string();
-    client.set_model(model_name);
-    print!("Model changed.\r\n");
-    io::stdout().flush()?;
-    
+    let manager = agent_manager.lock().unwrap();
+    manager.send_message(
+        agent_id,
+        AgentMessage::Command(AgentCommand::SetModel(model_name)),
+    )?;
+    crate::bprintln!("Model changed.");
+
     Ok(())
 }
 
 /// Handle the /tools command
-fn handle_tools_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
+async fn handle_tools_command(
+    agent_manager: &Arc<Mutex<AgentManager>>,
+    agent_id: AgentId,
+    args: &[&str],
+) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        print!("Usage: /tools on|off\r\n");
-        io::stdout().flush()?;
+        crate::bprintln!("Usage: /tools on|off");
         return Ok(());
     }
-    
+
     match args[0].to_lowercase().as_str() {
         "on" | "enable" | "true" => {
-            client.enable_tools(true);
-            print!("Tools enabled. The assistant will use tools automatically based on your request.\r\n");
-            io::stdout().flush()?;
-        },
+            let manager = agent_manager.lock().unwrap();
+            manager.send_message(
+                agent_id,
+                AgentMessage::Command(AgentCommand::EnableTools(true)),
+            )?;
+            crate::bprintln!(
+                "Tools enabled. The assistant will use tools automatically based on your request."
+            );
+        }
         "off" | "disable" | "false" => {
-            client.enable_tools(false);
-            print!("Tools disabled.\r\n");
-            io::stdout().flush()?;
-        },
+            let manager = agent_manager.lock().unwrap();
+            manager.send_message(
+                agent_id,
+                AgentMessage::Command(AgentCommand::EnableTools(false)),
+            )?;
+            crate::bprintln!("Tools disabled.");
+        }
         _ => {
-            print!("Usage: /tools on|off\r\n");
-            io::stdout().flush()?;
-        },
+            crate::bprintln!("Usage: /tools on|off");
+        }
     }
-    
+
     Ok(())
 }
 
 /// Handle the /thinking command
-fn handle_thinking_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
+async fn handle_thinking_command(
+    _agent_manager: &Arc<Mutex<AgentManager>>,
+    _agent_id: AgentId,
+    args: &[&str],
+) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        print!("Usage: /thinking NUMBER\r\n");
-        io::stdout().flush()?;
+        crate::bprintln!("Usage: /thinking NUMBER");
         return Ok(());
     }
-    
-    if let Ok(budget) = args[0].parse::<usize>() {
-        client.set_thinking_budget(budget);
-        print!("Thinking budget set to {} tokens.\r\n", budget);
+
+    if let Ok(_budget) = args[0].parse::<usize>() {
+        // TODO: Add thinking budget command to AgentCommand enum
+        crate::bprintln!(
+            "The thinking budget command is temporarily unavailable in multi-agent mode."
+        );
     } else {
-        print!("Invalid number format. Usage: /thinking NUMBER\r\n");
+        crate::bprintln!("Invalid number format. Usage: /thinking NUMBER");
     }
-    io::stdout().flush()?;
-    
+
     Ok(())
 }
 
 /// Handle the session command and its subcommands
-async fn handle_session_command(client: &mut Agent, args: &[&str]) -> Result<(), Box<dyn Error>> {
+async fn handle_session_command(
+    _agent_manager: &Arc<Mutex<AgentManager>>,
+    _agent_id: AgentId,
+    args: &[&str],
+) -> Result<(), Box<dyn Error>> {
     if args.is_empty() {
-        print!("Usage: /session <command> [args]\r\n");
-        print!("Available commands:\r\n");
-        print!("  list    - List sessions in current directory\r\n");
-        print!("  all     - List sessions from all directories\r\n");
-        print!("  save    - Save current session (e.g., /session save my_session)\r\n");
-        print!("  load    - Load a session (e.g., /session load my_session)\r\n");
-        print!("  delete  - Delete a session (e.g., /session delete my_session)\r\n");
-        print!("  resume  - Resume the last session\r\n");
-        io::stdout().flush()?;
+        crate::bprintln!("Usage: /session <command> [args]");
+        crate::bprintln!("Available commands:");
+        crate::bprintln!("  list    - List sessions in current directory");
+        crate::bprintln!("  all     - List sessions from all directories");
+        crate::bprintln!("  save    - Save current session (e.g., /session save my_session)");
+        crate::bprintln!("  load    - Load a session (e.g., /session load my_session)");
+        crate::bprintln!("  delete  - Delete a session (e.g., /session delete my_session)");
+        crate::bprintln!("  resume  - Resume the last session");
         return Ok(());
     }
-    
-    let subcommand = args[0].to_lowercase();
-    
-    match subcommand.as_str() {
-        "list" => {
-            match session::list_sessions(client).await {
-                Ok(sessions) => {
-                    if sessions.is_empty() {
-                        print!("No saved sessions found.\r\n");
-                    } else {
-                        print!("\r\nAvailable sessions:\r\n");
-                        for (i, session) in sessions.iter().enumerate() {
-                            // Format timestamp as date/time
-                            let dt = chrono::DateTime::from_timestamp(session.timestamp as i64, 0)
-                                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                                .unwrap_or_else(|| "Unknown date".to_string());
 
-                            print!("{}. {} (ID: {}, created: {}, messages: {})\r\n",
-                                     i + 1,
-                                     session.name,
-                                     session.id,
-                                     dt,
-                                     session.metadata.message_count);
-                        }
+    // TODO: Implement session management for multi-agent mode
+    crate::bprintln!("Session management is temporarily unavailable in multi-agent mode.");
 
-                        print!("\r\nTip: You can load a session with: /session load <name or ID>\r\n");
-                    }
-                    io::stdout().flush()?;
-                }
-                Err(e) => {
-                    print!("Error listing sessions: {}\r\n", e);
-                    io::stdout().flush()?;
-                },
-            }
-        }
-        
-        "all" => {
-            match session::list_all_sessions(client).await {
-                Ok(all_sessions) => {
-                    if all_sessions.is_empty() {
-                        print!("No saved sessions found in any directory.\r\n");
-                    } else {
-                        print!("\r\nSessions from all directories:\r\n");
-
-                        for (dir_name, sessions) in all_sessions {
-                            print!("\r\nDirectory: {}\r\n", dir_name);
-
-                            for (i, session) in sessions.iter().enumerate() {
-                                // Format timestamp as date/time
-                                let dt = chrono::DateTime::from_timestamp(session.timestamp as i64, 0)
-                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                                    .unwrap_or_else(|| "Unknown date".to_string());
-
-                                print!("  {}. {} (ID: {}, created: {})\r\n",
-                                         i + 1,
-                                         session.name,
-                                         session.id,
-                                         dt);
-                            }
-                        }
-                    }
-                    io::stdout().flush()?;
-                }
-                Err(e) => {
-                    print!("Error listing all sessions: {}\r\n", e);
-                    io::stdout().flush()?;
-                },
-            }
-        }
-        
-        "save" => {
-            if args.len() > 1 {
-                let name = args[1].to_string();
-                match session::save_session(client, &name).await {
-                    Ok(session_id) => {
-                        print!("Session '{}' saved with ID: {}\r\n", name, session_id);
-                        print!("You can load it later with: /session load {}\r\n", session_id);
-                    }
-                    Err(e) => print!("Error saving session: {}\r\n", e),
-                }
-            } else {
-                print!("Usage: /session save <SESSION_NAME>\r\n");
-            }
-            io::stdout().flush()?;
-        }
-        
-        "load" => {
-            if args.len() > 1 {
-                let session_id_or_name = args[1].to_string();
-                match session::load_session(client, &session_id_or_name).await {
-                    Ok(_) => print!("Session loaded successfully\r\n"),
-                    Err(e) => print!("Error loading session: {}\r\n", e),
-                }
-            } else {
-                print!("Usage: /session load <SESSION_ID_OR_NAME>\r\n");
-                print!("Tip: You can also load by name\r\n");
-                print!("Use '/session list' to see available sessions\r\n");
-            }
-            io::stdout().flush()?;
-        }
-        
-        "delete" => {
-            if args.len() > 1 {
-                let session_id_or_name = args[1].to_string();
-                match session::delete_session(client, &session_id_or_name).await {
-                    Ok(_) => print!("Session deleted successfully\r\n"),
-                    Err(e) => print!("Error deleting session: {}\r\n", e),
-                }
-            } else {
-                print!("Usage: /session delete <SESSION_ID_OR_NAME>\r\n");
-                print!("Tip: You can also delete by name\r\n");
-                print!("Use '/session list' to see available sessions\r\n");
-            }
-            io::stdout().flush()?;
-        }
-        
-        "resume" => {
-            match session::load_last_session(client).await {
-                Ok(_) => print!("Last session resumed successfully\r\n"),
-                Err(e) => print!("Error resuming last session: {}\r\n", e),
-            }
-            io::stdout().flush()?;
-        }
-        
-        _ => {
-            print!("Unknown session command: {}\r\n", subcommand);
-            print!("Available commands: list, all, save, load, delete, resume\r\n");
-            io::stdout().flush()?;
-        }
-    }
-    
     Ok(())
 }
