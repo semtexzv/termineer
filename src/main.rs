@@ -5,7 +5,6 @@
 
 mod agent;
 mod ansi_converter;
-mod commands;
 mod config;
 mod constants;
 mod conversation;
@@ -15,7 +14,8 @@ mod macros;
 mod output;
 mod prompts;
 pub mod serde_element_array;
-mod session;
+// Session module temporarily disabled until needed
+// mod session;
 mod tools;
 mod ui_interface;
 

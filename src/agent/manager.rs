@@ -2,7 +2,7 @@
 
 use super::agent::Agent;
 use super::types::{
-    AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode, InterruptReceiver,
+    AgentError, AgentId, AgentMessage, AgentSender, AgentState, InterruptReceiver,
     InterruptSender, InterruptSignal, StateReceiver,
 };
 use crate::agent::AgentReceiver;
@@ -113,47 +113,6 @@ impl AgentManager {
         Ok(id)
     }
 
-    /// Get a list of all agents as (ID, name) pairs
-    pub fn list_agents(&self) -> Vec<(AgentId, String)> {
-        self.agents
-            .iter()
-            .map(|(id, handle)| (*id, handle.name.clone()))
-            .collect()
-    }
-    
-    /// Get a list of all agent names
-    pub fn list_agent_names(&self) -> Vec<String> {
-        self.agents
-            .iter()
-            .map(|(_, handle)| handle.name.clone())
-            .collect()
-    }
-    
-    /// Get the total number of agents
-    pub fn agent_count(&self) -> usize {
-        self.agents.len()
-    }
-    
-    /// Get the name of an agent by ID
-    pub fn get_agent_name(&self, id: AgentId) -> Option<String> {
-        self.agents.get(&id).map(|handle| handle.name.clone())
-    }
-    
-    /// Check if an agent with the given name exists
-    pub fn has_agent_with_name(&self, name: &str) -> bool {
-        self.name_index.contains_key(name)
-    }
-    
-    /// Find an agent ID by partial name match (case-insensitive)
-    /// Returns the first match if multiple agents match the pattern
-    pub fn find_agent_id_by_partial_name(&self, partial_name: &str) -> Option<AgentId> {
-        let lowercase_partial = partial_name.to_lowercase();
-        self.name_index
-            .iter()
-            .find(|(name, _)| name.to_lowercase().contains(&lowercase_partial))
-            .map(|(_, id)| *id)
-    }
-
     /// Send a message to an agent
     pub fn send_message(&self, id: AgentId, message: AgentMessage) -> Result<(), AgentError> {
         if let Some(handle) = self.agents.get(&id) {
@@ -166,14 +125,6 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
-    
-    /// Send a message to an agent by name
-    pub fn send_message_by_name(&self, name: &str, message: AgentMessage) -> Result<(), AgentError> {
-        match self.get_agent_id_by_name(name) {
-            Some(id) => self.send_message(id, message),
-            None => Err(AgentError::AgentNameNotFound(name.to_string())),
-        }
-    }
 
     pub fn get_agent_buffer(&self, id: AgentId) -> Result<SharedBuffer, AgentError> {
         if let Some(handle) = self.agents.get(&id) {
@@ -182,6 +133,7 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
+    
     /// Get the current state of an agent
     pub fn get_agent_state(&self, id: AgentId) -> Result<AgentState, AgentError> {
         if let Some(handle) = self.agents.get(&id) {
@@ -209,31 +161,6 @@ impl AgentManager {
     pub fn get_agent_id_by_name(&self, name: &str) -> Option<AgentId> {
         self.name_index.get(name).copied()
     }
-    
-    /// Get an agent handle by name
-    /// Returns None if no agent with that name exists
-    pub fn get_agent_handle_by_name(&self, name: &str) -> Option<&AgentHandle> {
-        self.get_agent_id_by_name(name)
-            .and_then(|id| self.get_agent_handle(id))
-    }
-    
-    /// Get an agent buffer by name
-    /// Returns an error if the agent doesn't exist
-    pub fn get_agent_buffer_by_name(&self, name: &str) -> Result<SharedBuffer, AgentError> {
-        match self.get_agent_id_by_name(name) {
-            Some(id) => self.get_agent_buffer(id),
-            None => Err(AgentError::AgentNameNotFound(name.to_string())),
-        }
-    }
-    
-    /// Get the current state of an agent by name
-    /// Returns an error if the agent doesn't exist
-    pub fn get_agent_state_by_name(&self, name: &str) -> Result<AgentState, AgentError> {
-        match self.get_agent_id_by_name(name) {
-            Some(id) => self.get_agent_state(id),
-            None => Err(AgentError::AgentNameNotFound(name.to_string())),
-        }
-    }
 
     /// Interrupt an agent through the dedicated interrupt channel
     pub fn interrupt_agent(&self, id: AgentId) -> Result<(), AgentError> {
@@ -248,14 +175,6 @@ impl AgentManager {
             Ok(())
         } else {
             Err(AgentError::AgentNotFound(id))
-        }
-    }
-    
-    /// Interrupt an agent by name
-    pub fn interrupt_agent_by_name(&self, name: &str) -> Result<(), AgentError> {
-        match self.get_agent_id_by_name(name) {
-            Some(id) => self.interrupt_agent(id),
-            None => Err(AgentError::AgentNameNotFound(name.to_string())),
         }
     }
 
@@ -273,18 +192,6 @@ impl AgentManager {
             Ok(())
         } else {
             Err(AgentError::AgentNotFound(id))
-        }
-    }
-    
-    /// Interrupt an agent by name with specific reason
-    pub fn interrupt_agent_by_name_with_reason(
-        &self,
-        name: &str,
-        reason: String,
-    ) -> Result<(), AgentError> {
-        match self.get_agent_id_by_name(name) {
-            Some(id) => self.interrupt_agent_with_reason(id, reason),
-            None => Err(AgentError::AgentNameNotFound(name.to_string())),
         }
     }
 
@@ -309,14 +216,6 @@ impl AgentManager {
             Ok(())
         } else {
             Err(AgentError::AgentNotFound(id))
-        }
-    }
-    
-    /// Terminate an agent by name
-    pub async fn terminate_agent_by_name(&mut self, name: &str) -> Result<(), AgentError> {
-        match self.name_index.get(name).copied() {
-            Some(id) => self.terminate_agent(id).await,
-            None => Err(AgentError::AgentNameNotFound(name.to_string())),
         }
     }
 
