@@ -203,6 +203,12 @@ pub struct TuiState {
     pub temp_output: TemporaryOutput,
     /// Command suggestions popup for auto-completion
     pub command_suggestions: CommandSuggestionsPopup,
+    /// Command history for navigating previous inputs
+    pub command_history: Vec<String>,
+    /// Current position in command history (-1 means not navigating history)
+    pub history_index: isize,
+    /// Current input before history navigation began
+    pub current_input: Option<String>,
 }
 
 impl TuiState {
@@ -223,6 +229,9 @@ impl TuiState {
             visible_height: 0,
             temp_output: TemporaryOutput::new(),
             command_suggestions: CommandSuggestionsPopup::new(),
+            command_history: Vec::new(),
+            history_index: -1,
+            current_input: None,
         }
     }
 
@@ -789,7 +798,20 @@ impl TuiInterface {
                 let input = std::mem::take(&mut self.state.input);
                 self.state.cursor_position = 0;
                 
+                // Reset history navigation state
+                self.state.history_index = -1;
+                self.state.current_input = None;
+                
                 if !input.is_empty() {
+                    // Add to command history (if not a duplicate of the last command)
+                    if self.state.command_history.last() != Some(&input) {
+                        // Add to history, limiting size to 100 entries
+                        self.state.command_history.push(input.clone());
+                        if self.state.command_history.len() > 100 {
+                            self.state.command_history.remove(0);
+                        }
+                    }
+                    
                     if input.starts_with('/') {
                         self.handle_command(&input).await?;
                     } else if input.starts_with('#') {
@@ -946,9 +968,12 @@ impl TuiInterface {
                 } else if self.state.command_suggestions.visible {
                     self.state.command_suggestions.hide();
                 } else {
+                    // Clear input and reset history navigation
                     self.state.input.clear();
                     self.state.cursor_position = 0;
                     self.state.command_mode = false;
+                    self.state.history_index = -1;
+                    self.state.current_input = None;
                 }
             }
             
@@ -965,10 +990,15 @@ impl TuiInterface {
                 self.state.scroll(scroll_amount as isize);
             }
             
-            // Up arrow handling - navigate suggestions or scroll
+            // Up arrow handling - navigate suggestions, history, or scroll
             KeyCode::Up => {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
+                    return Ok(());
+                }
+                
                 // If command suggestions are visible, navigate up through them
-                if self.state.command_mode && self.state.command_suggestions.visible && self.state.command_suggestions.filtered_commands.len() > 0 {
+                if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
                     // Navigate to previous suggestion (looping to bottom if at top)
                     let current = self.state.command_suggestions.selected_index;
                     let count = self.state.command_suggestions.filtered_commands.len();
@@ -977,22 +1007,60 @@ impl TuiInterface {
                     let prev = if current == 0 { count - 1 } else { current - 1 };
                     self.state.command_suggestions.selected_index = prev;
                 } 
-                // Otherwise handle as scroll with shift modifier
+                // Handle as scroll with shift modifier
                 else if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.state.scroll(-1);
                 }
+                // If in normal input mode, navigate command history
+                else if !self.state.command_history.is_empty() {
+                    // Save current input when starting history navigation
+                    if self.state.history_index == -1 {
+                        self.state.current_input = Some(self.state.input.clone());
+                    }
+                    
+                    // Go backward in history if not at beginning
+                    if self.state.history_index < (self.state.command_history.len() as isize - 1) {
+                        self.state.history_index += 1;
+                        let history_entry = &self.state.command_history[self.state.command_history.len() - 1 - self.state.history_index as usize];
+                        self.state.input = history_entry.clone();
+                        self.state.cursor_position = self.state.input.len();
+                    }
+                }
             }
             
-            // Down arrow handling - navigate suggestions or scroll
+            // Down arrow handling - navigate suggestions, history, or scroll
             KeyCode::Down => {
+                // Ignore if temporary output is visible
+                if self.state.temp_output.visible {
+                    return Ok(());
+                }
+                
                 // If command suggestions are visible, navigate down through them
-                if self.state.command_mode && self.state.command_suggestions.visible && self.state.command_suggestions.filtered_commands.len() > 0 {
+                if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
                     // Navigate to next suggestion (looping to top if at bottom)
                     self.state.command_suggestions.next();
                 } 
-                // Otherwise handle as scroll with shift modifier
+                // Handle as scroll with shift modifier
                 else if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.state.scroll(1);
+                }
+                // If currently navigating history, go forward
+                else if self.state.history_index > -1 {
+                    self.state.history_index -= 1;
+                    
+                    // If reached beyond the most recent history item, restore the original input
+                    if self.state.history_index == -1 {
+                        if let Some(original_input) = self.state.current_input.take() {
+                            self.state.input = original_input;
+                        } else {
+                            self.state.input.clear();
+                        }
+                    } else {
+                        // Otherwise show the history entry
+                        let history_entry = &self.state.command_history[self.state.command_history.len() - 1 - self.state.history_index as usize];
+                        self.state.input = history_entry.clone();
+                    }
+                    self.state.cursor_position = self.state.input.len();
                 }
             }
             
