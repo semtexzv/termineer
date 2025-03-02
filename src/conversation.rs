@@ -13,8 +13,9 @@ pub fn print_assistant_response(text: &str) {
 /// Print token usage statistics to the output buffer
 pub fn print_token_stats(usage: &TokenUsage) {
     crate::bprintln!(
-        "{}[{} in / {} out] ({} read, {} written){}",
+        "{}{}[{} in / {} out] ({} read, {} written){}",
         FORMAT_GRAY,
+        crate::constants::FORMAT_BOLD,
         usage.input_tokens,
         usage.output_tokens,
         usage.cache_read_input_tokens,

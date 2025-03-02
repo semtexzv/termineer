@@ -294,7 +294,13 @@ impl Agent {
                 ));
                 self.set_state(AgentState::Processing);
                 // Display user input with chevron and dark blue color
-                crate::bprintln!("{}> {}{}", crate::constants::FORMAT_BLUE, input, crate::constants::FORMAT_RESET);
+                crate::bprintln!("{}{}>{} {}{}",
+                    crate::constants::FORMAT_BLUE,
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    crate::constants::FORMAT_BLUE,
+                    input,
+                    crate::constants::FORMAT_RESET);
             },
             AgentMessage::Command(cmd) => {
                 self.handle_command(cmd).await;
