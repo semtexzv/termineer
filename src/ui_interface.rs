@@ -382,13 +382,17 @@ impl TuiState {
         // Clear the area
         f.render_widget(Clear, output_area);
         
-        // Create the temporary output widget
+        // Create the temporary output widget with dark orange styling
         let content_text = self.temp_output.content.join("\n");
         let output_widget = Paragraph::new(content_text)
-            .style(Style::default().fg(Color::White))
+            .style(Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(180, 80, 0))) // Dark orange background
             .block(Block::default()
                 .borders(Borders::ALL)
-                .title(format!("{} (Press ESC to dismiss)", self.temp_output.title)))
+                .border_style(Style::default().fg(Color::Rgb(255, 140, 0))) // Brighter orange border
+                .title(format!("{} (Press ESC to dismiss)", self.temp_output.title))
+                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
             .wrap(Wrap { trim: true });
         
         // Render the output
