@@ -262,14 +262,6 @@ impl TuiState {
         }
     }
 
-    /// Add agent output to the buffer
-    pub fn add_to_buffer(&mut self, text: String) {
-        // Split by newlines and add each line
-        for line in text.lines() {
-            self.agent_buffer.stdout(line).unwrap();
-        }
-    }
-
     /// Update the list of agents
     /// Ensure the selected agent exists, or select the first available agent
     pub fn ensure_selected_agent_valid(&mut self) {
@@ -706,7 +698,7 @@ impl TuiState {
         let input_text = Paragraph::new(self.input.clone())
             .style(input_style)
             .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-            .wrap(Wrap { trim: false }); // Enable wrapping, don't trim to preserve formatting
+            .wrap(Wrap { trim: true }); // Enable wrapping, don't trim to preserve formatting
 
         f.render_widget(input_text, area);
 
@@ -900,16 +892,26 @@ impl TuiInterface {
                     }
                     
                     if input.starts_with('/') {
-                        // Handle command and ensure input is cleared
-                        self.handle_command(&input).await?;
-                        // Clear the input after submitting command
+                        // Simply send the command directly to the agent
+                        // Add user input to buffer with blue color (slash command)
+                        self.state.agent_buffer.stdout(&format!("Command: {}", input)).unwrap();
+
+                        // Send to selected agent
+                        let manager = self.agent_manager.lock().unwrap();
+                        manager.send_message(
+                            self.state.selected_agent_id,
+                            AgentMessage::UserInput(input),
+                        )?;
+                        
+                        // Clear the input after submitting
                         self.state.input.clear();
                         self.state.cursor_position = 0;
                         self.state.command_mode = false;
                     } else if input.starts_with('#') {
-                        // Handle pound command and ensure input is cleared
+                        // For pound commands for agent switching, keep the special handling
                         self.handle_pound_command(&input).await?;
-                        // Clear the input after submitting command
+                        
+                        // Clear the input after submitting
                         self.state.input.clear();
                         self.state.cursor_position = 0;
                         self.state.pound_command_mode = false;
@@ -1360,11 +1362,10 @@ impl TuiInterface {
         Ok(())
     }
 
-    /// Show command output in the temporary window
-    fn show_command_result(&mut self, title: String, content: String) {
-        // Hide command suggestions whenever showing command output
-        self.state.command_suggestions.hide();
-        self.state.temp_output.show(title, content);
+    /// This function is kept as a no-op for compatibility
+    /// Command output is now sent directly to the agent
+    fn show_command_result(&mut self, _title: String, _content: String) {
+        // No-op - command output now goes to agent
     }
     
     /// Handle pound command for agent switching
@@ -1442,114 +1443,7 @@ impl TuiInterface {
         Ok(())
     }
 
-    /// Handle command input
-    async fn handle_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Create title and content for popup
-        let command_title = format!("Command: {}", cmd);
-        let mut result = String::new();
-        
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        if parts.is_empty() {
-            return Ok(());
-        }
-
-        match parts[0] {
-            "/exit" | "/quit" => {
-                result.push_str("Exiting application...");
-                self.state.should_quit = true;
-            }
-            "/help" => {
-                result.push_str("Available commands:\n");
-                result.push_str("  /help                  - Show this help\n");
-                result.push_str("  /exit, /quit           - Exit the application\n");
-                result.push_str("  /interrupt             - Interrupt the current agent\n");
-                result.push_str("  /model <name>          - Set the model for the current agent\n");
-                result.push_str("  /tools <on|off>        - Enable or disable tools\n");
-                result.push_str("  /system <text>         - Set the system prompt\n");
-                result.push_str("  /reset                 - Reset the conversation\n");
-                result.push_str("  #<id>                  - Switch to agent with specified ID\n");
-                result.push_str("  #<name>                - Switch to agent with specified name\n");
-                result.push_str("\n");
-                result.push_str("Scrolling:\n");
-                result.push_str("  PageUp/PageDown        - Scroll conversation by half a page\n");
-                result.push_str("  Shift+Up/Down          - Scroll conversation by one line\n");
-                result.push_str("  Shift+Home/End         - Jump to top/bottom of conversation\n");
-                result.push_str("  Mouse wheel            - Scroll conversation");
-            }
-            "/interrupt" => {
-                let manager = self.agent_manager.lock().unwrap();
-                if let Err(e) = manager.interrupt_agent(self.state.selected_agent_id) {
-                    result.push_str(&format!("Failed to interrupt agent: {}", e));
-                } else {
-                    result.push_str(&format!("Interrupt sent to agent {}", self.state.selected_agent_id));
-                }
-            }
-            "/model" if parts.len() >= 2 => {
-                let model = parts[1];
-                let manager = self.agent_manager.lock().unwrap();
-                if let Err(e) = manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(AgentCommand::SetModel(model.to_string())),
-                ) {
-                    result.push_str(&format!("Failed to set model: {}", e));
-                } else {
-                    result.push_str(&format!("Model set to {}", model));
-                }
-            }
-            "/tools" if parts.len() >= 2 => {
-                let enabled = match parts[1] {
-                    "on" | "true" | "1" => true,
-                    "off" | "false" | "0" => false,
-                    _ => {
-                        result.push_str(&format!("Invalid value for tools: {}", parts[1]));
-                        self.show_command_result(command_title, result);
-                        return Ok(());
-                    }
-                };
-
-                let manager = self.agent_manager.lock().unwrap();
-                if let Err(e) = manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(AgentCommand::EnableTools(enabled)),
-                ) {
-                    result.push_str(&format!("Failed to set tools: {}", e));
-                } else {
-                    result.push_str(&format!("Tools {}", if enabled { "enabled" } else { "disabled" }));
-                }
-            }
-            "/system" if parts.len() >= 2 => {
-                let prompt = &parts[1..].join(" ");
-                let manager = self.agent_manager.lock().unwrap();
-                if let Err(e) = manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(AgentCommand::SetSystemPrompt(prompt.to_string())),
-                ) {
-                    result.push_str(&format!("Failed to set system prompt: {}", e));
-                } else {
-                    result.push_str("System prompt updated");
-                }
-            }
-            "/reset" => {
-                let manager = self.agent_manager.lock().unwrap();
-                if let Err(e) = manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(AgentCommand::ResetConversation),
-                ) {
-                    result.push_str(&format!("Failed to reset conversation: {}", e));
-                } else {
-                    result.push_str("Conversation reset");
-                }
-            }
-            _ => {
-                result.push_str(&format!("Unknown command: {}", parts[0]));
-            }
-        }
-
-        // Display the command result in a popup
-        self.show_command_result(command_title, result);
-        
-        Ok(())
-    }
+    // handle_command method removed as commands are now sent directly to the agent
 }
 
 impl Drop for TuiInterface {
