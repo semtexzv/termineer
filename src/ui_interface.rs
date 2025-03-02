@@ -437,22 +437,16 @@ impl TuiInterface {
         };
         
         match agent_state {
-            // If running a shell command (interruptible tool)
-            Some(AgentState::RunningTool { tool, interruptible }) if interruptible => {
-                self.state.add_to_buffer(format!("Interrupting shell command. Press Ctrl+C again within 3 seconds to exit."));
+            // If running a shell command (interruptible tool) or if agent is actively processing
+            Some(AgentState::RunningTool { .. }) | Some(AgentState::Processing) => {
+                self.state.add_to_buffer(format!("Interrupting agent. Press Ctrl+C again within 3 seconds to exit."));
                 
-                // Interrupt the shell command but continue agent processing
+                // Use the dedicated interrupt channel with the agent manager
                 let manager = self.agent_manager.lock().unwrap();
-                manager.interrupt_agent(self.state.selected_agent_id)?;
-            },
-            
-            // If agent is actively processing
-            Some(AgentState::Processing) => {
-                self.state.add_to_buffer(format!("Interrupting agent processing. Press Ctrl+C again within 3 seconds to exit."));
-                
-                // Interrupt the agent
-                let manager = self.agent_manager.lock().unwrap();
-                manager.interrupt_agent(self.state.selected_agent_id)?;
+                manager.interrupt_agent_with_reason(
+                    self.state.selected_agent_id, 
+                    "User pressed Ctrl+C".to_string()
+                )?;
             },
             
             // If agent is waiting for input (idle or done), just warn about second press

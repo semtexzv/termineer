@@ -6,7 +6,8 @@ use tokio::sync::{mpsc, watch};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use super::agent::Agent;
-use super::types::{AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode, StateReceiver};
+use super::types::{AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode, StateReceiver, 
+    InterruptSender, InterruptReceiver, InterruptSignal};
 use crate::config::Config;
 use crate::output::{SharedBuffer, CURRENT_BUFFER};
 
@@ -20,6 +21,9 @@ pub struct AgentHandle {
 
     /// Channel for sending messages to the agent
     pub sender: AgentSender,
+    
+    /// Channel for sending high-priority interrupt signals
+    pub interrupt_sender: InterruptSender,
 
     /// Tokio task handle for the agent
     pub join_handle: JoinHandle<()>,
@@ -29,7 +33,6 @@ pub struct AgentHandle {
 
     /// State of this agent
     pub state: StateReceiver,
-
 }
 
 /// Manager for multiple agent instances
@@ -54,6 +57,10 @@ impl AgentManager {
     pub fn create_agent(&mut self, name: String, config: Config) -> Result<AgentId, AgentError> {
         // Create message channel for this agent
         let (sender, receiver) = mpsc::channel(100);
+        
+        // Create dedicated interrupt channel
+        let (interrupt_sender, interrupt_receiver) = mpsc::channel(10);
+        
         let (state_sender, state) = watch::channel(AgentState::Idle);
 
         // Generate unique ID
@@ -62,8 +69,8 @@ impl AgentManager {
 
         let buffer = SharedBuffer::new(100);
 
-        // Create the agent
-        let agent = match Agent::new(id, name.clone(), config, receiver, state_sender) {
+        // Create the agent with both channels
+        let agent = match Agent::new(id, name.clone(), config, receiver, interrupt_receiver, state_sender) {
             Ok(agent) => agent,
             Err(e) => return Err(AgentError::CreationFailed(e.to_string())),
         };
@@ -71,11 +78,12 @@ impl AgentManager {
         // Spawn agent as a task with its own buffer
         let join_handle = spawn_agent_task(agent, buffer.clone());
 
-        // Create and store handle
+        // Create and store handle with both senders
         let handle = AgentHandle {
             id,
             name,
             sender,
+            interrupt_sender,
             join_handle,
             buffer,
             state
@@ -129,15 +137,42 @@ impl AgentManager {
         self.agents.get(&id)
     }
     
-    /// Interrupt an agent
+    /// Interrupt an agent through the dedicated interrupt channel
     pub fn interrupt_agent(&self, id: AgentId) -> Result<(), AgentError> {
-        self.send_message(id, AgentMessage::Interrupt)
+        if let Some(handle) = self.agents.get(&id) {
+            // Send through the dedicated interrupt channel with optional reason
+            handle
+                .interrupt_sender
+                .try_send(InterruptSignal::new(Some("User requested interruption".to_string())))
+                .map_err(|_| AgentError::MessageDeliveryFailed)?;
+            Ok(())
+        } else {
+            Err(AgentError::AgentNotFound(id))
+        }
+    }
+    
+    /// Interrupt an agent with specific reason
+    pub fn interrupt_agent_with_reason(&self, id: AgentId, reason: String) -> Result<(), AgentError> {
+        if let Some(handle) = self.agents.get(&id) {
+            handle
+                .interrupt_sender
+                .try_send(InterruptSignal::new(Some(reason)))
+                .map_err(|_| AgentError::MessageDeliveryFailed)?;
+            Ok(())
+        } else {
+            Err(AgentError::AgentNotFound(id))
+        }
     }
 
     /// Terminate an agent
     pub async fn terminate_agent(&mut self, id: AgentId) -> Result<(), AgentError> {
         if let Some(handle) = self.agents.remove(&id) {
-            // Send terminate message
+            // Send interrupt signal first to stop any tool execution
+            let _ = handle.interrupt_sender.try_send(InterruptSignal::new(
+                Some("Agent terminating".to_string())
+            ));
+            
+            // Then send terminate message
             let _ = handle.sender.try_send(AgentMessage::Terminate);
 
             // During shutdown, don't wait for the task to complete
@@ -155,7 +190,12 @@ impl AgentManager {
         // Don't collect ids first - just directly handle all agents
         // This avoids any issues with buffer access during termination
         for (_id, handle) in self.agents.drain() {
-            // Send terminate message
+            // Send interrupt signal first to stop any tool execution
+            let _ = handle.interrupt_sender.try_send(InterruptSignal::new(
+                Some("Agent terminating".to_string())
+            ));
+            
+            // Then send terminate message
             let _ = handle.sender.try_send(AgentMessage::Terminate);
 
             // Abort the task

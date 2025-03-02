@@ -7,7 +7,8 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::types::{AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, StateSender};
+use super::types::{AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, StateSender, 
+    InterruptReceiver, InterruptSignal};
 use crate::config::Config;
 use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START};
 use crate::conversation::{is_done_tool, parse_assistant_response};
@@ -63,6 +64,12 @@ pub struct Agent {
 
     /// Receiver for agent messages
     receiver: AgentReceiver,
+    
+    /// Dedicated receiver for interrupt signals
+    interrupt_receiver: InterruptReceiver,
+    
+    /// Queue for pending messages to be processed after current operation
+    message_queue: Vec<String>,
 
     /// Sender of state updates
     sender: StateSender,
@@ -75,12 +82,13 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Create a new agent with the given configuration and message receiver
+    /// Create a new agent with the given configuration and communication channels
     pub fn new(
         id: AgentId,
         name: String,
         mut config: Config,
         receiver: AgentReceiver,
+        interrupt_receiver: InterruptReceiver,
         sender: StateSender,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize system prompt if not already set
@@ -123,6 +131,8 @@ impl Agent {
             ]),
             cache_points: BTreeSet::new(),
             receiver,
+            interrupt_receiver,
+            message_queue: Vec::new(),
             sender,
             state: AgentState::Idle,
             interrupt_shell: None,
@@ -146,15 +156,39 @@ impl Agent {
                 msg = self.receiver.recv() => {
                     match msg {
                         Some(AgentMessage::UserInput(input)) => {
+                            if !matches!(self.state, AgentState::Idle | AgentState::Done) {
+                                // If the agent is busy, queue the message for later processing
+                                crate::bprintln!("Agent busy - queueing message: {}", input);
+                                self.message_queue.push(input);
+                            } else {
+                                // Process the message immediately
+                                self.set_state(AgentState::Processing);
+                                crate::bprintln!("Processing: {}", input);
+                                if let Err(e) = self.process_input(&input).await {
+                                    crate::berror_println!("Error processing input: {}", e);
+                                }
+                                self.set_state(AgentState::Idle);
+                                
+                                // Process any queued messages
+                                self.process_message_queue().await;
+                            }
+                        },
+                        Some(AgentMessage::QueuedUserInput(input)) => {
+                            // Message that was previously queued
                             self.set_state(AgentState::Processing);
-                            crate::bprintln!("Processing: {}", input);
+                            crate::bprintln!("Processing queued message: {}", input);
                             if let Err(e) = self.process_input(&input).await {
-                                crate::berror_println!("Error processing input: {}", e);
+                                crate::berror_println!("Error processing queued input: {}", e);
                             }
                             self.set_state(AgentState::Idle);
+                            
+                            // Continue processing other queued messages
+                            self.process_message_queue().await;
                         },
                         Some(AgentMessage::Interrupt) => {
-                            self.handle_interrupt().await;
+                            // Legacy interrupt message - use dedicated channel in the future
+                            crate::bprintln!("Received legacy interrupt message - consider using dedicated interrupt channel");
+                            self.handle_high_priority_interrupt("Legacy interrupt command".to_string()).await;
                         },
                         Some(AgentMessage::Terminate) => {
                             crate::bprintln!("Agent '{}' received terminate message", self.name);
@@ -170,11 +204,77 @@ impl Agent {
                         }
                     }
                 },
-                // We can add other select arms here if needed
+                
+                // Process high-priority interrupts from the dedicated channel
+                interrupt_signal = self.interrupt_receiver.recv() => {
+                    if let Some(signal) = interrupt_signal {
+                        let reason = signal.reason.unwrap_or_else(|| "No reason provided".to_string());
+                        crate::bprintln!("Received high-priority interrupt: {}", reason);
+                        self.handle_high_priority_interrupt(reason).await;
+                    } else {
+                        // Interrupt channel closed - unusual but not fatal
+                        crate::bprintln!("Agent '{}' interrupt channel closed", self.name);
+                    }
+                },
+                
+                // Process queued messages when agent is idle
+                _ = tokio::time::sleep(Duration::from_millis(50)), if matches!(self.state, AgentState::Idle) && !self.message_queue.is_empty() => {
+                    // Process any queued messages
+                    self.process_message_queue().await;
+                }
             }
         }
 
         crate::bprintln!("Agent '{}' terminated", self.name);
+    }
+    
+    /// Process queued messages one by one
+    async fn process_message_queue(&mut self) {
+        if self.message_queue.is_empty() {
+            return;
+        }
+        
+        crate::bprintln!("Processing message queue ({} messages pending)", self.message_queue.len());
+        
+        // Take the first message from the queue
+        if let Some(message) = self.message_queue.pop() {
+            self.set_state(AgentState::Processing);
+            crate::bprintln!("Processing from queue: {}", message);
+            if let Err(e) = self.process_input(&message).await {
+                crate::berror_println!("Error processing queued input: {}", e);
+            }
+            self.set_state(AgentState::Idle);
+            
+            // Note: We don't recursively process the queue here to avoid stack overflow
+            // The next queued message will be processed in the next loop iteration
+        }
+    }
+    
+    /// Handle a high-priority interrupt
+    async fn handle_high_priority_interrupt(&mut self, reason: String) {
+        match &self.state {
+            AgentState::RunningTool { tool, .. } => {
+                crate::bprintln!("High-priority interrupt received while running tool: {}", tool);
+
+                // Interrupt shell execution
+                if let Some(interrupt_data) = &self.interrupt_shell {
+                    let mut data = interrupt_data.lock().unwrap();
+                    data.interrupt(reason);
+                    crate::bprintln!("Tool interrupted by high-priority signal");
+                }
+                
+                // Force state to Idle after tool interruption
+                self.set_state(AgentState::Idle);
+            },
+            AgentState::Processing => {
+                // Force current processing to stop
+                crate::bprintln!("High-priority interrupt received while processing");
+                self.set_state(AgentState::Idle);
+            },
+            _ => {
+                crate::bprintln!("High-priority interrupt received while idle/done - no action needed");
+            }
+        }
     }
 
     /// Process a user input message
@@ -231,31 +331,10 @@ impl Agent {
         Ok(())
     }
 
-    /// Handle an interrupt message
+    /// Handle an interrupt message (legacy method - forwards to high_priority_interrupt)
     async fn handle_interrupt(&mut self) {
-        match &self.state {
-            AgentState::RunningTool {
-                tool,
-                interruptible,
-            } if *interruptible => {
-                crate::bprintln!("Interrupting tool: {}", tool);
-
-                // Interrupt shell execution
-                if let Some(interrupt_data) = &self.interrupt_shell {
-                    let mut data = interrupt_data.lock().unwrap();
-                    data.interrupt("User requested interruption".to_string());
-                    crate::bprintln!("Tool interrupted");
-                }
-            }
-            AgentState::Processing => {
-                crate::bprintln!("Interrupting processing (will take effect after current step)");
-                // Just let the current step finish - we'll check state between steps
-                self.state = AgentState::Idle;
-            }
-            _ => {
-                crate::bprintln!("No interruptible operation in progress");
-            }
-        }
+        // Forward to the new high-priority interrupt handler
+        self.handle_high_priority_interrupt("User requested interruption (legacy)".to_string()).await;
     }
 
     /// Handle a command message
@@ -346,118 +425,142 @@ impl Agent {
         // Loop to receive output and check for interruption
         loop {
             tokio::select! {
-            // Process shell output
-            output = rx.recv() => {
-                match output {
-                    Some(ShellOutput::Stdout(line)) => {
-                        // Add to full output record
-                        partial_output.push_str(&line);
-                        partial_output.push('\n');
+                // Process shell output
+                output = rx.recv() => {
+                    match output {
+                        Some(ShellOutput::Stdout(line)) => {
+                            // Add to full output record
+                            partial_output.push_str(&line);
+                            partial_output.push('\n');
 
-                        // Check for interruption every N seconds
-                        if !interrupting && last_check_time.elapsed() > min_check_interval {
-                            // Update last check time
-                            last_check_time = std::time::Instant::now();
+                            // Check for interruption every N seconds
+                            if !interrupting && last_check_time.elapsed() > min_check_interval {
+                                // Update last check time
+                                last_check_time = std::time::Instant::now();
 
-                            // Remove previous partial result if it exists
-                            if has_partial_result {
-                                self.conversation.pop();
-                            }
-
-                            // Create partial tool result message WITHOUT the ending tag
-                            let partial_tool_result = format!(
-                                "{}\n{}",
-                                TOOL_RESULT_START, partial_output
-                            );
-
-                            // Mark this point in conversation as a cache point
-                            self.cache_here();
-
-                            // Add partial result to conversation
-                            self.conversation.push(Message::text(
-                                "user",
-                                partial_tool_result,
-                                MessageInfo::ToolResult {
-                                    tool_name: "shell".to_string(),
+                                // Remove previous partial result if it exists
+                                if has_partial_result {
+                                    self.conversation.pop();
                                 }
-                            ));
 
-                            has_partial_result = true;
+                                // Create partial tool result message WITHOUT the ending tag
+                                let partial_tool_result = format!(
+                                    "{}\n{}",
+                                    TOOL_RESULT_START, partial_output
+                                );
 
-                            // Send interruption check using the partial tool result
-                            if let Ok(interruption_check) = self.check_for_interruption().await {
-                                if interruption_check.interrupted {
-                                    // Store the interruption reason if provided
-                                    let reason = interruption_check.reason.unwrap_or_else(||
-                                        "No specific reason provided".to_string()
-                                    );
+                                // Mark this point in conversation as a cache point
+                                self.cache_here();
 
-                                    // Set interrupt flag with reason
-                                    {
-                                        let mut data = interrupt_data.lock().unwrap();
-                                        data.interrupt(reason.clone());
+                                // Add partial result to conversation
+                                self.conversation.push(Message::text(
+                                    "user",
+                                    partial_tool_result,
+                                    MessageInfo::ToolResult {
+                                        tool_name: "shell".to_string(),
                                     }
+                                ));
 
-                                    // Store the reason so we can use it in the final output
-                                    interrupting = true;
-                                    interruption_reason_str = Some(reason);
+                                has_partial_result = true;
+
+                                // Send interruption check using the partial tool result
+                                if let Ok(interruption_check) = self.check_for_interruption().await {
+                                    if interruption_check.interrupted {
+                                        // Store the interruption reason if provided
+                                        let reason = interruption_check.reason.unwrap_or_else(||
+                                            "No specific reason provided".to_string()
+                                        );
+
+                                        // Set interrupt flag with reason
+                                        {
+                                            let mut data = interrupt_data.lock().unwrap();
+                                            data.interrupt(reason.clone());
+                                        }
+
+                                        // Store the reason so we can use it in the final output
+                                        interrupting = true;
+                                        interruption_reason_str = Some(reason);
+                                    }
                                 }
                             }
+                        },
+                        Some(ShellOutput::Stderr(line)) => {
+                            // Add to full output record
+                            partial_output.push_str(&line);
+                            partial_output.push('\n');
+                        },
+                        Some(ShellOutput::Complete(tool_result)) => {
+                            // Command completed, store results
+                            success = tool_result.success;
+                            result_message = tool_result.agent_output;
+                            // Clear interrupt_shell as the command is done
+                            self.interrupt_shell = None;
+                            break;
+                        },
+                        None => {
+                            // Channel closed, command must be done
+                            // Clear interrupt_shell as the command is done
+                            self.interrupt_shell = None;
+                            break;
                         }
-                    },
-                    Some(ShellOutput::Stderr(line)) => {
-                        // Add to full output record
-                        partial_output.push_str(&line);
-                        partial_output.push('\n');
-                    },
-                    Some(ShellOutput::Complete(tool_result)) => {
-                        // Command completed, store results
-                        success = tool_result.success;
-                        result_message = tool_result.agent_output;
-                        // Clear interrupt_shell as the command is done
-                        self.interrupt_shell = None;
-                        break;
-                    },
-                    None => {
-                        // Channel closed, command must be done
-                        // Clear interrupt_shell as the command is done
-                        self.interrupt_shell = None;
-                        break;
                     }
-                }
-            },
+                },
+                
+                // Check for high-priority interrupts from dedicated channel
+                interrupt_signal = self.interrupt_receiver.try_recv() => {
+                    match interrupt_signal {
+                        Ok(signal) => {
+                            // Handle immediate interrupt from dedicated channel
+                            let reason = signal.reason.unwrap_or_else(|| 
+                                "High-priority interrupt received".to_string()
+                            );
+                            
+                            let mut data = interrupt_data.lock().unwrap();
+                            data.interrupt(reason.clone());
+                            
+                            interrupting = true;
+                            interruption_reason_str = Some(reason);
+                            crate::bprintln!("Shell command interrupted by high-priority signal");
+                        },
+                        Err(_) => { /* No interrupt available or channel closed */ }
+                    }
+                },
 
-            // Add a timeout to avoid locking up AND check for messages
-            _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                // Try to receive a message without blocking
-                match self.receiver.try_recv() {
-                    Ok(msg) => {
-                        match msg {
-                            AgentMessage::Interrupt => {
-                                // Handle external interruption
-                                let mut data = interrupt_data.lock().unwrap();
-                                data.interrupt("User requested interruption".to_string());
-                                interrupting = true;
-                                interruption_reason_str = Some("User requested interruption".to_string());
-                            },
-                            AgentMessage::Terminate => {
-                                // Handle termination request
-                                let mut data = interrupt_data.lock().unwrap();
-                                data.interrupt("Agent terminating".to_string());
-                                self.state = AgentState::Terminated;
-                                break;
-                            },
-                            _ => {
-                                // Ignore other messages during shell execution
+                // Check regular message channel for backward compatibility
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                    // Check for regular messages too (backward compatibility)
+                    match self.receiver.try_recv() {
+                        Ok(msg) => {
+                            match msg {
+                                AgentMessage::Interrupt => {
+                                    // Handle external interruption (legacy approach)
+                                    let mut data = interrupt_data.lock().unwrap();
+                                    data.interrupt("User requested interruption (legacy)".to_string());
+                                    interrupting = true;
+                                    interruption_reason_str = Some("User requested interruption".to_string());
+                                },
+                                AgentMessage::Terminate => {
+                                    // Handle termination request
+                                    let mut data = interrupt_data.lock().unwrap();
+                                    data.interrupt("Agent terminating".to_string());
+                                    self.state = AgentState::Terminated;
+                                    break;
+                                },
+                                AgentMessage::UserInput(input) => {
+                                    // Queue user input for later processing
+                                    crate::bprintln!("Received user input during shell execution - queueing for later: {}", input);
+                                    self.message_queue.push(input);
+                                },
+                                _ => {
+                                    // Ignore other messages during shell execution
+                                }
                             }
+                        },
+                        Err(_) => {
+                            // No messages available or channel closed - continue
                         }
-                    },
-                    Err(_) => {
-                        // No messages available or channel closed - continue
                     }
-                }
-            },
-
+                },
             }
         }
 

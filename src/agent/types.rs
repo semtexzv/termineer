@@ -4,6 +4,24 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use tokio::sync::{mpsc, watch};
 
+/// Dedicated types for the interrupt channel
+pub type InterruptSender = mpsc::Sender<InterruptSignal>;
+pub type InterruptReceiver = mpsc::Receiver<InterruptSignal>;
+
+/// Signal sent through the interrupt channel
+#[derive(Debug, Clone)]
+pub struct InterruptSignal {
+    /// Optional reason for interruption
+    pub reason: Option<String>,
+}
+
+impl InterruptSignal {
+    /// Create a new interrupt signal
+    pub fn new(reason: Option<String>) -> Self {
+        Self { reason }
+    }
+}
+
 /// Unique identifier for an agent
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub u64);
@@ -19,11 +37,15 @@ impl fmt::Display for AgentId {
 pub enum AgentMessage {
     /// Regular user input to be processed
     UserInput(String),
+    
+    /// Queued message to be processed after current tool execution completes
+    QueuedUserInput(String),
 
     /// Special command for the agent
     Command(AgentCommand),
 
-    /// Request to interrupt current operation
+    /// Request to interrupt current operation (deprecated, use interrupt channel instead)
+    /// Kept for backward compatibility
     Interrupt,
 
     /// Request to terminate the agent
