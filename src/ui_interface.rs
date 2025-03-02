@@ -180,27 +180,32 @@ impl TuiState {
 
     /// Render the header with agent list
     fn render_header(&self, f: &mut Frame, area: Rect) {
-        // First, create spans for each agent
-        let agent_spans: Vec<Span> = self
-            .agents
-            .iter()
-            .map(|(id, name)| {
-                if *id == self.selected_agent_id {
-                    Span::styled(
-                        format!(" {} [{}] ", name, id),
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Span::styled(
-                        format!(" {} [{}] ", name, id),
-                        Style::default().fg(Color::White),
-                    )
-                }
-            })
-            .collect();
+        // Get agents directly from the agent manager
+        let agent_spans = if let Ok(manager) = self.agent_manager.lock() {
+            let agents = manager.get_agents();
+            
+            // Create spans for each agent
+            agents.iter()
+                .map(|(id, name)| {
+                    if *id == self.selected_agent_id {
+                        Span::styled(
+                            format!(" {} [{}] ", name, id),
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    } else {
+                        Span::styled(
+                            format!(" {} [{}] ", name, id),
+                            Style::default().fg(Color::White),
+                        )
+                    }
+                })
+                .collect::<Vec<Span>>()
+        } else {
+            Vec::new()
+        };
 
         // Add a final span with empty content to fill remaining space
         // This ensures old content is fully cleared
@@ -290,11 +295,12 @@ impl TuiState {
         
         // Get the current agent name directly from the agent manager
         let agent_name = if let Ok(manager) = self.agent_manager.lock() {
+            // Clone the name to avoid lifetime issues
             manager.get_agent_handle(self.selected_agent_id)
-                .map(|h| h.name.as_str())
-                .unwrap_or("Unknown")
+                .map(|h| h.name.clone())
+                .unwrap_or_else(|| "Unknown".to_string())
         } else {
-            "Unknown"
+            "Unknown".to_string()
         };
         
         // Create title with agent state
@@ -647,7 +653,9 @@ impl TuiInterface {
             let agent_id = AgentId(agent_id);
             
             // Check if this agent exists
-            let agent_exists = self.state.agents.iter().any(|(id, _)| *id == agent_id);
+            let agent_exists = self.agent_manager.lock()
+                .map(|manager| manager.get_agent_handle(agent_id).is_some())
+                .unwrap_or(false);
             
             if agent_exists {
                 // Switch to this agent
@@ -658,10 +666,9 @@ impl TuiInterface {
                 if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
                     self.state.agent_buffer = buffer;
                     
-                    // Get agent name
-                    let agent_name = self.state.agents.iter()
-                        .find(|(id, _)| *id == agent_id)
-                        .map(|(_, name)| name.clone())
+                    // Get agent name from manager
+                    let agent_name = manager.get_agent_handle(agent_id)
+                        .map(|handle| handle.name.clone())
                         .unwrap_or_else(|| "Unknown".to_string());
                     
                     self.state.add_to_buffer(format!("Switched to agent {} [{}]", agent_name, agent_id));
@@ -672,17 +679,25 @@ impl TuiInterface {
                 self.state.add_to_buffer(format!("Agent with ID {} not found", agent_id));
             }
         } else {
-            // Try to find agent by name
-            let agent = self.state.agents.iter()
-                .find(|(_, name)| name.to_lowercase() == agent_str.to_lowercase());
+            // Try to find agent by name using the manager
+            let manager_result = self.agent_manager.lock().ok();
+            
+            let agent_info = manager_result.and_then(|manager| {
+                manager.get_agent_id_by_name(agent_str).map(|id| {
+                    let name = manager.get_agent_handle(id)
+                        .map(|h| h.name.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    (id, name)
+                })
+            });
                 
-            if let Some((agent_id, name)) = agent {
+            if let Some((agent_id, name)) = agent_info {
                 // Switch to this agent
-                self.state.selected_agent_id = *agent_id;
+                self.state.selected_agent_id = agent_id;
                 
                 // Update buffer to show the selected agent's output
                 let manager = self.agent_manager.lock().unwrap();
-                if let Ok(buffer) = manager.get_agent_buffer(*agent_id) {
+                if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
                     self.state.agent_buffer = buffer;
                     self.state.add_to_buffer(format!("Switched to agent {} [{}]", name, agent_id));
                 } else {

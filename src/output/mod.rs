@@ -27,7 +27,6 @@ pub enum OutputType {
     Debug,
 }
 
-use std::sync::RwLock;
 use ratatui::text::Line as RatatuiLine;
 use crate::ansi_converter::ansi_to_line;
 

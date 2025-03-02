@@ -196,6 +196,14 @@ impl AgentManager {
         self.agents.get(&id)
     }
     
+    /// Get a list of all agents with their IDs and names
+    pub fn get_agents(&self) -> Vec<(AgentId, String)> {
+        self.agents
+            .iter()
+            .map(|(id, handle)| (*id, handle.name.clone()))
+            .collect()
+    }
+    
     /// Get an agent ID by name
     /// Returns None if no agent with that name exists
     pub fn get_agent_id_by_name(&self, name: &str) -> Option<AgentId> {
