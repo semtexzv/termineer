@@ -336,13 +336,21 @@ impl TuiState {
         let size = f.size();
         f.render_widget(Clear, size);
         
-        // Create the layout with header, content, and input areas
+        // Calculate the height needed for input box based on content
+        let input_height = if self.temp_output.visible {
+            3 // Default height when showing temporary output
+        } else {
+            // Dynamic height based on input content (min 3, includes borders)
+            self.calculate_input_height() + 2 // +2 for borders
+        };
+        
+        // Create the layout with header, content, and variable-height input areas
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Header
-                Constraint::Min(1),    // Content
-                Constraint::Length(3), // Input
+                Constraint::Length(3),                 // Header
+                Constraint::Min(1),                    // Content (flexible)
+                Constraint::Length(input_height),      // Dynamic-height input
             ])
             .split(size);
 
@@ -611,7 +619,30 @@ impl TuiState {
         f.render_widget(conversation, area);
     }
 
-    /// Render the input area
+    /// Calculate the number of lines needed for the input text
+    fn calculate_input_height(&self) -> u16 {
+        // Calculate required height based on input text and width
+        // Get a reasonable estimate of available width (approximate terminal width minus borders and padding)
+        let estimated_width = 80u16.saturating_sub(4); // Reasonable default with borders
+        
+        // Count how many lines the input will take
+        let input_chars = self.input.chars().count() as u16;
+        if input_chars == 0 {
+            return 1; // Empty input still takes one line
+        }
+        
+        // Calculate lines needed (min of 1)
+        let lines_needed = ((input_chars / estimated_width) + if input_chars % estimated_width > 0 { 1 } else { 0 })
+            .max(1);
+            
+        // Count newlines in the input
+        let newlines = self.input.matches('\n').count() as u16;
+        
+        // Return maximum of wrapped lines or newlines + 1
+        (lines_needed).max(newlines + 1).min(10) // Cap at 10 lines maximum
+    }
+    
+    /// Render the input area with support for multi-line text
     fn render_input(&self, f: &mut Frame, area: Rect) {
         // Normal input rendering
         let input_style = if self.command_mode {
@@ -637,33 +668,31 @@ impl TuiState {
         
         // Create title with agent state
         let title = format!("Input [{} [{}] | {}]", agent_name, self.selected_agent_id, agent_state_str);
-        
-        // Calculate available width for input (accounting for borders)
-        let available_width = area.width.saturating_sub(2) as usize;
-        
-        // Create a padded input string to ensure we overwrite any previous content
-        // This is important when new input is shorter than old input
-        let mut padded_input = self.input.clone();
-        if padded_input.len() < available_width {
-            // Add spaces to fill the available width
-            padded_input.push_str(&" ".repeat(available_width - padded_input.len()));
-        }
 
-        let input_text = Paragraph::new(padded_input)
+        // Create the input widget with text wrapping enabled
+        let input_text = Paragraph::new(self.input.clone())
             .style(input_style)
             .block(Block::default().borders(Borders::ALL).title(title))
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: false }); // Enable wrapping, don't trim to preserve formatting
 
         f.render_widget(input_text, area);
 
         // Only show cursor if temporary output is not visible
         if !self.temp_output.visible {
-            // Calculate cursor position
-            let cursor_x = self.cursor_position as u16 + 1; // +1 for border
-            let cursor_y = area.y + 1; // +1 for border
+            // Calculate cursor position for wrapped text
+            // This is a simplified calculation that works for basic wrapping
+            let available_width = area.width.saturating_sub(2) as usize; // -2 for borders
             
-            // Show cursor at current position
-            f.set_cursor(cursor_x, cursor_y);
+            // Calculate cursor row and column
+            let cursor_pos_in_chars = self.cursor_position;
+            let cursor_column = (cursor_pos_in_chars % available_width) as u16 + 1; // +1 for border
+            let cursor_row = (cursor_pos_in_chars / available_width) as u16 + 1; // +1 for border
+            
+            // Show cursor at calculated position
+            f.set_cursor(
+                area.x + cursor_column,
+                area.y + cursor_row
+            );
         }
     }
     
@@ -788,11 +817,18 @@ impl TuiInterface {
                 self.handle_ctrl_c_interrupt().await?;
             }
             
-            // Submit on Enter
+            // Submit on Enter or insert newline with Shift+Enter
             KeyCode::Enter => {
                 // If temporary output is visible, dismiss it and return
                 if self.state.temp_output.visible {
                     self.state.temp_output.hide();
+                    return Ok(());
+                }
+                
+                // If Shift is held, insert a newline instead of submitting
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.state.input.insert(self.state.cursor_position, '\n');
+                    self.state.cursor_position += 1;
                     return Ok(());
                 }
                 
@@ -868,26 +904,77 @@ impl TuiInterface {
                 }
             }
             
-            // Left arrow
+            // Left arrow (with modifiers for macOS conventions)
             KeyCode::Left => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
-                if self.state.cursor_position > 0 {
+                // Command + Left: Move to beginning of line (macOS convention)
+                if key.modifiers.contains(KeyModifiers::META) {
+                    self.state.cursor_position = 0;
+                }
+                // Option/Alt + Left: Move one word left (macOS convention)
+                else if key.modifiers.contains(KeyModifiers::ALT) {
+                    // Find previous word boundary
+                    if self.state.cursor_position > 0 {
+                        // First skip any spaces directly to the left
+                        let mut pos = self.state.cursor_position;
+                        let chars: Vec<char> = self.state.input.chars().collect();
+                        
+                        // Skip spaces backward
+                        while pos > 0 && chars[pos - 1].is_whitespace() {
+                            pos -= 1;
+                        }
+                        
+                        // Then skip non-spaces backward (the word)
+                        while pos > 0 && !chars[pos - 1].is_whitespace() {
+                            pos -= 1;
+                        }
+                        
+                        self.state.cursor_position = pos;
+                    }
+                }
+                // Regular left arrow: Move one character left
+                else if self.state.cursor_position > 0 {
                     self.state.cursor_position -= 1;
                 }
             }
             
-            // Right arrow
+            // Right arrow (with modifiers for macOS conventions)
             KeyCode::Right => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
                 
-                if self.state.cursor_position < self.state.input.len() {
+                // Command + Right: Move to end of line (macOS convention)
+                if key.modifiers.contains(KeyModifiers::META) {
+                    self.state.cursor_position = self.state.input.len();
+                }
+                // Option/Alt + Right: Move one word right (macOS convention)
+                else if key.modifiers.contains(KeyModifiers::ALT) {
+                    // Find next word boundary
+                    if self.state.cursor_position < self.state.input.len() {
+                        let mut pos = self.state.cursor_position;
+                        let chars: Vec<char> = self.state.input.chars().collect();
+                        
+                        // Skip non-spaces forward (current word)
+                        while pos < chars.len() && !chars[pos].is_whitespace() {
+                            pos += 1;
+                        }
+                        
+                        // Then skip spaces forward
+                        while pos < chars.len() && chars[pos].is_whitespace() {
+                            pos += 1;
+                        }
+                        
+                        self.state.cursor_position = pos;
+                    }
+                } 
+                // Regular right arrow: Move one character right
+                else if self.state.cursor_position < self.state.input.len() {
                     self.state.cursor_position += 1;
                 }
             }
