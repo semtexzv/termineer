@@ -307,16 +307,6 @@ pub async fn execute_shell(
             // Brief delay to avoid CPU spinning
             sleep(Duration::from_millis(10)).await;
         }
-        
-        // Log execution time for performance tracking
-        let execution_time = start_time.elapsed();
-        if !main_silent_mode && execution_time.as_secs() >= 1 {
-            crate::btool_println!(
-                "shell",
-                "Command execution time: {:.2}s",
-                execution_time.as_secs_f64()
-            );
-        }
 
         // Wait a moment for stdout/stderr to finish processing
         sleep(Duration::from_millis(50)).await;
