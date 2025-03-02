@@ -19,20 +19,13 @@ use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
+use crate::agent::tokens::{
+    TokenManager,
+    TOKEN_LIMIT_WARNING_THRESHOLD, TOKEN_LIMIT_CRITICAL_THRESHOLD, MAX_EXPECTED_OUTPUT_TOKENS
+};
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-
-// Token limit thresholds for debugging (extremely low to trigger token management)
-// Original values commented below for easy restoration
-const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 5000;  // Debug: Trigger warnings with minimal usage
-const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 8000; // Debug: Trigger critical with minimal usage
-const MAX_EXPECTED_OUTPUT_TOKENS: usize = 1000;     // Debug: Minimal output reservation
-
-// Original values for Claude's 200k context window:
-// const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 160000; // 80% of 200k tokens
-// const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 180000; // 90% of 200k tokens
-// const MAX_EXPECTED_OUTPUT_TOKENS: usize = 10000; // Reserve space for model's response
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -86,24 +79,8 @@ pub struct Agent {
     /// Counter for tool invocations, used for indexing tool results
     tool_invocation_counter: usize,
     
-    /// Tracks tool output metadata including relevance and token usage
-    tool_metadata: std::collections::BTreeMap<usize, ToolOutputMetadata>,
-}
-
-/// Metadata about a tool output for token management
-#[derive(Debug, Clone)]
-struct ToolOutputMetadata {
-    /// Whether this tool output is still relevant
-    pub relevant: bool,
-    
-    /// Estimated input tokens for this tool result
-    pub input_tokens: Option<usize>,
-    
-    /// Estimated output tokens for this tool result
-    pub output_tokens: Option<usize>,
-    
-    /// The tool name
-    pub tool_name: String,
+    /// Token manager for tracking and optimizing token usage
+    token_manager: TokenManager,
 }
 
 impl Agent {
@@ -126,13 +103,9 @@ impl Agent {
                 };
                 
                 if let (Some(index), Content::Text { text }) = (tool_index, &msg.content) {
-                    // Check if this tool output is marked as irrelevant
-                    if let Some(metadata) = self.tool_metadata.get(index) {
-                        if !metadata.relevant {
-                            (true, *index, text.len(), matches!(msg.info, MessageInfo::ToolResult { .. }), msg.info.clone())
-                        } else {
-                            (false, 0, 0, false, msg.info.clone())
-                        }
+                    // Check if this tool output is marked as irrelevant using the token manager
+                    if self.token_manager.is_irrelevant(*index) {
+                        (true, *index, text.len(), matches!(msg.info, MessageInfo::ToolResult { .. }), msg.info.clone())
                     } else {
                         (false, 0, 0, false, msg.info.clone())
                     }
@@ -245,13 +218,12 @@ impl Agent {
                 crate::constants::FORMAT_CYAN,
                 crate::constants::FORMAT_RESET);
             
-            for (idx, metadata) in &self.tool_metadata {
-                crate::bprintln!("{}DEBUG: Tool index {} ({}) - {} {} tokens{}",
+            // Use the formatted tool details from the token manager
+            let tool_details = self.token_manager.format_tool_details(total_tokens);
+            for line in tool_details.lines() {
+                crate::bprintln!("{}DEBUG: {}{}",
                     crate::constants::FORMAT_CYAN,
-                    idx,
-                    metadata.tool_name,
-                    if metadata.relevant { "Relevant" } else { "Marked for truncation" },
-                    metadata.input_tokens.unwrap_or(0) + metadata.output_tokens.unwrap_or(0),
+                    line,
                     crate::constants::FORMAT_RESET);
             }
                 
@@ -273,52 +245,14 @@ impl Agent {
     
     /// Ask the LLM to identify which tool outputs are no longer relevant
     async fn identify_irrelevant_tool_outputs(&mut self, total_tokens: usize) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Get the current tool indices in use
-        let tool_indices: Vec<usize> = self.tool_metadata.keys().cloned().collect();
+        // Get detailed tool information from the token manager
+        let tool_details = self.token_manager.format_tool_details(total_tokens);
+        
+        // Get a list of tool indices
+        let tool_indices: Vec<usize> = self.token_manager.get_tool_indices();
         
         if tool_indices.is_empty() {
             return Ok(false); // No tools to check
-        }
-        
-        // Build a detailed report of each tool invocation with accurate token stats
-        let mut tool_details = String::new();
-        for idx in &tool_indices {
-            if let Some(metadata) = self.tool_metadata.get(idx) {
-                // Format information about this tool with accurate token counts
-                let token_info = if metadata.input_tokens.is_some() || metadata.output_tokens.is_some() {
-                    format!(
-                        "{} tokens", 
-                        metadata.input_tokens.unwrap_or(0) + metadata.output_tokens.unwrap_or(0)
-                    )
-                } else {
-                    "token count unknown".to_string()
-                };
-                
-                // Calculate the percentage of total tokens this tool represents
-                let percentage = if let Some(input_tokens) = metadata.input_tokens {
-                    let total_input_tokens = input_tokens + metadata.output_tokens.unwrap_or(0);
-                    if total_tokens > 0 {
-                        format!(" ({:.1}% of total)", (total_input_tokens as f32 / total_tokens as f32) * 100.0)
-                    } else {
-                        "".to_string()
-                    }
-                } else {
-                    "".to_string()
-                };
-                
-                tool_details.push_str(&format!(
-                    "Index {}: {} ({}{})\n  Status: {}\n",
-                    idx,
-                    metadata.tool_name,
-                    token_info,
-                    percentage,
-                    if metadata.relevant { 
-                        "Currently marked as relevant" 
-                    } else { 
-                        "Already marked for truncation" 
-                    }
-                ));
-            }
         }
         
         // Create a temporary message to ask the LLM about tool relevance
@@ -469,11 +403,8 @@ impl Agent {
                             idx,
                             crate::constants::FORMAT_RESET);
 
-                        // Update the metadata to mark as irrelevant while preserving other info
-                        if let Some(mut metadata) = self.tool_metadata.get(&idx).cloned() {
-                            metadata.relevant = false;
-                            self.tool_metadata.insert(idx, metadata);
-                        }
+                        // Mark this tool output as irrelevant in the token manager
+                        self.token_manager.mark_irrelevant(idx);
                     }
 
                     // Return true to indicate we identified irrelevant outputs
@@ -563,7 +494,7 @@ impl Agent {
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
-            tool_metadata: std::collections::BTreeMap::new(),
+            token_manager: TokenManager::new(),
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -1354,13 +1285,11 @@ impl Agent {
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
         
-        // Create metadata for this tool output
-        self.tool_metadata.insert(self.tool_invocation_counter, ToolOutputMetadata {
-            relevant: true,
-            input_tokens: None,  // Will be updated when we get token stats from response
-            output_tokens: None, // Will be updated when we get token stats from response
-            tool_name: tool_name.clone(),
-        });
+        // Register this tool output with the token manager
+        self.token_manager.register_tool_output(
+            self.tool_invocation_counter,
+            tool_name.clone(),
+        );
         
         // Log tool invocation for debugging
         crate::bprintln!("{}DEBUG: Created new tool output with index {} (tool: {}){}",
@@ -1439,45 +1368,51 @@ impl Agent {
         self.conversation
             .push(Message::text("user", agent_response.clone(), message_info));
 
-        // Update shell tool metadata with token usage information
-        if let Some(metadata) = self.tool_metadata.get_mut(&self.tool_invocation_counter) {
-            // Create a copy of the agent_response for token counting
-            let response_copy = agent_response.clone();
-            
-            // Count tokens accurately using the LLM backend
-            // Only count the last message (the shell output)
-            let shell_response_message = Message::text(
-                "user", 
-                response_copy, 
-                MessageInfo::ToolResult {
-                    tool_name: "shell".to_string(),
-                    tool_index: Some(self.tool_invocation_counter),
-                }
-            );
-            
-            match self.llm.count_tokens(&[shell_response_message], None).await {
-                Ok(token_usage) => {
-                    metadata.input_tokens = Some(token_usage.input_tokens);
-                    metadata.output_tokens = Some(0); // Shell doesn't have output tokens
-                    
-                    crate::bprintln!("{}DEBUG: Updated shell tool metadata for index {} with accurate token count: {} tokens{}",
-                        crate::constants::FORMAT_CYAN,
-                        self.tool_invocation_counter,
-                        token_usage.input_tokens,
-                        crate::constants::FORMAT_RESET);
-                },
-                Err(e) => {
-                    // Fall back to estimation if token counting fails
-                    let estimated_tokens = response_len / 4;  // ~4 chars per token as rough estimate
-                    metadata.input_tokens = Some(estimated_tokens);
-                    metadata.output_tokens = Some(0);
-                    
-                    crate::bprintln!("{}DEBUG: Failed to count tokens for shell output ({}), using estimate: ~{} tokens{}",
-                        crate::constants::FORMAT_YELLOW,
-                        e,
-                        estimated_tokens,
-                        crate::constants::FORMAT_RESET);
-                }
+        // Create a copy of the agent_response for token counting
+        let response_copy = agent_response.clone();
+        
+        // Count tokens accurately using the LLM backend
+        // Only count the last message (the shell output)
+        let shell_response_message = Message::text(
+            "user", 
+            response_copy, 
+            MessageInfo::ToolResult {
+                tool_name: "shell".to_string(),
+                tool_index: Some(self.tool_invocation_counter),
+            }
+        );
+        
+        match self.llm.count_tokens(&[shell_response_message], None).await {
+            Ok(token_usage) => {
+                // Update token usage in the token manager
+                self.token_manager.update_token_usage(
+                    self.tool_invocation_counter,
+                    Some(token_usage.input_tokens),
+                    Some(0) // Shell doesn't have output tokens
+                );
+                
+                crate::bprintln!("{}DEBUG: Updated shell tool metadata for index {} with accurate token count: {} tokens{}",
+                    crate::constants::FORMAT_CYAN,
+                    self.tool_invocation_counter,
+                    token_usage.input_tokens,
+                    crate::constants::FORMAT_RESET);
+            },
+            Err(e) => {
+                // Fall back to estimation if token counting fails
+                let estimated_tokens = response_len / 4;  // ~4 chars per token as rough estimate
+                
+                // Update with estimated token count
+                self.token_manager.update_token_usage(
+                    self.tool_invocation_counter,
+                    Some(estimated_tokens),
+                    Some(0)
+                );
+                
+                crate::bprintln!("{}DEBUG: Failed to count tokens for shell output ({}), using estimate: ~{} tokens{}",
+                    crate::constants::FORMAT_YELLOW,
+                    e,
+                    estimated_tokens,
+                    crate::constants::FORMAT_RESET);
             }
         }
         
@@ -1485,20 +1420,22 @@ impl Agent {
             self.cache_here();
         }
 
-        // Update token usage information in tool metadata
+        // Update token usage information in token manager
         if let Some(usage) = &response.usage {
-            if let Some(metadata) = self.tool_metadata.get_mut(&self.tool_invocation_counter) {
-                metadata.input_tokens = Some(usage.input_tokens);
-                metadata.output_tokens = Some(usage.output_tokens);
-                
-                crate::bprintln!("{}DEBUG: Updated tool metadata for index {} ({}) with token usage: {} input, {} output{}",
-                    crate::constants::FORMAT_CYAN,
-                    self.tool_invocation_counter,
-                    tool_name,
-                    usage.input_tokens,
-                    usage.output_tokens,
-                    crate::constants::FORMAT_RESET);
-            }
+            // Update token usage in the token manager
+            self.token_manager.update_token_usage(
+                self.tool_invocation_counter,
+                Some(usage.input_tokens),
+                Some(usage.output_tokens)
+            );
+            
+            crate::bprintln!("{}DEBUG: Updated tool metadata for index {} ({}) with token usage: {} input, {} output{}",
+                crate::constants::FORMAT_CYAN,
+                self.tool_invocation_counter,
+                tool_name,
+                usage.input_tokens,
+                usage.output_tokens,
+                crate::constants::FORMAT_RESET);
             
             // Cache frequently, especially for larger responses
             if usage.input_tokens + usage.output_tokens > 300 {
