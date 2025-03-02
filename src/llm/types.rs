@@ -50,13 +50,22 @@ pub enum MessageInfo {
     System,
 
     /// Tool call
-    ToolCall { tool_name: String },
+    ToolCall { 
+        tool_name: String,
+        tool_index: Option<usize>,
+    },
 
     /// Tool result
-    ToolResult { tool_name: String },
+    ToolResult { 
+        tool_name: String,
+        tool_index: Option<usize>,
+    },
 
     /// Tool error
-    ToolError { tool_name: String },
+    ToolError { 
+        tool_name: String,
+        tool_index: Option<usize>,
+    },
 }
 
 /// Cache control information

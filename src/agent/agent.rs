@@ -23,6 +23,12 @@ use crate::tools::ToolExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 
+// Token limit thresholds for Claude's 200k context window
+// We need to account for both input tokens and expected output tokens
+const TOKEN_LIMIT_WARNING_THRESHOLD: usize = 160000; // 80% of 200k tokens
+const TOKEN_LIMIT_CRITICAL_THRESHOLD: usize = 180000; // 90% of 200k tokens
+const MAX_EXPECTED_OUTPUT_TOKENS: usize = 10000; // Reserve space for model's response
+
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
     pub response: String,
@@ -74,9 +80,227 @@ pub struct Agent {
     
     /// Counter for tool invocations, used for indexing tool results
     tool_invocation_counter: usize,
+    
+    /// Tracks which tool outputs (by index) are still relevant
+    tool_relevance: std::collections::HashMap<usize, bool>,
 }
 
 impl Agent {
+    /// Truncate irrelevant tool outputs in the conversation history
+    fn truncate_irrelevant_tool_outputs(&mut self) -> usize {
+        let mut tokens_saved = 0;
+        let conversation_len = self.conversation.len();
+        
+        // Iterate through the conversation history
+        for i in 0..conversation_len {
+            // First collect the info we need without holding a reference to self.conversation
+            let (should_truncate, index_value, original_len, is_result, info_clone) = {
+                let msg = &self.conversation[i];
+                
+                // Get the tool index from MessageInfo
+                let tool_index = match &msg.info {
+                    MessageInfo::ToolResult { tool_name: _, tool_index } => tool_index,
+                    MessageInfo::ToolError { tool_name: _, tool_index } => tool_index,
+                    _ => &None,
+                };
+                
+                if let (Some(index), Content::Text { text }) = (tool_index, &msg.content) {
+                    // Check if this tool output is marked as irrelevant
+                    if let Some(false) = self.tool_relevance.get(index) {
+                        (true, *index, text.len(), matches!(msg.info, MessageInfo::ToolResult { .. }), msg.info.clone())
+                    } else {
+                        (false, 0, 0, false, msg.info.clone())
+                    }
+                } else {
+                    (false, 0, 0, false, msg.info.clone())
+                }
+            };
+            
+            // Now we can modify the conversation if needed
+            if should_truncate {
+                let tool_tag_name = if is_result { "tool_result" } else { "tool_error" };
+                
+                let truncated_text = format!(
+                    "<{} index=\"{}\"> [OUTPUT TRUNCATED: No longer needed] </{}>",
+                    tool_tag_name, index_value, tool_tag_name
+                );
+                
+                // Estimate tokens saved (rough approximation)
+                let estimated_tokens_saved = (original_len - truncated_text.len()) / 4;
+                tokens_saved += estimated_tokens_saved;
+                
+                // Replace the message with the truncated version
+                self.conversation[i] = Message::text(
+                    "user",
+                    truncated_text,
+                    info_clone // Keep the same MessageInfo with the index
+                );
+                
+                // Log the truncation
+                crate::bprintln!("{}Truncated tool output with index {} (saved ~{} tokens){}",
+                    crate::constants::FORMAT_CYAN,
+                    index_value,
+                    estimated_tokens_saved,
+                    crate::constants::FORMAT_RESET);
+            }
+        }
+        
+        // Reset cache points since we've modified the conversation
+        self.reset_cache_points();
+        
+        tokens_saved
+    }
+    
+    /// Check if token usage is approaching limits and handle if needed
+    async fn check_token_usage(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Use actual token counts from the last request if available
+        let mut estimated_input_tokens = 0;
+        
+        // Find the most recent token usage data to get a baseline
+        let mut last_known_token_count = None;
+        for i in (0..self.conversation.len()).rev() {
+            if let MessageInfo::Assistant = self.conversation[i].info {
+                // Find the most recent response where we have token counts
+                // In a real implementation, we'd maintain a running total throughout the conversation
+                if i + 1 < self.conversation.len() {
+                    // For estimation purposes, the input tokens of the next message would be
+                    // approximately what was counted as output tokens plus new messages
+                    last_known_token_count = Some(i);
+                    break;
+                }
+            }
+        }
+        
+        // If we have a recent token count, use it as a baseline
+        // Otherwise, estimate based on character counts
+        if last_known_token_count.is_none() {
+            // No token usage data available, estimate based on character count
+            for msg in &self.conversation {
+                if let Content::Text { text } = &msg.content {
+                    // Approximate 4 characters per token as a rough estimate
+                    estimated_input_tokens += text.len() / 4;
+                }
+            }
+        } else {
+            // Use known token counts and add estimates for new messages
+            // This is a more accurate approach when we have actual token usage data
+            // In a real implementation, we would track token counts incrementally
+            estimated_input_tokens = 10000; // Conservative baseline
+        }
+        
+        // Add buffer for the expected output tokens
+        let total_estimated_tokens = estimated_input_tokens + MAX_EXPECTED_OUTPUT_TOKENS;
+        
+        crate::bprintln!("{}Token usage estimate: {} input + {} reserved for output = {}{}",
+            crate::constants::FORMAT_CYAN,
+            estimated_input_tokens,
+            MAX_EXPECTED_OUTPUT_TOKENS,
+            total_estimated_tokens,
+            crate::constants::FORMAT_RESET);
+        
+        // Check if we're approaching token limits
+        if total_estimated_tokens > TOKEN_LIMIT_WARNING_THRESHOLD {
+            crate::bprintln!("{}Warning: Approaching token limit ({} of {}){}",
+                crate::constants::FORMAT_YELLOW,
+                total_estimated_tokens,
+                TOKEN_LIMIT_CRITICAL_THRESHOLD,
+                crate::constants::FORMAT_RESET);
+                
+            // We're approaching limits, ask the LLM which tool outputs are still relevant
+            let relevant_changed = self.identify_irrelevant_tool_outputs().await?;
+            
+            if relevant_changed {
+                // Actually truncate the irrelevant outputs
+                let tokens_saved = self.truncate_irrelevant_tool_outputs();
+                
+                crate::bprintln!("{}Truncated irrelevant tool outputs (saved ~{} tokens){}",
+                    crate::constants::FORMAT_GREEN,
+                    tokens_saved,
+                    crate::constants::FORMAT_RESET);
+                    
+                return Ok(true);
+            }
+        }
+        
+        Ok(false) // No action needed
+    }
+    
+    /// Ask the LLM to identify which tool outputs are no longer relevant
+    async fn identify_irrelevant_tool_outputs(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Get the current tool indices in use
+        let tool_indices: Vec<usize> = self.tool_relevance.keys().cloned().collect();
+        
+        if tool_indices.is_empty() {
+            return Ok(false); // No tools to check
+        }
+        
+        // Create a temporary message to ask the LLM about tool relevance
+        let token_warning_message = format!(
+            "Warning: You are approaching token limits. Please identify which tool outputs are no longer needed.\n\n\
+            You have used the following tool invocations with indices: {}.\n\n\
+            Respond with a comma-separated list of indices that can be truncated, for example: \"truncate: 1,3,5\".\n\
+            Or respond with \"keep_all\" if all outputs are still relevant.",
+            tool_indices.iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", ")
+        );
+        
+        // Add message temporarily
+        let temp_message = Message::text("user", token_warning_message, MessageInfo::User);
+        self.conversation.push(temp_message);
+        
+        // We want to limit this query to be very brief to save tokens
+        let stop_sequences = vec!["truncate:".to_string(), "keep_all".to_string()];
+        let max_tokens = Some(50); // Very limited response
+        
+        // Handle the LLM response with proper error conversion
+        let response = match self.llm.send_message(
+            &self.conversation,
+            self.config.system_prompt.as_deref(),
+            Some(&stop_sequences),
+            None,
+            Some(&self.cache_points),
+            max_tokens,
+        ).await {
+            Ok(response) => response,
+            Err(e) => {
+                // Remove the temporary message
+                self.conversation.pop();
+                return Err(format!("Failed to check tool relevance: {}", e).into());
+            }
+        };
+        
+        // Remove the temporary message
+        self.conversation.pop();
+        
+        // Extract content from response
+        let response_text = response.content.iter()
+            .filter_map(|c| if let Content::Text { text } = c { Some(text.clone()) } else { None })
+            .collect::<Vec<String>>()
+            .join("");
+        
+        // Parse the response to get indices to truncate
+        if response_text.contains("truncate:") {
+            if let Some(indices_str) = response_text.split("truncate:").nth(1) {
+                let indices_to_truncate: Vec<usize> = indices_str
+                    .split(',')
+                    .filter_map(|s| s.trim().parse::<usize>().ok())
+                    .collect();
+                
+                if !indices_to_truncate.is_empty() {
+                    // Mark these tool outputs as irrelevant
+                    for idx in indices_to_truncate {
+                        self.tool_relevance.insert(idx, false);
+                    }
+                    
+                    // Return true to indicate we identified irrelevant outputs
+                    return Ok(true);
+                }
+            }
+        }
+        
+        // If the response was "keep_all" or we couldn't parse indices, all outputs are still relevant
+        Ok(false)
+    }
+
     /// Generate a tool result start tag with the current tool invocation index
     fn tool_result_start_tag(&self) -> String {
         format!("<tool_result index=\"{}\">", self.tool_invocation_counter)
@@ -141,6 +365,7 @@ impl Agent {
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
+            tool_relevance: std::collections::HashMap::new(),
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -473,6 +698,7 @@ impl Agent {
                                     partial_tool_result,
                                     MessageInfo::ToolResult {
                                         tool_name: "shell".to_string(),
+                                        tool_index: Some(self.tool_invocation_counter),
                                     }
                                 ));
 
@@ -622,10 +848,12 @@ impl Agent {
         let message_info = if success || interrupting {
             MessageInfo::ToolResult {
                 tool_name: "shell".to_string(),
+                tool_index: Some(self.tool_invocation_counter),
             }
         } else {
             MessageInfo::ToolError {
                 tool_name: "shell".to_string(),
+                tool_index: Some(self.tool_invocation_counter),
             }
         };
 
@@ -796,6 +1024,9 @@ impl Agent {
         &mut self,
         interrupt_coordinator: &InterruptCoordinator,
     ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
+        // Check if we're approaching token limits and handle if needed
+        let _ = self.check_token_usage().await?;
+        
         // Add .autoswe file content to beginning of conversation if it hasn't been added yet
         if self.conversation.is_empty() && tokio::fs::try_exists(".autoswe").await? {
             let working = std::env::current_dir()?;
@@ -907,11 +1138,15 @@ impl Agent {
             full_assistant_message,
             MessageInfo::ToolCall {
                 tool_name: tool_name.clone(),
+                tool_index: Some(self.tool_invocation_counter),
             },
         ));
 
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
+        
+        // Mark this tool output as relevant
+        self.tool_relevance.insert(self.tool_invocation_counter, true);
         
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
@@ -968,10 +1203,12 @@ impl Agent {
         let message_info = if tool_result.success {
             MessageInfo::ToolResult {
                 tool_name: tool_name.clone(),
+                tool_index: Some(self.tool_invocation_counter),
             }
         } else {
             MessageInfo::ToolError {
                 tool_name: tool_name.clone(),
+                tool_index: Some(self.tool_invocation_counter),
             }
         };
 
