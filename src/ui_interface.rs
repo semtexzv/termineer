@@ -509,14 +509,14 @@ impl TuiState {
         f.render_widget(suggestions_widget, popup_area);
     }
 
-    /// Get a simple ASCII indicator for agent state
+    /// Get an emoji indicator for agent state
     fn get_state_indicator(state: &AgentState) -> &'static str {
         match state {
-            AgentState::Idle => "•", // Bullet for ready
-            AgentState::Processing => "↻", // Processing symbol
-            AgentState::RunningTool { .. } => "⚙", // Gear for tool execution
-            AgentState::Terminated => "✕", // X for terminated
-            AgentState::Done => "✓", // Checkmark for done
+            AgentState::Idle => "🟢", // Green circle for ready
+            AgentState::Processing => "🤔", // Thinking face for processing
+            AgentState::RunningTool { .. } => "🔧", // Wrench for tool execution
+            AgentState::Terminated => "⛔", // No entry sign for terminated
+            AgentState::Done => "✅", // Checkmark for done
         }
     }
 
