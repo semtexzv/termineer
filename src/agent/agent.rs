@@ -80,9 +80,8 @@ impl Agent {
         // Create LLM backend using factory
         let llm = crate::llm::create_backend(&config)?;
 
-        // Initialize tool executor with buffer usage enabled
-        let mut tool_executor = ToolExecutor::new(false, false); // not readonly, not silent
-        tool_executor.set_use_buffer(true);
+        // Initialize tool executor (not readonly, not silent)
+        let tool_executor = ToolExecutor::new(false, false);
 
         Ok(Self {
             id,
@@ -716,6 +715,20 @@ impl Agent {
                 TOOL_ERROR_START, tool_result.agent_output, TOOL_ERROR_END
             )
         };
+
+        // Display tool output to user using the buffer system if not in silent mode
+        if !self.tool_executor.is_silent() {
+            // Display tool title
+            crate::btool_println!(
+                &tool_name,
+                "Tool result from {}:",
+                tool_name
+            );
+            
+            // Display the actual tool output
+            crate::bprintln!("{}", tool_result.agent_output);
+            crate::bprintln!();
+        }
 
         // Return value to use in the process flow
         let result_for_response = tool_result.agent_output.clone();

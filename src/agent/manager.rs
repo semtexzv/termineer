@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
 use tokio::sync::mpsc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use super::agent::Agent;
-use super::types::{AgentError, AgentId, AgentMessage, AgentSender};
+use super::types::{AgentError, AgentId, AgentMessage, AgentSender, AgentState, AgentStateCode};
 use crate::config::Config;
 use crate::output::{SharedBuffer, CURRENT_BUFFER};
 
@@ -25,6 +26,30 @@ pub struct AgentHandle {
 
     /// Buffer of this agent (for display purposes)
     pub buffer: SharedBuffer,
+    
+    /// Current state of the agent (stored as atomic for thread safety)
+    state: AtomicU8,
+}
+
+impl AgentHandle {
+    /// Get the current state of the agent
+    pub fn get_state(&self) -> AgentState {
+        match self.state.load(Ordering::Relaxed) {
+            0 => AgentState::Idle,
+            1 => AgentState::Processing,
+            2 => AgentState::RunningTool { 
+                tool: "unknown".to_string(), 
+                interruptible: false 
+            },
+            _ => AgentState::Terminated,
+        }
+    }
+    
+    /// Update the state of the agent
+    pub fn update_state(&self, state: AgentState) {
+        let state_code = state.to_code() as u8;
+        self.state.store(state_code, Ordering::Relaxed);
+    }
 }
 
 /// Manager for multiple agent instances
@@ -72,6 +97,7 @@ impl AgentManager {
             sender,
             join_handle,
             buffer,
+            state: AtomicU8::new(0), // Default to Idle state
         };
 
         self.agents.insert(id, handle);
@@ -108,6 +134,15 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
+    /// Get the current state of an agent
+    pub fn get_agent_state(&self, id: AgentId) -> Result<AgentState, AgentError> {
+        if let Some(handle) = self.agents.get(&id) {
+            Ok(handle.get_state())
+        } else {
+            Err(AgentError::AgentNotFound(id))
+        }
+    }
+    
     /// Interrupt an agent
     pub fn interrupt_agent(&self, id: AgentId) -> Result<(), AgentError> {
         self.send_message(id, AgentMessage::Interrupt)

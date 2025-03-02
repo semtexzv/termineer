@@ -46,6 +46,16 @@ pub enum AgentCommand {
     ResetConversation,
 }
 
+/// Simple state representation that can be stored in an atomic value
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum AgentStateCode {
+    Idle = 0,
+    Processing = 1,
+    RunningTool = 2,
+    Terminated = 3,
+}
+
 /// Possible states of an agent
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentState {
@@ -60,6 +70,28 @@ pub enum AgentState {
 
     /// Agent has been terminated
     Terminated,
+}
+
+impl AgentState {
+    /// Convert to the simple state code
+    pub fn to_code(&self) -> AgentStateCode {
+        match self {
+            AgentState::Idle => AgentStateCode::Idle,
+            AgentState::Processing => AgentStateCode::Processing,
+            AgentState::RunningTool { .. } => AgentStateCode::RunningTool,
+            AgentState::Terminated => AgentStateCode::Terminated,
+        }
+    }
+    
+    /// Get a readable string representation of the state
+    pub fn as_display_string(&self) -> String {
+        match self {
+            AgentState::Idle => "Ready".to_string(),
+            AgentState::Processing => "Thinking...".to_string(),
+            AgentState::RunningTool { tool, .. } => format!("Running: {}", tool),
+            AgentState::Terminated => "Terminated".to_string(),
+        }
+    }
 }
 
 /// Errors that can occur when interacting with agents

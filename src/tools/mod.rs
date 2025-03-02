@@ -53,8 +53,6 @@ pub struct ToolExecutor {
     readonly_mode: bool,
     /// Whether to suppress console output
     silent_mode: bool,
-    /// Whether to use the output buffer (true) or direct printing (false)
-    pub use_buffer: bool,
 }
 
 impl ToolExecutor {
@@ -63,18 +61,12 @@ impl ToolExecutor {
         Self {
             readonly_mode,
             silent_mode,
-            use_buffer: true, // Default to using buffer
         }
     }
 
     /// Check if executor is in silent mode
     pub fn is_silent(&self) -> bool {
         self.silent_mode
-    }
-
-    /// Set whether to use the buffer or direct printing
-    pub fn set_use_buffer(&mut self, use_buffer: bool) {
-        self.use_buffer = use_buffer;
     }
 
     // Removed unused with_buffer method

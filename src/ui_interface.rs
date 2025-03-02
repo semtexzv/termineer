@@ -40,11 +40,13 @@ pub struct TuiState {
     pub should_quit: bool,
     /// Command mode indicator (when input starts with '/')
     pub command_mode: bool,
+    /// Reference to the agent manager
+    agent_manager: Arc<Mutex<AgentManager>>,
 }
 
 impl TuiState {
     /// Create a new TUI state
-    pub fn new(selected_agent_id: AgentId, agent_buffer: SharedBuffer) -> Self {
+    pub fn new(selected_agent_id: AgentId, agent_buffer: SharedBuffer, agent_manager: Arc<Mutex<AgentManager>>) -> Self {
         Self {
             input: String::new(),
             cursor_position: 0,
@@ -53,6 +55,7 @@ impl TuiState {
             agent_buffer,
             should_quit: false,
             command_mode: false,
+            agent_manager,
         }
     }
 
@@ -177,9 +180,15 @@ impl TuiState {
             Style::default().fg(Color::White)
         };
 
+        // Get the agent state from the agent manager
+        let agent_state_str = self.get_agent_state_string();
+        
+        // Create title with agent state
+        let title = format!("Input [Agent {} | {}]", self.selected_agent_id, agent_state_str);
+
         let input_text = Paragraph::new(self.input.as_str())
             .style(input_style)
-            .block(Block::default().borders(Borders::ALL).title("Input"))
+            .block(Block::default().borders(Borders::ALL).title(title))
             .wrap(Wrap { trim: true });
 
         f.render_widget(input_text, area);
@@ -190,6 +199,23 @@ impl TuiState {
 
         // Show cursor at current position
         f.set_cursor(cursor_x, cursor_y);
+    }
+    
+    /// Get a string representation of the selected agent's state
+    fn get_agent_state_string(&self) -> String {
+        if self.command_mode {
+            return "Command Mode".to_string();
+        }
+        
+        // Try to get the state from the agent manager
+        if let Ok(manager) = self.agent_manager.lock() {
+            if let Ok(state) = manager.get_agent_state(self.selected_agent_id) {
+                return state.as_display_string();
+            }
+        }
+        
+        // Fallback if we can't get the state
+        "Ready".to_string()
     }
 
 }
@@ -218,7 +244,7 @@ impl TuiInterface {
         let terminal = Terminal::new(backend)?;
 
         let buffer = agent_manager.lock().unwrap().get_agent_buffer(main_agent_id).unwrap();
-        let state = TuiState::new(main_agent_id, buffer);
+        let state = TuiState::new(main_agent_id, buffer, agent_manager.clone());
 
         Ok(Self {
             terminal,
