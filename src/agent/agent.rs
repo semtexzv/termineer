@@ -268,7 +268,8 @@ impl Agent {
                     MessageInfo::User,
                 ));
                 self.set_state(AgentState::Processing);
-                crate::bprintln!("Processing: {}", input);
+                // Display user input with chevron and dark blue color
+                crate::bprintln!("{}> {}{}", crate::constants::FORMAT_BLUE, input, crate::constants::FORMAT_RESET);
             },
             AgentMessage::Command(cmd) => {
                 self.handle_command(cmd).await;
