@@ -33,8 +33,6 @@ pub struct TuiState {
     pub cursor_position: usize,
     /// Currently selected agent ID
     pub selected_agent_id: AgentId,
-    /// List of all agents with their IDs and names
-    pub agents: Vec<(AgentId, String)>,
     /// Buffer for the selected agent's output.
     pub agent_buffer: SharedBuffer,
     /// Whether the application should exit
@@ -58,19 +56,10 @@ pub struct TuiState {
 impl TuiState {
     /// Create a new TUI state
     pub fn new(selected_agent_id: AgentId, agent_buffer: SharedBuffer, agent_manager: Arc<Mutex<AgentManager>>) -> Self {
-        // Get agent name for the selected ID
-        let name = agent_manager
-            .lock()
-            .unwrap()
-            .get_agent_handle(selected_agent_id)
-            .map(|h| h.name.clone())
-            .unwrap_or_else(|| "Main".to_string());
-        
         Self {
             input: String::new(),
             cursor_position: 0,
             selected_agent_id,
-            agents: vec![(selected_agent_id, name)],
             agent_buffer,
             should_quit: false,
             command_mode: false,
@@ -98,17 +87,18 @@ impl TuiState {
     }
 
     /// Update the list of agents
-    pub fn update_agent_list(&mut self, agents: Vec<(AgentId, String)>) {
-        self.agents = agents;
-        
-        // Ensure selected agent is in the list
-        let agent_ids: Vec<AgentId> = self.agents.iter().map(|(id, _)| *id).collect();
-        if !agent_ids.contains(&self.selected_agent_id) && !self.agents.is_empty() {
-            self.selected_agent_id = self.agents[0].0;
-            // Update buffer to the new agent
-            if let Ok(manager) = self.agent_manager.lock() {
-                if let Ok(buffer) = manager.get_agent_buffer(self.selected_agent_id) {
-                    self.agent_buffer = buffer;
+    /// Ensure the selected agent exists, or select the first available agent
+    pub fn ensure_selected_agent_valid(&mut self) {
+        if let Ok(manager) = self.agent_manager.lock() {
+            // Check if the currently selected agent exists
+            if manager.get_agent_handle(self.selected_agent_id).is_none() {
+                // If not, select the first available agent
+                if let Some((first_id, _)) = manager.get_agents().first() {
+                    self.selected_agent_id = *first_id;
+                    // Update buffer to the new agent
+                    if let Ok(buffer) = manager.get_agent_buffer(self.selected_agent_id) {
+                        self.agent_buffer = buffer;
+                    }
                 }
             }
         }
@@ -298,12 +288,14 @@ impl TuiState {
         // Get the agent state from the agent manager
         let agent_state_str = self.get_agent_state_string();
         
-        // Get the current agent name
-        let agent_name = self.agents
-            .iter()
-            .find(|(id, _)| *id == self.selected_agent_id)
-            .map(|(_, name)| name.as_str())
-            .unwrap_or("Unknown");
+        // Get the current agent name directly from the agent manager
+        let agent_name = if let Ok(manager) = self.agent_manager.lock() {
+            manager.get_agent_handle(self.selected_agent_id)
+                .map(|h| h.name.as_str())
+                .unwrap_or("Unknown")
+        } else {
+            "Unknown"
+        };
         
         // Create title with agent state
         let title = format!("Input [{} [{}] | {}]", agent_name, self.selected_agent_id, agent_state_str);
@@ -416,6 +408,9 @@ impl TuiInterface {
                     break;
                 }
             }
+            
+            // Ensure we have a valid agent selected before drawing
+            self.state.ensure_selected_agent_valid();
             
             // Draw the UI after processing all pending events
             self.terminal.draw(|f| {
