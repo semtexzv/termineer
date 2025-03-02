@@ -86,8 +86,24 @@ pub struct Agent {
     /// Counter for tool invocations, used for indexing tool results
     tool_invocation_counter: usize,
     
-    /// Tracks which tool outputs (by index) are still relevant
-    tool_relevance: std::collections::HashMap<usize, bool>,
+    /// Tracks tool output metadata including relevance and token usage
+    tool_metadata: std::collections::HashMap<usize, ToolOutputMetadata>,
+}
+
+/// Metadata about a tool output for token management
+#[derive(Debug, Clone)]
+struct ToolOutputMetadata {
+    /// Whether this tool output is still relevant
+    pub relevant: bool,
+    
+    /// Estimated input tokens for this tool result
+    pub input_tokens: Option<usize>,
+    
+    /// Estimated output tokens for this tool result
+    pub output_tokens: Option<usize>,
+    
+    /// The tool name
+    pub tool_name: String,
 }
 
 impl Agent {
@@ -111,8 +127,12 @@ impl Agent {
                 
                 if let (Some(index), Content::Text { text }) = (tool_index, &msg.content) {
                     // Check if this tool output is marked as irrelevant
-                    if let Some(false) = self.tool_relevance.get(index) {
-                        (true, *index, text.len(), matches!(msg.info, MessageInfo::ToolResult { .. }), msg.info.clone())
+                    if let Some(metadata) = self.tool_metadata.get(index) {
+                        if !metadata.relevant {
+                            (true, *index, text.len(), matches!(msg.info, MessageInfo::ToolResult { .. }), msg.info.clone())
+                        } else {
+                            (false, 0, 0, false, msg.info.clone())
+                        }
                     } else {
                         (false, 0, 0, false, msg.info.clone())
                     }
@@ -222,11 +242,13 @@ impl Agent {
                 crate::constants::FORMAT_CYAN,
                 crate::constants::FORMAT_RESET);
             
-            for (idx, relevant) in &self.tool_relevance {
-                crate::bprintln!("{}DEBUG: Tool index {} - {}{}",
+            for (idx, metadata) in &self.tool_metadata {
+                crate::bprintln!("{}DEBUG: Tool index {} ({}) - {} {} tokens{}",
                     crate::constants::FORMAT_CYAN,
-                    idx, 
-                    if *relevant { "Relevant" } else { "Marked for truncation" },
+                    idx,
+                    metadata.tool_name,
+                    if metadata.relevant { "Relevant" } else { "Marked for truncation" },
+                    metadata.input_tokens.unwrap_or(0) + metadata.output_tokens.unwrap_or(0),
                     crate::constants::FORMAT_RESET);
             }
                 
@@ -249,22 +271,49 @@ impl Agent {
     /// Ask the LLM to identify which tool outputs are no longer relevant
     async fn identify_irrelevant_tool_outputs(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Get the current tool indices in use
-        let tool_indices: Vec<usize> = self.tool_relevance.keys().cloned().collect();
+        let tool_indices: Vec<usize> = self.tool_metadata.keys().cloned().collect();
         
         if tool_indices.is_empty() {
             return Ok(false); // No tools to check
         }
         
+        // Build a detailed report of each tool invocation with token stats
+        let mut tool_details = String::new();
+        for idx in &tool_indices {
+            if let Some(metadata) = self.tool_metadata.get(idx) {
+                // Format information about this tool
+                let token_info = if metadata.input_tokens.is_some() || metadata.output_tokens.is_some() {
+                    format!(
+                        "~{} tokens", 
+                        metadata.input_tokens.unwrap_or(0) + metadata.output_tokens.unwrap_or(0)
+                    )
+                } else {
+                    "token count unknown".to_string()
+                };
+                
+                tool_details.push_str(&format!(
+                    "Index {}: {} ({}) - {}\n",
+                    idx,
+                    metadata.tool_name,
+                    token_info,
+                    if metadata.relevant { "Currently marked as relevant" } else { "Already marked for truncation" }
+                ));
+            }
+        }
+        
         // Create a temporary message to ask the LLM about tool relevance
         let token_warning_message = format!(
             "WARNING: TOKEN LIMIT MANAGEMENT ACTIVE. You are approaching token limits and need to identify which tool outputs can be truncated.\n\n\
-            You have used the following tool invocations with indices: {}.\n\n\
+            TOOL INVOCATION DETAILS:\n{}\n\
+            CURRENT TASK ANALYSIS:\n\
+            - Consider your current reasoning path and remaining work\n\
+            - Identify which previous tool outputs you no longer need to reference\n\
+            - Tool outputs with larger token counts will save more space when truncated\n\n\
             INSTRUCTIONS:\n\
-            - Carefully consider which tool outputs are no longer needed for your current reasoning and task completion\n\
-            - Respond with a comma-separated list of indices that can be truncated, for example: \"truncate: 1,3,5\"\n\
-            - Or respond with \"keep_all\" if all outputs are still relevant and necessary\n\n\
+            - Respond with precisely: \"truncate: X,Y,Z\" (where X,Y,Z are indices of tool outputs to truncate)\n\
+            - Or respond with precisely: \"keep_all\" if all outputs are still necessary\n\n\
             Note: This is a debugging test of the token management system.",
-            tool_indices.iter().map(|i| i.to_string()).collect::<Vec<String>>().join(", ")
+            tool_details
         );
         
         // Add message temporarily
@@ -341,7 +390,12 @@ impl Agent {
                             crate::constants::FORMAT_YELLOW,
                             idx,
                             crate::constants::FORMAT_RESET);
-                        self.tool_relevance.insert(idx, false);
+                        
+                        // Update the metadata to mark as irrelevant while preserving other info
+                        if let Some(mut metadata) = self.tool_metadata.get(&idx).cloned() {
+                            metadata.relevant = false;
+                            self.tool_metadata.insert(idx, metadata);
+                        }
                     }
                     
                     // Return true to indicate we identified irrelevant outputs
@@ -426,7 +480,7 @@ impl Agent {
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
-            tool_relevance: std::collections::HashMap::new(),
+            tool_metadata: std::collections::HashMap::new(),
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -1206,13 +1260,19 @@ impl Agent {
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
         
-        // Mark this tool output as relevant
-        self.tool_relevance.insert(self.tool_invocation_counter, true);
+        // Create metadata for this tool output
+        self.tool_metadata.insert(self.tool_invocation_counter, ToolOutputMetadata {
+            relevant: true,
+            input_tokens: None,  // Will be updated when we get token stats from response
+            output_tokens: None, // Will be updated when we get token stats from response
+            tool_name: tool_name.clone(),
+        });
         
         // Log tool invocation for debugging
-        crate::bprintln!("{}DEBUG: Created new tool output with index {}{}",
+        crate::bprintln!("{}DEBUG: Created new tool output with index {} (tool: {}){}",
             crate::constants::FORMAT_CYAN,
             self.tool_invocation_counter,
+            tool_name,
             crate::constants::FORMAT_RESET);
         
         // Special handling for shell tool to support streaming and interruption
@@ -1285,12 +1345,40 @@ impl Agent {
         self.conversation
             .push(Message::text("user", agent_response, message_info));
 
+        // Update shell tool metadata with approximate token usage information
+        if let Some(metadata) = self.tool_metadata.get_mut(&self.tool_invocation_counter) {
+            // For shell, estimate tokens based on response length (rough approximation)
+            let estimated_tokens = response_len / 4;  // ~4 chars per token as rough estimate
+            metadata.input_tokens = Some(estimated_tokens);
+            metadata.output_tokens = Some(0); // Shell doesn't have output tokens in the same way
+            
+            crate::bprintln!("{}DEBUG: Updated shell tool metadata for index {} with estimated token usage: ~{} tokens{}",
+                crate::constants::FORMAT_CYAN,
+                self.tool_invocation_counter,
+                estimated_tokens,
+                crate::constants::FORMAT_RESET);
+        }
+        
         if response_len > 500 {
             self.cache_here();
         }
 
-        // Cache frequently.
+        // Update token usage information in tool metadata
         if let Some(usage) = &response.usage {
+            if let Some(metadata) = self.tool_metadata.get_mut(&self.tool_invocation_counter) {
+                metadata.input_tokens = Some(usage.input_tokens);
+                metadata.output_tokens = Some(usage.output_tokens);
+                
+                crate::bprintln!("{}DEBUG: Updated tool metadata for index {} ({}) with token usage: {} input, {} output{}",
+                    crate::constants::FORMAT_CYAN,
+                    self.tool_invocation_counter,
+                    tool_name,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    crate::constants::FORMAT_RESET);
+            }
+            
+            // Cache frequently, especially for larger responses
             if usage.input_tokens + usage.output_tokens > 300 {
                 self.cache_here();
             }
