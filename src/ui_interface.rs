@@ -1007,6 +1007,12 @@ impl TuiInterface {
                     // Calculate previous index with wrap-around
                     let prev = if current == 0 { count - 1 } else { current - 1 };
                     self.state.command_suggestions.selected_index = prev;
+                    
+                    // Automatically update input with the currently selected suggestion
+                    if let Some(selected) = self.state.command_suggestions.selected_command() {
+                        self.state.input = selected.name.clone();
+                        self.state.cursor_position = self.state.input.len();
+                    }
                 } 
                 // Handle as scroll with shift modifier
                 else if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -1040,6 +1046,12 @@ impl TuiInterface {
                 if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
                     // Navigate to next suggestion (looping to top if at bottom)
                     self.state.command_suggestions.next();
+                    
+                    // Automatically update input with the currently selected suggestion
+                    if let Some(selected) = self.state.command_suggestions.selected_command() {
+                        self.state.input = selected.name.clone();
+                        self.state.cursor_position = self.state.input.len();
+                    }
                 } 
                 // Handle as scroll with shift modifier
                 else if key.modifiers.contains(KeyModifiers::SHIFT) {
