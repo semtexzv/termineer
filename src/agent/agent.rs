@@ -140,7 +140,10 @@ impl Agent {
         mut agent_receiver: AgentReceiver,
         interrupt_receiver: InterruptReceiver,
     ) {
-        crate::bprintln!("Agent '{}' started", self.name);
+        crate::bprintln!("🤖 {}Agent{} '{}' started", 
+            crate::constants::FORMAT_BOLD,
+            crate::constants::FORMAT_RESET,
+            self.name);
         self.set_state(AgentState::Idle);
 
         // Setup interrupt coordination channels
@@ -179,7 +182,9 @@ impl Agent {
                     match result {
                         Ok(result) => {
                             if !result.continue_processing {
-                                crate::bprintln!("Agent has completed its task.");
+                                crate::bprintln!("✅ {}Agent{} has completed its task.", 
+                                    crate::constants::FORMAT_BOLD,
+                                    crate::constants::FORMAT_RESET);
                                 self.set_state(AgentState::Done)
                             }
                         },
@@ -205,7 +210,10 @@ impl Agent {
                                 break 'queue;
                             }
                             Err(TryRecvError::Disconnected) => {
-                                crate::bprintln!("Agent '{}' channel closed, terminating", self.name);
+                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating", 
+                                    crate::constants::FORMAT_BOLD,
+                                    crate::constants::FORMAT_RESET,
+                                    self.name);
                                 break 'main;
                             }
                         }
@@ -225,7 +233,10 @@ impl Agent {
                         },
                         None => {
                             // Channel closed, terminate agent
-                            crate::bprintln!("Agent '{}' channel closed, terminating", self.name);
+                            crate::bprintln!("{}Agent{} '{}' channel closed, terminating", 
+                                    crate::constants::FORMAT_BOLD,
+                                    crate::constants::FORMAT_RESET,
+                                    self.name);
                             break 'main;
                         }
                     }
@@ -245,7 +256,10 @@ impl Agent {
                                 break 'queue;
                             }
                             Err(TryRecvError::Disconnected) => {
-                                crate::bprintln!("Agent '{}' channel closed, terminating", self.name);
+                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating", 
+                                    crate::constants::FORMAT_BOLD,
+                                    crate::constants::FORMAT_RESET,
+                                    self.name);
                                 break 'main;
                             }
                         }
@@ -255,12 +269,17 @@ impl Agent {
 
             // Check if we've been terminated
             if matches!(self.state, AgentState::Terminated) {
-                crate::bprintln!("Agent processing was terminated.");
+                crate::bprintln!("{}Agent{} processing was terminated.",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET);
                 break 'main;
             }
         }
 
-        crate::bprintln!("Agent '{}' terminated", self.name);
+        crate::bprintln!("🤖 {}Agent{} '{}' terminated", 
+            crate::constants::FORMAT_BOLD,
+            crate::constants::FORMAT_RESET,
+            self.name);
     }
 
     /// Handle incoming messages and commands
@@ -281,7 +300,10 @@ impl Agent {
                 self.handle_command(cmd).await;
             },
             AgentMessage::Terminate => {
-                crate::bprintln!("Agent '{}' received terminate message", self.name);
+                crate::bprintln!("🤖 {}Agent{} '{}' received terminate message", 
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    self.name);
                 self.set_state(AgentState::Terminated);
             },
         }
@@ -947,7 +969,9 @@ impl Agent {
         if is_done {
             // Update state to Done
             self.state = AgentState::Done;
-            crate::bprintln!("Agent has marked task as completed.");
+            crate::bprintln!("✅ {}Agent{} has marked task as completed.", 
+                crate::constants::FORMAT_BOLD,
+                crate::constants::FORMAT_RESET);
 
             return Ok(MessageResult {
                 response: result_for_response,
@@ -992,7 +1016,9 @@ impl Agent {
         // Reset state to Idle if it was Done
         if matches!(self.state, AgentState::Done) {
             self.state = AgentState::Idle;
-            crate::bprintln!("Agent state reset to Idle.");
+            crate::bprintln!("🤖 {}Agent{} state reset to Idle.",
+                crate::constants::FORMAT_BOLD,
+                crate::constants::FORMAT_RESET);
         }
     }
 
