@@ -518,9 +518,12 @@ impl TuiState {
             // Create spans for each agent
             agents.iter()
                 .map(|(id, name)| {
+                    // Get the state emoji for this agent
+                    let state_emoji = self.get_agent_state_emoji(*id);
+                    
                     if *id == self.selected_agent_id {
                         Span::styled(
-                            format!(" {} [{}] ", name, id),
+                            format!(" {} {} [{}] ", state_emoji, name, id),
                             Style::default()
                                 .fg(Color::Black)
                                 .bg(Color::White)
@@ -528,7 +531,7 @@ impl TuiState {
                         )
                     } else {
                         Span::styled(
-                            format!(" {} [{}] ", name, id),
+                            format!(" {} {} [{}] ", state_emoji, name, id),
                             Style::default().fg(Color::LightBlue),
                         )
                     }
@@ -702,6 +705,25 @@ impl TuiState {
                 area.y + cursor_row
             );
         }
+    }
+    
+    /// Get an emoji for the agent state
+    fn get_agent_state_emoji(&self, agent_id: AgentId) -> &'static str {
+        // Get the state from the agent manager
+        if let Ok(manager) = self.agent_manager.lock() {
+            if let Ok(state) = manager.get_agent_state(agent_id) {
+                return match state {
+                    AgentState::Idle => "🟢", // Green circle for ready
+                    AgentState::Processing => "🤔", // Thinking face
+                    AgentState::RunningTool { .. } => "🔧", // Wrench for tool execution
+                    AgentState::Terminated => "⛔", // No entry sign
+                    AgentState::Done => "✅", // Checkmark for done
+                };
+            }
+        }
+        
+        // Fallback if we can't get the state
+        "⚪" // White circle as default
     }
     
     /// Get a string representation of the selected agent's state
