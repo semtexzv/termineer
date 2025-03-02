@@ -441,11 +441,11 @@ impl TuiState {
         // Set popup width with some padding
         let popup_width = (max_cmd_width + max_desc_width + 10).min(area.width.saturating_sub(4)).max(30);
         
-        // Position popup below input area, aligned with current cursor position
+        // Position popup at the left bottom edge of screen, above input area
         let input_area_y = area.height.saturating_sub(3); // Input is 3 lines from bottom
         
-        // Align with cursor but ensure it fits on screen
-        let popup_x = self.cursor_position.min(area.width.saturating_sub(popup_width) as usize) as u16;
+        // Fixed position at left edge
+        let popup_x = 0;
         let popup_y = input_area_y.saturating_sub(popup_height);
         
         let popup_area = Rect {
