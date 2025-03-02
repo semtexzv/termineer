@@ -287,7 +287,6 @@ impl TuiState {
         
         let conversation = Paragraph::new(items)
             .block(Block::default().borders(Borders::ALL).title(title));
-
         f.render_widget(conversation, area);
     }
 

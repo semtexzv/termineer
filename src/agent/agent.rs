@@ -331,9 +331,6 @@ impl Agent {
         // Create channel for high-priority interrupt signals
         let (interrupt_tx, mut interrupt_rx) = mpsc::channel(10);
 
-        // Record start time for statistics
-        let start_time = std::time::Instant::now();
-
         // Update coordinator to indicate shell is running and should receive priority interrupts
         interrupt_coordinator.set_shell_running(true, Some(interrupt_tx));
 
@@ -523,9 +520,6 @@ impl Agent {
             }
         }
 
-        // Log execution time
-        let execution_time = start_time.elapsed();
-        crate::bprintln!("Shell command execution completed in {:.2}s", execution_time.as_secs_f64());
 
         // Properly finish the partial tool result if it exists
         if has_partial_result {

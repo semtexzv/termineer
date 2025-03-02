@@ -343,33 +343,37 @@ pub async fn execute_shell(
             }
         };
 
+        // Log execution time
+        let execution_time = start_time.elapsed();
+        // crate::bprintln!("Shell command execution completed in {:.2}s", execution_time.as_secs_f64());
+
         // Print status message
         if !main_silent_mode {
             // Use output buffer for completion status
             if was_interrupted {
                 crate::btool_println!(
                     "shell",
-                    "{}🐚 Shell:{} {} (interrupted: {})",
+                    "{}🐚 Shell {}interrupted in {:.2}s: {}",
                     FORMAT_BOLD,
                     FORMAT_RESET,
-                    main_command_str,
+                    execution_time.as_secs_f64(),
                     interrupt_reason
                 );
             } else if success {
                 crate::btool_println!(
                     "shell",
-                    "{}🐚 Shell:{} {} (completed successfully)",
+                    "{}🐚 Shell {}completed successfully in {:.2}s",
                     FORMAT_BOLD,
                     FORMAT_RESET,
-                    main_command_str
+                    execution_time.as_secs_f64()
                 );
             } else {
                 crate::btool_println!(
                     "shell",
-                    "{}🐚 Shell:{} {} (completed with error)",
+                    "{}🐚 Shell {}completed with error in {:.2}s",
                     FORMAT_BOLD,
                     FORMAT_RESET,
-                    main_command_str
+                    execution_time.as_secs_f64()
                 );
             }
         }
