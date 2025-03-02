@@ -1010,6 +1010,51 @@ impl TuiInterface {
                     return Ok(());
                 }
                 
+                // Handle Option+Right (commonly produces 'f' character in macOS terminal - "forward")
+                if c == 'f' && key.modifiers.contains(KeyModifiers::ALT) {
+                    // Move one word right
+                    if self.state.cursor_position < self.state.input.len() {
+                        let mut pos = self.state.cursor_position;
+                        let chars: Vec<char> = self.state.input.chars().collect();
+                        
+                        // Skip non-spaces forward (current word)
+                        while pos < chars.len() && !chars[pos].is_whitespace() {
+                            pos += 1;
+                        }
+                        
+                        // Then skip spaces forward
+                        while pos < chars.len() && chars[pos].is_whitespace() {
+                            pos += 1;
+                        }
+                        
+                        self.state.cursor_position = pos;
+                    }
+                    return Ok(());
+                }
+                
+                // Handle Option+Left (commonly produces 'b' character in macOS terminal - "backward")
+                if c == 'b' && key.modifiers.contains(KeyModifiers::ALT) {
+                    // Move one word left
+                    if self.state.cursor_position > 0 {
+                        // First skip any spaces directly to the left
+                        let mut pos = self.state.cursor_position;
+                        let chars: Vec<char> = self.state.input.chars().collect();
+                        
+                        // Skip spaces backward
+                        while pos > 0 && chars[pos - 1].is_whitespace() {
+                            pos -= 1;
+                        }
+                        
+                        // Then skip non-spaces backward (the word)
+                        while pos > 0 && !chars[pos - 1].is_whitespace() {
+                            pos -= 1;
+                        }
+                        
+                        self.state.cursor_position = pos;
+                    }
+                    return Ok(());
+                }
+                
                 self.state.input.insert(self.state.cursor_position, c);
                 self.state.cursor_position += 1;
                 self.state.update_command_mode();
