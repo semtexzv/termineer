@@ -1148,6 +1148,50 @@ impl Agent {
         })
     }
 
+    /// Load project information from the specified file if it exists and the conversation is empty
+    /// 
+    /// # Arguments
+    /// * `filepath` - Optional path to the project info file, defaults to ".autoswe" if None
+    /// * `force` - If true, will add project info even if conversation is not empty
+    ///
+    /// # Returns
+    /// * `Ok(true)` if project info was loaded
+    /// * `Ok(false)` if no project info was loaded (file doesn't exist or not needed)
+    /// * `Err(...)` if an error occurred while loading the file
+    async fn load_project_info(
+        &mut self, 
+        filepath: Option<&str>, 
+        force: bool
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let path = filepath.unwrap_or(".autoswe");
+        
+        // Check if we should add project info (either conversation is empty or force=true)
+        // and the specified file exists
+        if (self.conversation.is_empty() || force) && tokio::fs::try_exists(path).await? {
+            let working = std::env::current_dir()?;
+            let project_info = tokio::fs::read_to_string(path).await?;
+            
+            let content = format!(
+                "# You're currently working in this directory:\n```\n{}\n```\n# Project information:\n{}",
+                working.to_str().unwrap_or("unknown"),
+                project_info
+            );
+
+            // Insert as a regular user message at the beginning
+            self.conversation
+                .push(Message::text("user", content, MessageInfo::User));
+                
+            crate::bprintln!("{}Loaded project information from {} file{}",
+                crate::constants::FORMAT_CYAN,
+                path,
+                crate::constants::FORMAT_RESET);
+                
+            return Ok(true);
+        }
+        
+        Ok(false)
+    }
+
     /// Send a message to the LLM backend and process the response
     pub async fn send_message(
         &mut self,
@@ -1167,20 +1211,9 @@ impl Agent {
                 crate::constants::FORMAT_RESET);
         }
         
-        // Add .autoswe file content to beginning of conversation if it hasn't been added yet
-        if self.conversation.is_empty() && tokio::fs::try_exists(".autoswe").await? {
-            let working = std::env::current_dir()?;
-            let autoswe = tokio::fs::read_to_string(".autoswe").await?;
-            let content = format!(
-                "# You're currently working in this directory:\n```\n{}\n```\n# Project information:\n{}",
-                working.to_str().unwrap_or("unknown"),
-                autoswe
-            );
-
-            // Insert as a regular user message at the beginning
-            self.conversation
-                .push(Message::text("user", content, MessageInfo::User));
-        }
+        // Load project information from .autoswe file if needed
+        // Using default path (.autoswe) and only loading if conversation is empty
+        self.load_project_info(None, false).await?;
 
         // Send the request using our LLM provider
         let system_prompt = self.config.system_prompt.as_deref();
@@ -1363,49 +1396,33 @@ impl Agent {
         };
 
 
-        let response_len = agent_response.len();
+        let response_message_len = agent_response.len();
 
-        self.conversation
-            .push(Message::text("user", agent_response.clone(), message_info));
+        let message = Message::text("user", agent_response.clone(), message_info);
 
-        // Create a copy of the agent_response for token counting
-        let response_copy = agent_response.clone();
-        
-        // Count tokens accurately using the LLM backend
-        // Only count the last message (the shell output)
-        let shell_response_message = Message::text(
-            "user", 
-            response_copy, 
-            MessageInfo::ToolResult {
-                tool_name: "shell".to_string(),
-                tool_index: Some(self.tool_invocation_counter),
-            }
-        );
-        
-        match self.llm.count_tokens(&[shell_response_message], None).await {
+        match self.llm.count_tokens(&[message.clone()], None).await {
             Ok(token_usage) => {
                 // Update token usage in the token manager
                 self.token_manager.update_token_usage(
                     self.tool_invocation_counter,
                     Some(token_usage.input_tokens),
-                    Some(0) // Shell doesn't have output tokens
                 );
                 
-                crate::bprintln!("{}DEBUG: Updated shell tool metadata for index {} with accurate token count: {} tokens{}",
+                crate::bprintln!("{}DEBUG: Updated {} tool metadata for index {} with accurate token count: {} tokens{}",
                     crate::constants::FORMAT_CYAN,
+                    tool_name,
                     self.tool_invocation_counter,
                     token_usage.input_tokens,
                     crate::constants::FORMAT_RESET);
             },
             Err(e) => {
                 // Fall back to estimation if token counting fails
-                let estimated_tokens = response_len / 4;  // ~4 chars per token as rough estimate
+                let estimated_tokens = response_message_len / 4;  // ~4 chars per token as rough estimate
                 
                 // Update with estimated token count
                 self.token_manager.update_token_usage(
                     self.tool_invocation_counter,
                     Some(estimated_tokens),
-                    Some(0)
                 );
                 
                 crate::bprintln!("{}DEBUG: Failed to count tokens for shell output ({}), using estimate: ~{} tokens{}",
@@ -1415,59 +1432,11 @@ impl Agent {
                     crate::constants::FORMAT_RESET);
             }
         }
-        
-        if response_len > 500 {
-            self.cache_here();
-        }
 
-        // Update token usage information in token manager
-        if let Some(usage) = &response.usage {
-            // Update token usage in the token manager
-            self.token_manager.update_token_usage(
-                self.tool_invocation_counter,
-                Some(usage.input_tokens),
-                Some(usage.output_tokens)
-            );
-            
-            crate::bprintln!("{}DEBUG: Updated tool metadata for index {} ({}) with token usage: {} input, {} output{}",
-                crate::constants::FORMAT_CYAN,
-                self.tool_invocation_counter,
-                tool_name,
-                usage.input_tokens,
-                usage.output_tokens,
-                crate::constants::FORMAT_RESET);
-            
-            // Cache frequently, especially for larger responses
-            if usage.input_tokens + usage.output_tokens > 300 {
-                self.cache_here();
-            }
-            
-            // Check token usage after tool execution to see if we need to truncate
-            if usage.input_tokens + usage.output_tokens > 500 {
-                crate::bprintln!("{}DEBUG: Large tool output detected, checking token usage...{}",
-                    crate::constants::FORMAT_YELLOW,
-                    crate::constants::FORMAT_RESET);
-                    
-                // Check if we need to truncate after this tool execution
-                match self.check_token_usage().await {
-                    Ok(true) => {
-                        crate::bprintln!("{}DEBUG: Token truncation performed after tool execution{}",
-                            crate::constants::FORMAT_GREEN,
-                            crate::constants::FORMAT_RESET);
-                    },
-                    Ok(false) => {
-                        crate::bprintln!("{}DEBUG: No truncation needed after tool execution{}",
-                            crate::constants::FORMAT_CYAN,
-                            crate::constants::FORMAT_RESET);
-                    },
-                    Err(e) => {
-                        crate::bprintln!("{}DEBUG: Error checking token usage: {}{}",
-                            crate::constants::FORMAT_RED,
-                            e,
-                            crate::constants::FORMAT_RESET);
-                    }
-                }
-            }
+        self.conversation.push(message);
+        
+        if response_message_len > 500 {
+            self.cache_here();
         }
 
         // If this was the "done" tool, set state to Done and return with continue_processing=false
@@ -1544,6 +1513,22 @@ impl Agent {
         self.config.thinking_budget = budget;
     }
 
+    /// Load project information from a specified file
+    /// 
+    /// # Arguments
+    /// * `filepath` - Path to the project info file (optional, defaults to ".autoswe")
+    /// * `force` - If true, will add project info even if conversation is not empty
+    ///
+    /// This method is useful for CLI interfaces or other external code that wants
+    /// to explicitly load a project file.
+    pub async fn load_project_file(
+        &mut self, 
+        filepath: Option<&str>,
+        force: bool
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        self.load_project_info(filepath, force).await
+    }
+    
     /// Set the model to use
     pub fn set_model(&mut self, model: String) -> Result<(), Box<dyn std::error::Error>> {
         self.config.model = model.clone();
