@@ -26,6 +26,14 @@ pub trait Backend: Send + Sync {
         cache_points: Option<&BTreeSet<usize>>,
         max_tokens: Option<usize>, // Maximum tokens to generate in the response
     ) -> Result<LlmResponse, LlmError>;
+    
+    /// Count tokens for messages without making a full API request
+    /// This allows efficiently tracking token usage without guessing
+    async fn count_tokens(
+        &self,
+        messages: &[Message],
+        system: Option<&str>,
+    ) -> Result<TokenUsage, LlmError>;
 
     /// Get the provider name
     /// Included in the API for provider identification but not currently used

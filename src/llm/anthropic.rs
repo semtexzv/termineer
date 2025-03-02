@@ -12,6 +12,7 @@ use tokio::time::sleep;
 
 // Constants for the Anthropic API
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
+const COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Anthropic request configuration
@@ -52,6 +53,21 @@ struct MessageResponse {
     usage: Option<TokenUsage>,
     stop_reason: Option<String>,
     stop_sequence: Option<String>,
+}
+
+/// Request to count tokens
+#[derive(Serialize, Clone)]
+struct CountTokensRequest {
+    model: String,
+    messages: Vec<Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+}
+
+/// Response from the token counting endpoint
+#[derive(Deserialize, Debug)]
+struct CountTokensResponse {
+    input_tokens: usize,
 }
 
 /// Implementation of LLM provider for Anthropic
@@ -215,5 +231,52 @@ impl Backend for Anthropic {
 
     fn model(&self) -> &str {
         &self.model
+    }
+    
+    async fn count_tokens(
+        &self,
+        messages: &[Message],
+        system: Option<&str>,
+    ) -> Result<TokenUsage, LlmError> {
+        // Create the token counting request
+        let request = CountTokensRequest {
+            model: self.model.clone(),
+            messages: messages.to_vec(),
+            system: system.map(|s| s.to_string()),
+        };
+
+        // Convert to JSON and prepare for the API
+        let mut json = serde_json::to_value(request.clone())
+            .map_err(|e| LlmError::ApiError(format!("Failed to serialize token count request: {}", e)))?;
+
+        // Remove info field which is not part of the API schema
+        jsonpath::remove(&mut json, "/messages[..]/info")
+            .map_err(|e| LlmError::ApiError(format!("Failed to process token count request: {}", e)))?;
+
+        // Send the request to the count_tokens endpoint
+        let client_response = self
+            .client
+            .post(COUNT_TOKENS_URL)
+            .header("Content-Type", "application/json")
+            .header("X-Api-Key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .json(&json)
+            .send()
+            .await
+            .map_err(|e| LlmError::ApiError(format!("Token count request failed: {}", e)))?;
+            
+        let response: CountTokensResponse = client_response
+            .json()
+            .await
+            .map_err(|e| LlmError::ApiError(format!("Failed to parse token count response: {}", e)))?;
+
+        // Create TokenUsage from the response
+        // Note: count_tokens only provides input tokens, output tokens will be 0
+        Ok(TokenUsage {
+            input_tokens: response.input_tokens,
+            output_tokens: 0, // No output for token counting
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        })
     }
 }
