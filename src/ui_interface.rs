@@ -20,7 +20,7 @@ use ratatui::{
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use ratatui::widgets::Clear;
+use ratatui::widgets::{BorderType, Clear};
 
 /// Maximum number of lines to keep in the conversation history view
 const MAX_HISTORY_LINES: usize = 1000;
@@ -191,6 +191,8 @@ pub struct TuiState {
     pub pound_command_mode: bool,
     /// Last time Ctrl+C was pressed (for double-press exit)
     pub last_interrupt_time: Option<std::time::Instant>,
+    /// Whether the last Ctrl+C was used to interrupt an agent/shell
+    pub last_interrupt_was_process: bool,
     /// Reference to the agent manager
     agent_manager: Arc<Mutex<AgentManager>>,
     /// Scroll offset for the conversation view (0 = top of conversation)
@@ -223,6 +225,7 @@ impl TuiState {
             command_mode: false,
             pound_command_mode: false,
             last_interrupt_time: None,
+            last_interrupt_was_process: false,
             agent_manager,
             scroll_offset: 0,
             max_scroll_offset: 0,
@@ -407,6 +410,7 @@ impl TuiState {
                 .bg(Color::Rgb(180, 80, 0))) // Dark orange background
             .block(Block::default()
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(Color::Rgb(255, 140, 0))) // Brighter orange border
                 .title(format!("{} (Press ESC or Enter to dismiss)", self.temp_output.title))
                 .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
@@ -415,8 +419,6 @@ impl TuiState {
         // Render the output
         f.render_widget(output_widget, output_area);
     }
-    
-    // The render_popup method has been removed as we now show command output in the input area
     
     /// Render command suggestions popup
     fn render_command_suggestions(&self, f: &mut Frame) {
@@ -545,7 +547,10 @@ impl TuiState {
         ));
 
         let header = Paragraph::new(Line::from(all_spans))
-            .block(Block::default().borders(Borders::ALL).title("Agents"));
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title("Agents"));
 
         f.render_widget(header, area);
     }
@@ -615,7 +620,10 @@ impl TuiState {
         let title = format!("Conversation ({} lines{})", total_lines, scroll_info);
         
         let conversation = Paragraph::new(items)
-            .block(Block::default().borders(Borders::ALL).title(title));
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(title));
         f.render_widget(conversation, area);
     }
 
@@ -672,7 +680,7 @@ impl TuiState {
         // Create the input widget with text wrapping enabled
         let input_text = Paragraph::new(self.input.clone())
             .style(input_style)
-            .block(Block::default().borders(Borders::ALL).title(title))
+            .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
             .wrap(Wrap { trim: false }); // Enable wrapping, don't trim to preserve formatting
 
         f.render_widget(input_text, area);
@@ -1259,7 +1267,8 @@ impl TuiInterface {
         
         // Check if this is a double-press (second Ctrl+C within window)
         if let Some(last_time) = self.state.last_interrupt_time {
-            if now.duration_since(last_time) < DOUBLE_PRESS_WINDOW {
+            // Only count as double-press if previous Ctrl+C wasn't for interrupting a process
+            if !self.state.last_interrupt_was_process && now.duration_since(last_time) < DOUBLE_PRESS_WINDOW {
                 // This is a double-press, exit the application
                 let popup_title = "Exiting Application".to_string();
                 let popup_content = "Received second Ctrl+C. Exiting application...".to_string();
@@ -1269,9 +1278,6 @@ impl TuiInterface {
                 return Ok(());
             }
         }
-        
-        // This is the first press or outside the double-press window
-        self.state.last_interrupt_time = Some(now);
         
         // Get current agent state
         let agent_state = {
@@ -1293,11 +1299,20 @@ impl TuiInterface {
                     self.state.selected_agent_id, 
                     "User pressed Ctrl+C".to_string()
                 )?;
+                
+                // Mark that we used Ctrl+C to interrupt a process
+                // This prevents it from counting towards the double-press exit timer
+                self.state.last_interrupt_time = Some(now);
+                self.state.last_interrupt_was_process = true;
             },
             
-            // If agent is waiting for input (idle or done), just warn about second press
+            // If agent is waiting for input (idle or done), start the double-press timer
             _ => {
                 popup_content = "Press Ctrl+C again within 3 seconds to exit application.".to_string();
+                
+                // Start the double-press timer for exiting the application
+                self.state.last_interrupt_time = Some(now);
+                self.state.last_interrupt_was_process = false;
             }
         }
         
