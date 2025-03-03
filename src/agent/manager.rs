@@ -36,6 +36,8 @@ pub struct AgentHandle {
     pub state: StateReceiver,
 }
 
+use std::sync::{Mutex, Weak};
+
 /// Manager for multiple agent instances
 ///
 /// Provides capabilities for managing multiple agents, including:
@@ -148,6 +150,11 @@ impl AgentManager {
         self.agents.get(&id)
     }
     
+    /// Get a mutable reference to an agent handle by ID
+    pub fn get_agent_handle_mut(&mut self, id: AgentId) -> Option<&mut AgentHandle> {
+        self.agents.get_mut(&id)
+    }
+    
     /// Get a list of all agents with their IDs and names
     pub fn get_agents(&self) -> Vec<(AgentId, String)> {
         self.agents
@@ -246,9 +253,10 @@ fn spawn_agent_task(
     agent: Agent,
     buffer: SharedBuffer,
     agent_receiver: AgentReceiver,
-    interrupt_receiver: InterruptReceiver
+    interrupt_receiver: InterruptReceiver,
 ) -> JoinHandle<()> {
     tokio::spawn(CURRENT_BUFFER.scope(buffer, async move {
+        // Pass None since we now use the global agent manager
         agent.run(agent_receiver, interrupt_receiver).await;
     }))
 }

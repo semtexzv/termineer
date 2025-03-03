@@ -13,7 +13,7 @@ mod llm;
 mod macros;
 mod output;
 mod prompts;
-pub mod serde_element_array;
+pub mod serde_utils;
 // Session module temporarily disabled until needed
 // mod session;
 mod tools;
@@ -22,6 +22,7 @@ mod ui_interface;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use lazy_static::lazy_static;
 
 use agent::{AgentManager, AgentMessage, AgentState};
 use config::{Config, ArgResult};
@@ -29,13 +30,14 @@ use crossterm::{
     cursor,
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{enable_raw_mode, disable_raw_mode},
 };
-use tokio::select;
-use tokio::sync::mpsc;
 use tokio::time::sleep;
 use ui_interface::TuiInterface;
+
+// Global agent manager available to all components
+lazy_static! {
+    pub static ref GLOBAL_AGENT_MANAGER: Arc<Mutex<AgentManager>> = Arc::new(Mutex::new(AgentManager::new()));
+}
 
 /// Main entry point for the application
 ///
@@ -49,8 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Get command line arguments
     let args: Vec<String> = std::env::args().collect();
     
-    // Create the agent manager
-    let agent_manager = Arc::new(Mutex::new(AgentManager::new()));
+    // Use a reference to the global agent manager
+    let agent_manager = GLOBAL_AGENT_MANAGER.clone();
 
     // Initialize configuration
     let mut config = match Config::from_env() {

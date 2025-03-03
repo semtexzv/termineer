@@ -38,6 +38,16 @@ pub enum AgentMessage {
     /// Regular user input to be processed
     UserInput(String),
     
+    /// Message from another agent with source information
+    AgentInput {
+        /// Content of the message
+        content: String,
+        /// ID of the source agent
+        source_id: AgentId,
+        /// Name of the source agent
+        source_name: String,
+    },
+    
     /// Special command for the agent
     Command(AgentCommand),
 

@@ -15,10 +15,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     // Use the entire body as content
@@ -66,10 +63,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 filename, line_count, line_count
             );
 
-            ToolResult {
-                success: true,
-                agent_output,
-            }
+            ToolResult::success(agent_output)
         }
         Err(e) => {
             if !silent_mode {
@@ -79,10 +73,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
             let error_msg = format!("Error writing to file '{}': {}", filename, e);
 
-            ToolResult {
-                success: false,
-                agent_output: error_msg,
-            }
+            ToolResult::error(error_msg)
         }
     }
 }

@@ -92,3 +92,5 @@ pub fn parse_assistant_response(response: &str) -> ParsedResponse {
 pub fn is_done_tool(tool_name: &str) -> bool {
     tool_name == "done"
 }
+
+// Function removed - we now use a direct string check for "AGENT_WAITING_STATE_ACTIVE"

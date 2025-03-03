@@ -9,6 +9,8 @@ pub struct ToolDocOptions {
     pub include_fetch: bool,
     pub include_task: bool,
     pub include_done: bool,
+    pub include_agent: bool,
+    pub include_wait: bool,
 }
 
 impl Default for ToolDocOptions {
@@ -21,12 +23,14 @@ impl Default for ToolDocOptions {
             include_fetch: true,
             include_task: true,
             include_done: true,
+            include_agent: true,
+            include_wait: true,
         }
     }
 }
 
 impl ToolDocOptions {
-    /// Create a read-only tool options set (only shell, read, fetch, done)
+    /// Create a read-only tool options set (only shell, read, fetch, done, agent, wait)
     pub fn readonly() -> Self {
         Self {
             include_shell: true,
@@ -36,6 +40,8 @@ impl ToolDocOptions {
             include_fetch: true,
             include_task: false,
             include_done: true,
+            include_agent: true,
+            include_wait: true,
         }
     }
 }
@@ -293,6 +299,92 @@ Best practices for effective task usage:
 - Combine results from multiple subtasks for comprehensive solutions
 "#;
 
+// Agent tool documentation
+pub const AGENT_DOC: &str = r#"
+### Agent
+Create and communicate with other agents:
+{TOOL_START}agent [subcommand] [arguments]
+[content on multiple lines]
+{TOOL_END}
+{TOOL_RESULT_START}
+[Result depends on subcommand]
+{TOOL_RESULT_END}
+
+Subcommands:
+- `create`: Create a new agent
+- `send`: Send a message to another agent
+- `wait`: Wait for messages from other agents
+
+Examples:
+
+1. Creating a new agent:
+{TOOL_START}agent create research_agent
+Research the latest JavaScript frameworks and provide a summary
+of their key features, performance characteristics, and use cases.
+{TOOL_END}
+{TOOL_RESULT_START}
+Agent 'research_agent' created with ID: 2
+Initial instructions sent to the agent.
+{TOOL_RESULT_END}
+
+2. Sending a message to another agent:
+{TOOL_START}agent send research_agent
+Please also include information about TypeScript integration
+in your framework comparison.
+{TOOL_END}
+{TOOL_RESULT_START}
+Message sent to agent research_agent [ID: 2]
+{TOOL_RESULT_END}
+
+3. Waiting for messages from other agents:
+{TOOL_START}agent wait
+{TOOL_END}
+{TOOL_RESULT_START}
+Agent is now waiting for messages. Any input will resume processing.
+{TOOL_RESULT_END}
+
+When to use:
+- Create specialized agents for parallel research or tasks
+- Delegate complex subtasks to dedicated agents
+- Enable collaborative problem-solving across multiple experts
+- Create supervisor-worker agent structures
+- Establish agent communication networks for complex workflows
+"#;
+
+// Wait tool documentation
+pub const WAIT_DOC: &str = r#"
+### Wait
+Pause the agent until a message is received:
+{TOOL_START}wait [reason for waiting]
+{TOOL_END}
+{TOOL_RESULT_START}
+Agent is now waiting: [reason]. Any input will resume processing.
+{TOOL_RESULT_END}
+
+Example:
+{TOOL_START}wait Waiting for database query results from the database_agent
+{TOOL_END}
+{TOOL_RESULT_START}
+Agent is now waiting: Waiting for database query results from the database_agent. 
+Any input will resume processing.
+{TOOL_RESULT_END}
+
+Note: You can also use `agent wait` which works the same way:
+{TOOL_START}agent wait
+Waiting for messages from other agents
+{TOOL_END}
+{TOOL_RESULT_START}
+Agent is now waiting: Waiting for messages from other agents. 
+Any input will resume processing.
+{TOOL_RESULT_END}
+
+When to use:
+- Wait for messages from other agents
+- Pause execution while waiting for external events
+- Signal to users that you're ready for additional input
+- Create synchronization points in multi-agent workflows
+"#;
+
 // Done tool documentation
 pub const DONE_DOC: &str = r#"
 ### Done
@@ -348,6 +440,14 @@ pub fn generate_system_prompt(options: &ToolDocOptions) -> String {
         prompt.push_str(TASK_DOC);
     }
 
+    if options.include_agent {
+        prompt.push_str(AGENT_DOC);
+    }
+
+    if options.include_wait {
+        prompt.push_str(WAIT_DOC);
+    }
+
     if options.include_done {
         prompt.push_str(DONE_DOC);
     }
@@ -397,6 +497,18 @@ pub fn generate_minimal_system_prompt(options: &ToolDocOptions) -> String {
         prompt.push_str("- {TOOL_START}task [task name]\n[detailed instructions]\n{TOOL_END} - Create subagent for subtask\n");
     }
 
+    // Add agent tool (minimal)
+    if options.include_agent {
+        prompt.push_str("- {TOOL_START}agent create [name]\n[instructions]\n{TOOL_END} - Create new agent\n");
+        prompt.push_str("- {TOOL_START}agent send [name|id]\n[message]\n{TOOL_END} - Send message to another agent\n");
+        prompt.push_str("- {TOOL_START}agent wait\n[reason]\n{TOOL_END} - Wait for messages from other agents\n");
+    }
+
+    // Add wait tool (minimal)
+    if options.include_wait {
+        prompt.push_str("- {TOOL_START}wait [reason]\n{TOOL_END} - Pause until receiving a message\n");
+    }
+
     // Add done tool (minimal)
     if options.include_done {
         prompt.push_str("- {TOOL_START}done\n[summary]\n{TOOL_END} - Complete task\n");
@@ -409,5 +521,26 @@ pub fn generate_minimal_system_prompt(options: &ToolDocOptions) -> String {
     format_template_vars(&prompt)
 }
 
+// Subagent prompt template - added to system prompt when agent is created by another agent
+pub const SUBAGENT_PROMPT_TEMPLATE: &str = r#"
+## Subagent Information
+
+You are a specialized agent created by another agent named "{CREATOR_NAME}" (ID: {CREATOR_ID}).
+You were created to help with a specific task. When you receive messages, pay attention to their source.
+They may come from your creator agent, other agents, or human users.
+
+Messages from agents will be marked with their source information. You can communicate back to your
+creator or other agents using the agent tool.
+
+When your task is complete, use the 'agent send' tool to send the output to the creator agent.
+"#;
+
 // Use the public format_template function from constants.rs
 use crate::constants::format_template as format_template_vars;
+
+/// Format the subagent prompt with creator information
+pub fn format_subagent_prompt(creator_name: &str, creator_id: &str) -> String {
+    SUBAGENT_PROMPT_TEMPLATE
+        .replace("{CREATOR_NAME}", creator_name)
+        .replace("{CREATOR_ID}", creator_id)
+}

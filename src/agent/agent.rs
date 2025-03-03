@@ -16,9 +16,9 @@ use crate::config::Config;
 use crate::constants::{
     TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX,
 };
-use crate::conversation::{is_done_tool, parse_assistant_response};
+use crate::conversation::{parse_assistant_response};
 use crate::conversation::{
-    sanitize_conversation, truncate_conversation, ToolMapper, TruncationConfig,
+    sanitize_conversation, truncate_conversation, TruncationConfig,
 };
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::tools::shell::{execute_shell, ShellOutput};
@@ -74,8 +74,6 @@ pub struct Agent {
     /// Configuration for conversation truncation
     truncation_config: TruncationConfig,
 
-    /// Tool mapper for tracking tool invocations and results
-    tool_mapper: ToolMapper,
 
     /// Sender of state updates
     sender: StateSender,
@@ -134,6 +132,7 @@ impl Agent {
         })?;
 
         // Initialize tool executor (not readonly, not silent)
+        // Note: Agent manager will be set later in the run method
         let tool_executor = ToolExecutor::new(false, false);
 
         Ok(Self {
@@ -150,7 +149,6 @@ impl Agent {
             ]),
             cache_points: BTreeSet::new(),
             truncation_config: TruncationConfig::default(),
-            tool_mapper: ToolMapper::new(),
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
@@ -167,6 +165,8 @@ impl Agent {
         mut agent_receiver: AgentReceiver,
         interrupt_receiver: InterruptReceiver,
     ) {
+        use crate::GLOBAL_AGENT_MANAGER;
+        
         crate::bprintln!(
             "🤖 {}Agent{} '{}' started",
             crate::constants::FORMAT_BOLD,
@@ -179,6 +179,13 @@ impl Agent {
         let (agent_interrupt_tx, mut agent_interrupt_rx) = mpsc::channel(10);
         let coordinator = Arc::new(InterruptCoordinator::new(agent_interrupt_tx));
         let _interrupt_monitor = spawn_interrupt_monitor(coordinator.clone(), interrupt_receiver);
+        
+        // Set up the tool executor with this agent's ID (using global agent manager)
+        self.tool_executor = ToolExecutor::with_agent_manager(
+            false, 
+            false,
+            self.id
+        );
 
         // Main agent loop
         'main: loop {
@@ -331,6 +338,32 @@ impl Agent {
                     crate::constants::FORMAT_RESET,
                     crate::constants::FORMAT_BLUE,
                     input,
+                    crate::constants::FORMAT_RESET
+                );
+            }
+            AgentMessage::AgentInput { content, source_id, source_name } => {
+                // Format the message to indicate it's from another agent
+                let formatted_message = format!(
+                    "<agent_message source=\"{}\" source_id=\"{}\">\n{}\n</agent_message>",
+                    source_name,
+                    source_id,
+                    content
+                );
+                
+                // Add message to conversation with special formatting to indicate agent source
+                self.conversation
+                    .push(Message::text("user", formatted_message.clone(), MessageInfo::User));
+                self.set_state(AgentState::Processing);
+                
+                // Display agent input with special formatting
+                crate::bprintln!(
+                    "{}{}[From Agent: {}]{} {}{}{}",
+                    crate::constants::FORMAT_GREEN,
+                    crate::constants::FORMAT_BOLD,
+                    source_name,
+                    crate::constants::FORMAT_RESET,
+                    crate::constants::FORMAT_GREEN,
+                    content,
                     crate::constants::FORMAT_RESET
                 );
             }
@@ -503,7 +536,7 @@ impl Agent {
                                 // Add partial result to conversation and update tool mapper
                                 let msg_index = self.conversation.len();
                                 self.conversation.push(partial_message);
-                                self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
+
 
                                 has_partial_result = true;
 
@@ -674,8 +707,6 @@ impl Agent {
         // Add to conversation and update tool mapper
         let msg_index = self.conversation.len();
         self.conversation.push(message);
-        self.tool_mapper
-            .process_message(msg_index, &self.conversation[msg_index]);
 
         // Reset state to Processing since we're continuing processing
         self.set_state(AgentState::Processing);
@@ -1091,8 +1122,6 @@ impl Agent {
         // Add to conversation and update tool mapper
         let msg_index = self.conversation.len();
         self.conversation.push(tool_call_message);
-        self.tool_mapper
-            .process_message(msg_index, &self.conversation[msg_index]);
 
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
@@ -1119,17 +1148,8 @@ impl Agent {
         // Execute the tool
         let tool_result = self.tool_executor.execute(&tool_content).await;
 
-        // Check if this is the "done" tool
-        let is_done = is_done_tool(&tool_name);
-
-        // Only reset to Idle if we're not going to continue processing
-        // If this is not the "done" tool, we should stay in Processing state
-        // to maintain the correct state in the agent loop
-        if !is_done {
-            self.state = AgentState::Processing; // Keep processing if continuing
-        } else {
-            self.state = AgentState::Idle; // Reset to Idle if done
-        }
+        // Set the state back to Processing by default - will be updated by the tool's state_change if needed
+        self.state = AgentState::Processing;
 
         // Format the agent response with appropriate delimiters
         let agent_response = if tool_result.success {
@@ -1172,28 +1192,46 @@ impl Agent {
         // Add to conversation and update tool mapper
         let msg_index = self.conversation.len();
         self.conversation.push(message);
-        self.tool_mapper
-            .process_message(msg_index, &self.conversation[msg_index]);
 
         if response_message_len > 500 {
             self.cache_here();
         }
 
-        // If this was the "done" tool, set state to Done and return with continue_processing=false
-        if is_done {
-            // Update state to Done with the final response
-            self.state = AgentState::Done(Some(result_for_response.clone()));
-            crate::bprintln!(
-                "✅ {}Agent{} has marked task as completed.",
-                crate::constants::FORMAT_BOLD,
-                crate::constants::FORMAT_RESET
-            );
-
-            return Ok(MessageResult {
-                response: result_for_response,
-                continue_processing: false,
-                token_usage: response.usage,
-            });
+        // Handle state changes based on tool result
+        match tool_result.state_change {
+            crate::tools::AgentStateChange::Wait => {
+                // Update state to Idle to wait for messages
+                self.state = AgentState::Idle;
+                crate::bprintln!(
+                    "⏸️ {}Agent{} is now waiting for messages.",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET
+                );
+    
+                return Ok(MessageResult {
+                    response: result_for_response,
+                    continue_processing: false,
+                    token_usage: response.usage,
+                });
+            },
+            crate::tools::AgentStateChange::Done => {
+                // Update state to Done with the final response
+                self.state = AgentState::Done(Some(result_for_response.clone()));
+                crate::bprintln!(
+                    "✅ {}Agent{} has marked task as completed.",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET
+                );
+    
+                return Ok(MessageResult {
+                    response: result_for_response,
+                    continue_processing: false,
+                    token_usage: response.usage,
+                });
+            },
+            crate::tools::AgentStateChange::Continue => {
+                // Continue normal processing, handled below
+            }
         }
 
         // Return with continue_processing flag set to true to indicate tool processing should continue
@@ -1230,7 +1268,6 @@ impl Agent {
         // Clear all cache points when conversation is cleared
         self.cache_points.clear();
         // Reset the tool mapper
-        self.tool_mapper = ToolMapper::new();
         // Reset state to Idle if it was Done
         if matches!(self.state, AgentState::Done(_)) {
             self.state = AgentState::Idle;
@@ -1285,42 +1322,4 @@ impl Agent {
         Ok(())
     }
 
-    /// Get all tool interactions in the conversation
-    pub fn get_tool_interactions(&self) -> Vec<&crate::conversation::ToolInteraction> {
-        self.tool_mapper.get_interactions()
-    }
-
-    /// Get a specific tool interaction by tool index
-    pub fn get_tool_interaction(
-        &self,
-        tool_index: usize,
-    ) -> Option<&crate::conversation::ToolInteraction> {
-        self.tool_mapper.get_interaction(tool_index)
-    }
-
-    /// Get the tool interaction associated with a specific message
-    pub fn get_tool_interaction_for_message(
-        &self,
-        message_index: usize,
-    ) -> Option<&crate::conversation::ToolInteraction> {
-        self.tool_mapper.get_interaction_for_message(message_index)
-    }
-
-    /// Get all tool interactions for a specific tool name
-    pub fn get_tool_interactions_by_name(
-        &self,
-        tool_name: &str,
-    ) -> Vec<&crate::conversation::ToolInteraction> {
-        self.tool_mapper.get_interactions_by_name(tool_name)
-    }
-
-    /// Get any pending tool calls that don't have results yet
-    pub fn get_pending_tool_calls(&self) -> Vec<(usize, &str, usize)> {
-        self.tool_mapper.get_pending_calls()
-    }
-
-    /// Refresh the tool mapping from the current conversation
-    pub fn refresh_tool_mapping(&mut self) {
-        self.tool_mapper.process_conversation(&self.conversation);
-    }
 }

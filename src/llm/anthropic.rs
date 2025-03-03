@@ -6,8 +6,7 @@ use crate::jsonpath;
 use crate::llm::{Backend, Content, LlmError, LlmResponse, Message, TokenUsage};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{BTreeSet, HashMap};
-use std::sync::OnceLock;
+use std::collections::BTreeSet;
 use std::time::Duration;
 use tokio::time::sleep;
 

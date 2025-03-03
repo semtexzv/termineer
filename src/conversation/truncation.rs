@@ -22,11 +22,7 @@ use std::collections::BTreeSet;
 ///
 /// Controls the behavior of the truncation system, including when to truncate,
 /// which parts of the conversation to preserve, and how to represent truncated content.
-pub struct TruncationConfig {
-    /// Percentage of the safe input token limit to trigger truncation (e.g., 0.8 = 80%)
-    /// When token usage exceeds this threshold, truncation will be applied
-    pub threshold_percentage: f64,
-    
+pub struct TruncationConfig {    
     /// Number of initial tool outputs to preserve (often file listings)
     /// The first N tool outputs are important for context and exploration history
     pub preserve_initial_tools: usize,
@@ -46,10 +42,7 @@ pub struct TruncationConfig {
 
 impl Default for TruncationConfig {
     fn default() -> Self {
-        Self {
-            // Trigger at 80% of safe token limit to allow buffer for LLM response
-            threshold_percentage: 0.8,
-            
+        Self {            
             // Keep first 3 tool outputs - typically file listings and initial exploration
             preserve_initial_tools: 3,
             
@@ -128,7 +121,7 @@ pub fn truncate_conversation(
     config: &TruncationConfig,
 ) -> Option<TruncationResult> {
     // Check if we need to truncate
-    if !should_truncate(current_tokens, safe_token_limit, config) {
+    if !should_truncate(current_tokens, safe_token_limit) {
         return None;
     }
     
@@ -161,10 +154,8 @@ pub fn truncate_conversation(
 fn should_truncate(
     token_usage: &TokenUsage, 
     safe_token_limit: usize,
-    config: &TruncationConfig,
 ) -> bool {
-    let threshold = (safe_token_limit as f64 * config.threshold_percentage) as usize;
-    token_usage.input_tokens >= threshold
+    token_usage.input_tokens >= safe_token_limit
 }
 
 /// Collect all tool result messages from the conversation
@@ -315,21 +306,21 @@ mod tests {
         
         // Below threshold
         let below_usage = TokenUsage {
-            input_tokens: 700,
-            output_tokens: 100,
+            input_tokens: 800,
+            output_tokens: 0,
             cache_creation_input_tokens: 0,
             cache_read_input_tokens: 0,
         };
-        assert!(!should_truncate(&below_usage, safe_limit, &config));
+        assert!(!should_truncate(&below_usage, safe_limit));
         
         // Above threshold
         let above_usage = TokenUsage {
-            input_tokens: 850,
-            output_tokens: 100,
+            input_tokens: 1001,
+            output_tokens: 0,
             cache_creation_input_tokens: 0,
             cache_read_input_tokens: 0,
         };
-        assert!(should_truncate(&above_usage, safe_limit, &config));
+        assert!(should_truncate(&above_usage, safe_limit));
     }
     
     // Additional tests could be added here

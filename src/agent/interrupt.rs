@@ -5,7 +5,7 @@
 
 use std::future::Future;
 use crate::agent::types::{InterruptReceiver, InterruptSender, InterruptSignal};
-use std::sync::atomic::{AtomicBool, Ordering};
+// Removed unused imports
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -29,7 +29,7 @@ impl InterruptCoordinator {
     }
 
     /// Set whether a shell is running and update interrupt data
-    pub fn set_shell_running(&self, running: bool, data: Option<InterruptSender>) {
+    pub fn set_shell_running(&self, _running: bool, data: Option<InterruptSender>) {
         // Then update the interrupt channel
         *self.interrupt_data.lock().unwrap() = data;
     }

@@ -5,7 +5,7 @@ A powerful command-line interface for interacting with various AI models includi
 ## Features
 
 - Interactive console-based conversation with multiple AI models
-- Support for both Anthropic Claude and Google Gemini models
+- Support for Anthropic Claude, Google Gemini, and OpenRouter models
 - Single query mode for scripting and command-line use
 - Maintains conversation history during interactive sessions
 - Support for system prompts
@@ -19,6 +19,7 @@ A powerful command-line interface for interacting with various AI models includi
 - Rust (latest stable version recommended)
 - Anthropic API key (for Claude models)
 - Google API key (for Gemini models)
+- OpenRouter API key (for access to various models through OpenRouter)
 
 ## Installation
 
@@ -42,6 +43,13 @@ A powerful command-line interface for interacting with various AI models includi
      
      # For Google Gemini models
      GOOGLE_API_KEY=your_google_api_key
+     
+     # For OpenRouter models
+     OPENROUTER_API_KEY=your_openrouter_api_key
+     
+     # Optional OpenRouter site information
+     OPENROUTER_SITE_URL=https://your-site-url.com
+     OPENROUTER_SITE_NAME=Your Site Name
      ```
    
    - Or set as environment variables:
@@ -51,6 +59,11 @@ A powerful command-line interface for interacting with various AI models includi
      
      # For Google Gemini models
      export GOOGLE_API_KEY=your_google_api_key
+     
+     # For OpenRouter models
+     export OPENROUTER_API_KEY=your_openrouter_api_key
+     export OPENROUTER_SITE_URL=https://your-site-url.com
+     export OPENROUTER_SITE_NAME="Your Site Name"
      ```
 
 ## Usage
@@ -120,9 +133,37 @@ In interactive mode, the following commands are available:
 - `gemini-1.5-pro` - Capable Gemini model
 - `gemini-pro` - Previous generation Gemini model
 
+#### OpenRouter Models
+- `openrouter/gpt-4o` - OpenAI's GPT-4o model via OpenRouter
+- `openrouter/anthropic/claude-3-opus` - Claude Opus via OpenRouter (note the provider prefix)
+- `openrouter/anthropic/claude-3-haiku` - Claude Haiku via OpenRouter
+- `openrouter/anthropic/claude-3-sonnet` - Claude Sonnet via OpenRouter
+
 You can also use explicit provider prefixes:
 - `anthropic/claude-3-opus-20240229`
 - `google/gemini-1.5-flash`
+- `openrouter/gpt-4-turbo`
+
+### Using OpenRouter Models
+
+When using OpenRouter, you may need to use specific model ID formats that match OpenRouter's API. For the most accurate and up-to-date model IDs, check:
+
+```
+https://openrouter.ai/docs#models
+```
+
+Some models require nested provider paths like `openrouter/anthropic/claude-3-opus` while others use direct naming like `openrouter/gpt-4o`.
+
+#### Implementation Details
+
+The OpenRouter integration provides these features:
+
+1. **Unified Access**: Connect to hundreds of AI models through a single API
+2. **Smart Error Handling**: Automatic retry with exponential backoff for rate limits
+3. **Model Information Caching**: Optimized performance through caching model details
+4. **Direct Header Support**: Set `HTTP-Referer` and `X-Title` headers for OpenRouter rankings
+
+Models are accessed with the `openrouter/` prefix followed by the model ID as shown in OpenRouter's documentation.
 
 ## Advanced Features
 

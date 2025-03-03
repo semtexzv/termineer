@@ -1,11 +1,3 @@
-## $ support
-- We should be able to run shell commands directly from the user interface.
-
-## Single query mode.
-- We used to have a feature where you could provide a query as a last argument and the application would run output the agent output and then finish whenever the agent was done.
-- reimplement this feature where we do not start the terminal user interface. We just accept one query as a command line argument and then we run the single agent until it goes into done state and then we output it's last message
-- We should also output its intermediate output, like the buffer, into standard error.
-- We should also support interruptions in this mode.
 
 ## Agent tool
 - Give running agents the ability to spawn new agents. Also give them ability to send messages to other agents.
@@ -15,9 +7,19 @@
 - This nonrunning state should possibly be the existing idle state.
 
 # LLM backend timeout and retry.
-- We should run the backend API calls with a really long timeout, let's say 30 to 60 seconds.
+- We should run the backend API calls with a really long timeout, let's say 100 to 200 seconds.
 - For example, when we receive a network issue, we should utilize a linear back-off with a maximum waiting time of 30 seconds.
+- Maybe use a library timeout to detect network issues.
 
-# Agent shell interruption duration info.
-- Whenever we are running a shell, the agent doesn't know for how long the command has been running when we ask it for interruption. Let's include this info in that small query that we appended to the conversation in the interruption check.
+# Resume after interrupt.
+- Add a new MessageInfo item, for interrupt messages
+- add a command to continue execution
+- IF we're continuing after an interruption, remove that interruption message from chat, and re-start the gent.
+
+# Simple Sessions.
+- Whenever user is working in the directory save the session periodically or after every model output to a file
+- This file should be called .session.
+
+# small things.
+- Remove serde_element_array file because there is a copy of it now in serde_utils.
 

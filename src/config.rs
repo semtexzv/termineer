@@ -73,22 +73,15 @@ impl Config {
             eprintln!("Warning: ANTHROPIC_API_KEY environment variable not set");
             // We don't return an error here since the provider will handle this
         }
+        
+        if env::var("OPENROUTER_API_KEY").is_err() {
+            eprintln!("Warning: OPENROUTER_API_KEY environment variable not set");
+            // We don't return an error here since the provider will handle this
+        }
 
         // Override model from environment if provided
-        if let Ok(model) = env::var("AUTOSWE_MODEL") {
+        if let Ok(model) = env::var("MODEL") {
             config.model = model;
-        }
-
-        // Override thinking budget from environment if provided
-        if let Ok(budget) = env::var("AUTOSWE_THINKING_BUDGET") {
-            if let Ok(budget) = budget.parse::<usize>() {
-                config.thinking_budget = budget;
-            }
-        }
-
-        // Override tools enabled from environment if provided
-        if let Ok(tools) = env::var("AUTOSWE_ENABLE_TOOLS") {
-            config.enable_tools = tools.to_lowercase() == "true" || tools == "1";
         }
 
         Ok(config)

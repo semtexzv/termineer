@@ -272,6 +272,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         return ToolResult {
             success: false,
             agent_output: error_msg,
+            state_change: crate::tools::AgentStateChange::Continue,
         };
     }
 
@@ -285,10 +286,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
                 crate::berror_println!("Error fetching URL: {}", err);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: format!("Error fetching URL: {}", err),
-            };
+            return ToolResult::error(format!("Error fetching URL: {}", err));
         }
     };
 
@@ -299,10 +297,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
             crate::berror_println!("Error fetching URL: HTTP status {}", response.status());
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: format!("Error fetching URL: HTTP status {}", response.status()),
-        };
+        return ToolResult::error(format!("Error fetching URL: HTTP status {}", response.status()));
     }
 
     // Try to get content type
@@ -322,10 +317,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
                 crate::berror_println!("Error reading response: {}", err);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: format!("Error reading response: {}", err),
-            };
+            return ToolResult::error(format!("Error reading response: {}", err));
         }
     };
 
@@ -374,15 +366,12 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
 
                         // Return summarized content with info about original
                         let word_count = processed_text.split_whitespace().count();
-                        ToolResult {
-                            success: true,
-                            agent_output: format!(
-                                "Fetched and summarized from {}:\n\nOriginal content length: ~{} words\n\n{}", 
-                                url, 
-                                word_count,
-                                summary
-                            ),
-                        }
+                        ToolResult::success(format!(
+                            "Fetched and summarized from {}:\n\nOriginal content length: ~{} words\n\n{}",
+                            url,
+                            word_count,
+                            summary
+                        ))
                     }
                     Err(err) => {
                         // Summarization failed, log error and fall back to original content
@@ -399,13 +388,10 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
                             crate::bprintln!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
                         }
 
-                        ToolResult {
-                            success: true,
-                            agent_output: format!(
-                                "Fetched from {} (summarization failed: {}):\n\n{}",
-                                url, err, processed_text
-                            ),
-                        }
+                        ToolResult::success(format!(
+                            "Fetched from {} (summarization failed: {}):\n\n{}",
+                            url, err, processed_text
+                        ))
                     }
                 }
             }
@@ -423,10 +409,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
                     crate::bprintln!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
                 }
 
-                ToolResult {
-                    success: true,
-                    agent_output: format!("Fetched from {}:\n\n{}", url, processed_text),
-                }
+                ToolResult::success(format!("Fetched from {}:\n\n{}", url, processed_text))
             }
         }
     } else {
@@ -442,9 +425,6 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
             crate::bprintln!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
         }
 
-        ToolResult {
-            success: true,
-            agent_output: format!("Fetched from {}:\n\n{}", url, processed_text),
-        }
+        ToolResult::success(format!("Fetched from {}:\n\n{}", url, processed_text))
     }
 }

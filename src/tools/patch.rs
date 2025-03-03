@@ -17,10 +17,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     if body.trim().is_empty() {
@@ -31,10 +28,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     // Use body as the patch content
@@ -49,10 +43,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 crate::berror_println!("Error reading file '{}': {}", filename, e);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: format!("Error reading file '{}': {}", filename, e),
-            };
+            return ToolResult::error(format!("Error reading file '{}': {}", filename, e));
         }
     };
 
@@ -65,10 +56,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 crate::berror_println!("Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE),
-            };
+            return ToolResult::error(format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE));
         }
     };
 
@@ -80,10 +68,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 crate::berror_println!("Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER),
-            };
+            return ToolResult::error(format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER));
         }
     };
 
@@ -95,10 +80,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 crate::berror_println!("Missing '{}' delimiter in patch", PATCH_DELIMITER_END);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_END),
-            };
+            return ToolResult::error(format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_END));
         }
     };
 
@@ -112,10 +94,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     if after_delimiter >= end_delimiter {
@@ -126,10 +105,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     // Extract the before and after text
@@ -155,10 +131,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     let before_text = patch_content[before_start..after_delimiter].trim();
@@ -171,10 +144,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             crate::berror_println!("Text to replace not found in the file: '{}'", before_text);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: format!("Text to replace not found in the file: '{}'", before_text),
-        };
+        return ToolResult::error(format!("Text to replace not found in the file: '{}'", before_text));
     }
 
     let new_content = file_content.replace(before_text, after_text);
@@ -328,10 +298,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 crate::btool_println!("patch", "{}\n{}\n\n{}", diff_header, line_info, full_diff);
             }
 
-            ToolResult {
-                success: true,
-                agent_output,
-            }
+            ToolResult::success(agent_output)
         }
         Err(e) => {
             if !silent_mode {
@@ -339,10 +306,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 crate::berror_println!("Error writing patched file '{}': {}", filename, e);
             }
 
-            ToolResult {
-                success: false,
-                agent_output: format!("Error writing patched file '{}': {}", filename, e),
-            }
+            ToolResult::error(format!("Error writing patched file '{}': {}", filename, e))
         }
     }
 }

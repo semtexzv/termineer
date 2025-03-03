@@ -295,10 +295,10 @@ pub async fn execute_shell(
 
                     // Send error completion
                     let _ = main_sender
-                        .send(ShellOutput::Complete(ToolResult {
-                            success: false,
-                            agent_output: format!("Error monitoring process status: {}", e),
-                        }))
+                        .send(ShellOutput::Complete(ToolResult::default(
+                            false,
+                            format!("Error monitoring process status: {}", e)
+                        )))
                         .await;
                     return;
                 }
@@ -370,10 +370,10 @@ pub async fn execute_shell(
 
         // Send final completion message with result
         let _ = main_sender
-            .send(ShellOutput::Complete(ToolResult {
+            .send(ShellOutput::Complete(ToolResult::default(
                 success,
-                agent_output,
-            }))
+                agent_output
+            )))
             .await;
     });
 

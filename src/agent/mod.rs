@@ -14,4 +14,4 @@ mod interrupt;
 // Re-export public types from the submodules
 pub use agent::Agent;
 pub use manager::AgentManager;
-pub use types::{AgentCommand, AgentError, AgentId, AgentMessage, AgentReceiver, AgentSender, AgentState};
+pub use types::{AgentId, AgentMessage, AgentReceiver, AgentState};

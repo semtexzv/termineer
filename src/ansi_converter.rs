@@ -4,10 +4,8 @@
 //! to ratatui's Span-based formatting for use in the TUI.
 //! It also provides functionality to strip ANSI sequences from text.
 
-use crate::output::OutputLine;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use std::sync::Arc;
 
 /// Represents the current styling state
 #[derive(Clone, Debug, Default)]

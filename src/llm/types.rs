@@ -3,7 +3,7 @@
 //! These types are used across different LLM providers to
 //! represent messages, content, and responses.
 
-use crate::serde_element_array;
+use crate::serde_utils::element_array;
 use serde::{Deserialize, Serialize};
 
 /// Response from an LLM provider
@@ -83,7 +83,7 @@ pub struct Message {
     pub role: String,
 
     /// The content of the message
-    #[serde(with = "serde_element_array")]
+    #[serde(with = "element_array")]
     pub content: Content,
 
     /// Additional information about the message

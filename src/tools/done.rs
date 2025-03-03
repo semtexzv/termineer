@@ -20,11 +20,6 @@ pub fn execute_done(args: &str, body: &str, silent_mode: bool) -> ToolResult {
         crate::bprintln!("{}{}{}", FORMAT_GRAY, summary, FORMAT_RESET);
     }
 
-    // Pass the summary directly to the agent without extraneous markers
-    let agent_output = summary.to_string();
-
-    ToolResult {
-        success: true,
-        agent_output,
-    }
+    // Use the done method to mark the agent as completed
+    ToolResult::done(summary.to_string())
 }

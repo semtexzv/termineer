@@ -2,7 +2,7 @@ use crate::agent::{Agent, AgentId, AgentMessage, AgentState};
 use crate::agent::types::InterruptSignal;
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
-use crate::llm::{create_backend_for_task, Content, MessageInfo};
+use crate::llm::{Content, MessageInfo};
 use crate::tools::ToolResult;
 use tokio::sync::{mpsc, watch};
 use crate::prompts::{ToolDocOptions, generate_system_prompt};
@@ -51,10 +51,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
             crate::berror_println!("{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-        };
+        return ToolResult::error(error_msg);
     }
 
     // Print model information if specified and not in silent mode
@@ -99,9 +96,9 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     }
     
     // Create message channels for communicating with the agent
-    let (_sender, receiver) = mpsc::channel::<AgentMessage>(100);
+    let (_sender, _receiver) = mpsc::channel::<AgentMessage>(100);
     // Create dedicated interrupt channel
-    let (_interrupt_sender, interrupt_receiver) = mpsc::channel::<InterruptSignal>(10);
+    let (_interrupt_sender, _interrupt_receiver) = mpsc::channel::<InterruptSignal>(10);
     let (state_sender, _state_receiver) = watch::channel(AgentState::Idle);
 
     // Generate a task-specific ID
@@ -121,10 +118,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
             if !silent_mode {
                 crate::berror_println!("{}", error_msg);
             }
-            return ToolResult {
-                success: false,
-                agent_output: error_msg,
-            };
+            return ToolResult::error(error_msg);
         }
     };
     
@@ -155,10 +149,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
             if !silent_mode {
                 crate::berror_println!("{}", error_msg);
             }
-            return ToolResult {
-                success: false,
-                agent_output: error_msg,
-            };
+            return ToolResult::error(error_msg);
         }
     };
 
@@ -210,8 +201,5 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
         );
     }
 
-    ToolResult {
-        success: true,
-        agent_output: result,
-    }
+    ToolResult::success(result)
 }

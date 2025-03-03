@@ -1,5 +1,5 @@
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
-use crate::tools::ToolResult;
+use crate::tools::{AgentStateChange, ToolResult};
 use std::path::Path;
 use tokio::fs;
 
@@ -27,6 +27,7 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
         return ToolResult {
             success: false,
             agent_output: error_msg,
+            state_change: AgentStateChange::Continue,
         };
     }
 
@@ -44,6 +45,7 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
             return ToolResult {
                 success: false,
                 agent_output: error_msg,
+                state_change: AgentStateChange::Continue,
             };
         }
         return read_single_file(
@@ -168,6 +170,7 @@ async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolRes
     ToolResult {
         success: all_successful,
         agent_output: combined_agent_output,
+        state_change: AgentStateChange::Continue,
     }
 }
 
@@ -192,6 +195,7 @@ async fn read_single_file(
         return ToolResult {
             success: false,
             agent_output: error_msg,
+            state_change: AgentStateChange::Continue,
         };
     }
 
@@ -282,10 +286,7 @@ async fn read_file_content(
                 }
             }
 
-            ToolResult {
-                success: true,
-                agent_output,
-            }
+            ToolResult::success(agent_output)
         }
         Err(e) => {
             let error_msg = format!("Error reading file '{}': {}", filepath, e);
@@ -295,10 +296,7 @@ async fn read_file_content(
                 crate::berror_println!("{}", error_msg);
             }
 
-            ToolResult {
-                success: false,
-                agent_output: error_msg,
-            }
+            ToolResult::error(error_msg) 
         }
     }
 }
@@ -364,6 +362,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
             ToolResult {
                 success: true,
                 agent_output,
+                state_change: Default::default(),
             }
         }
         Err(e) => {
@@ -374,10 +373,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
                 crate::berror_println!("{}", error_msg);
             }
 
-            ToolResult {
-                success: false,
-                agent_output: error_msg,
-            }
+            ToolResult::error(error_msg)
         }
     }
 }
