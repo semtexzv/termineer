@@ -66,10 +66,10 @@ pub enum GrammarElementType {
 pub struct GrammarElement {
     /// Element type
     pub element_type: GrammarElementType,
-    /// Element name (tool name or index)
+    /// Element name (tool name)
     pub name: String,
-    /// Tool attributes
-    pub attributes: HashMap<String, String>,
+    /// Element index (for done/error elements)
+    pub index: Option<usize>,
     /// Element content
     pub content: String,
 }
@@ -185,10 +185,9 @@ impl Template {
                     result = result.replace(&placeholder, &formatted_element);
                 },
                 GrammarElementType::Done => {
-                    let placeholder = format!("{{__DONE_{}}}", element.name);
-                    
-                    // Try to parse the index
-                    let index = element.name.parse::<usize>().unwrap_or(0);
+                    // Use the index if available, otherwise default to 0
+                    let index = element.index.unwrap_or(0);
+                    let placeholder = format!("{{__DONE_{}}}", index);
                     
                     // Format the result using the grammar
                     let formatted_element = grammar.format_tool_result(index, &element.content);
@@ -197,10 +196,9 @@ impl Template {
                     result = result.replace(&placeholder, &formatted_element);
                 },
                 GrammarElementType::Error => {
-                    let placeholder = format!("{{__ERROR_{}}}", element.name);
-                    
-                    // Try to parse the index
-                    let index = element.name.parse::<usize>().unwrap_or(0);
+                    // Use the index if available, otherwise default to 0
+                    let index = element.index.unwrap_or(0);
+                    let placeholder = format!("{{__ERROR_{}}}", index);
                     
                     // Format the error using the grammar
                     let formatted_element = grammar.format_tool_error(index, &element.content);

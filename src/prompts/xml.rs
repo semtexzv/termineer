@@ -130,11 +130,11 @@ pub fn parse_template(xml: &str) -> Result<Template, TemplateError> {
     // Extract grammar elements
     let mut grammar_elements = Vec::new();
     let extracted_elements = extract_grammar_elements(&root);
-    for (element_type, name, attributes, content) in extracted_elements {
+    for (element_type, name, index, content) in extracted_elements {
         grammar_elements.push(super::template::GrammarElement {
             element_type,
             name,
-            attributes,
+            index,
             content,
         });
     }
@@ -166,12 +166,14 @@ fn get_element_text(element: &Element) -> Option<String> {
                     text.push_str(&tool_placeholder);
                 } else if elem.name == "g-done" {
                     // Mark a result element for grammar formatting
-                    let index = elem.attributes.get("index").map_or("0", |s| s);
+                    let index_str = elem.attributes.get("index").map_or("0", |s| s);
+                    let index = index_str.parse::<usize>().unwrap_or(0);
                     let done_placeholder = format!("{{__DONE_{}}}", index);
                     text.push_str(&done_placeholder);
                 } else if elem.name == "g-error" {
                     // Mark an error element for grammar formatting
-                    let index = elem.attributes.get("index").map_or("0", |s| s);
+                    let index_str = elem.attributes.get("index").map_or("0", |s| s);
+                    let index = index_str.parse::<usize>().unwrap_or(0);
                     let error_placeholder = format!("{{__ERROR_{}}}", index);
                     text.push_str(&error_placeholder);
                 } else {
@@ -193,22 +195,24 @@ fn get_element_text(element: &Element) -> Option<String> {
 }
 
 /// Extract grammar elements from an XML element
-fn extract_grammar_elements(element: &Element) -> Vec<(super::template::GrammarElementType, String, HashMap<String, String>, String)> {
+fn extract_grammar_elements(element: &Element) -> Vec<(super::template::GrammarElementType, String, Option<usize>, String)> {
     let mut elements = Vec::new();
     
     // Process this element if it's a grammar element
     if element.name == "g-tool" {
         let name = element.attributes.get("name").map_or("", |s| s.as_str()).to_string();
         let content = get_element_text(element).unwrap_or_default();
-        elements.push((super::template::GrammarElementType::Tool, name, element.attributes.clone(), content));
+        elements.push((super::template::GrammarElementType::Tool, name, None, content));
     } else if element.name == "g-done" {
-        let index = element.attributes.get("index").map_or("0", |s| s.as_str()).to_string();
+        let index_str = element.attributes.get("index").map_or("0", |s| s.as_str());
+        let index = index_str.parse::<usize>().ok();
         let content = get_element_text(element).unwrap_or_default();
-        elements.push((super::template::GrammarElementType::Done, index, element.attributes.clone(), content));
+        elements.push((super::template::GrammarElementType::Done, "".to_string(), index, content));
     } else if element.name == "g-error" {
-        let index = element.attributes.get("index").map_or("0", |s| s.as_str()).to_string();
+        let index_str = element.attributes.get("index").map_or("0", |s| s.as_str());
+        let index = index_str.parse::<usize>().ok();
         let content = get_element_text(element).unwrap_or_default();
-        elements.push((super::template::GrammarElementType::Error, index, element.attributes.clone(), content));
+        elements.push((super::template::GrammarElementType::Error, "".to_string(), index, content));
     }
     
     // Recursively process child elements
