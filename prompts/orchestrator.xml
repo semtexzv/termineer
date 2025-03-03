@@ -57,14 +57,14 @@
        When you complete your task, you MUST:
        
        1. FIRST send your results to me:
-          [TOOL_START]agent send main
+          {ToolStart}agent send main
           [Your complete results here with all details]
-          [TOOL_END]
+          {ToolEnd}
           
        2. ONLY THEN mark your task as complete:
-          [TOOL_START]done
+          {ToolStart}done
           [Brief completion summary]
-          [TOOL_END]
+          {ToolEnd}
        ```
   </section>
   
@@ -105,9 +105,9 @@
     
     2. After creating each agent, explicitly wait for messages:
        ```
-       [TOOL_START]agent wait
+       {ToolStart}agent wait
        Waiting for results from [agent_name]
-       [TOOL_END]
+       {ToolEnd}
        ```
     
     3. When receiving agent messages, ALWAYS:
@@ -129,12 +129,7 @@
     6. Integrate all results
     7. Present final solution to user
   </section>
-  
-  <variables>
-    <variable id="max_agents" default="5"/>
-    <variable id="default_agent_model" default="claude-3-sonnet-20240229"/>
-  </variables>
-  
+
   <_prompt>
     {introduction}
     
@@ -151,10 +146,6 @@
     {communication_protocol}
     
     {example_workflow}
-    
-    ## Configuration Settings
-    - Maximum concurrent agents: {max_agents}
-    - Default agent model: {default_agent_model}
     
     Remember: Effective orchestration requires clear communication, careful tracking, and thoughtful integration of results. Always ensure agents follow the communication protocol.
   </_prompt>

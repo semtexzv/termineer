@@ -4,6 +4,7 @@
 //! managing conversations, tool execution, and interactions with LLM backends.
 
 use std::collections::BTreeSet;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -16,11 +17,12 @@ use crate::config::Config;
 use crate::constants::{
     TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX,
 };
-use crate::conversation::{parse_assistant_response};
 use crate::conversation::{
     sanitize_conversation, truncate_conversation, TruncationConfig,
 };
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
+use crate::prompts::Grammar;
+use crate::prompts::OldGrammar;
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
@@ -46,6 +48,9 @@ struct InterruptionCheck {
 pub struct Agent {
     /// Unique identifier for this agent
     pub id: AgentId,
+    
+    /// Grammar for formatting tools and parsing responses
+    pub grammar: Box<dyn Grammar>,
 
     /// Human-readable name for this agent
     pub name: String,
@@ -86,16 +91,6 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Generate a tool result start tag with the current tool invocation index
-    fn tool_result_start_tag(&self) -> String {
-        format!("<tool_result index=\"{}\">", self.tool_invocation_counter)
-    }
-
-    /// Generate a tool error start tag with the current tool invocation index
-    fn tool_error_start_tag(&self) -> String {
-        format!("<tool_error index=\"{}\">", self.tool_invocation_counter)
-    }
-
     /// Create a new agent with the given configuration and communication channels
     pub fn new(
         id: AgentId,
@@ -103,6 +98,8 @@ impl Agent {
         mut config: Config,
         sender: StateSender,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Initialize default grammar
+        let grammar: Box<dyn Grammar> = Box::new(OldGrammar {});
         // Initialize system prompt if not already set
         if config.system_prompt.is_none() {
             // Create appropriate tool options based on whether tools are enabled
@@ -114,9 +111,9 @@ impl Agent {
 
             // Generate the system prompt based on the minimal flag
             let prompt = if config.use_minimal_prompt {
-                crate::prompts::generate_minimal_system_prompt(&tool_options)
+                crate::prompts::generate_minimal_system_prompt(&tool_options, grammar.deref())
             } else {
-                crate::prompts::generate_system_prompt(&tool_options)
+                crate::prompts::generate_system_prompt(&tool_options, grammar.deref())
             };
 
             // Set the system prompt in the config
@@ -144,14 +141,15 @@ impl Agent {
             conversation: Vec::new(),
             readonly_mode: false,
             stop_sequences: Some(vec![
-                TOOL_RESULT_START_PREFIX.to_string(),
-                TOOL_ERROR_START_PREFIX.to_string(),
+                grammar.stop_sequences().done_stop_sequence.to_string(),
+                grammar.stop_sequences().error_stop_sequence.to_string(),
             ]),
             cache_points: BTreeSet::new(),
             truncation_config: TruncationConfig::default(),
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
+            grammar,
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -349,12 +347,12 @@ impl Agent {
                     source_id,
                     content
                 );
-                
+
                 // Add message to conversation with special formatting to indicate agent source
                 self.conversation
                     .push(Message::text("user", formatted_message.clone(), MessageInfo::User));
                 self.set_state(AgentState::Processing);
-                
+
                 // Display agent input with special formatting
                 crate::bprintln!(
                     "{}{}[From Agent: {}]{} {}{}{}",
@@ -517,7 +515,8 @@ impl Agent {
                                 // Shell tools reuse the same index for both partial outputs and final result
                                 let partial_tool_result = format!(
                                     "{}\n{}",
-                                    self.tool_result_start_tag(), partial_output
+                                    self.grammar.tool_result_start_tag(self.tool_invocation_counter), 
+                                    partial_output
                                 );
 
                                 // Mark this point in conversation as a cache point
@@ -674,16 +673,16 @@ impl Agent {
         let agent_response = if success || interrupting {
             format!(
                 "{}\n{}\n{}",
-                self.tool_result_start_tag(),
+                self.grammar.tool_result_start_tag(self.tool_invocation_counter),
                 result_message,
-                TOOL_RESULT_END
+                self.grammar.tool_result_end_tag()
             )
         } else {
             format!(
                 "{}\n{}\n{}",
-                self.tool_error_start_tag(),
+                self.grammar.tool_error_start_tag(self.tool_invocation_counter),
                 result_message,
-                TOOL_ERROR_END
+                self.grammar.tool_error_end_tag()
             )
         };
 
@@ -1051,11 +1050,11 @@ impl Agent {
             }
         }
 
-        // Parse the assistant's response
-        let parsed = parse_assistant_response(&assistant_message);
+        // Parse the assistant's response using this agent's grammar
+        let parsed = self.grammar.parse_response(&assistant_message);
 
         // If tools are not enabled, or no tool was found, handle as a regular response
-        if !self.config.enable_tools || parsed.tool_name.is_none() {
+        if !self.config.enable_tools || parsed.tool.is_none() {
             // In interactive mode, print the response here
             if !self.tool_executor.is_silent() {
                 // Print token usage stats if available
@@ -1088,8 +1087,9 @@ impl Agent {
         }
 
         // At this point, we know we have a tool invocation
-        let tool_name = parsed.tool_name.unwrap();
-        let tool_content = parsed.tool_content.unwrap();
+        let tool = parsed.tool.unwrap();
+        let tool_name = tool.name;
+        let tool_content = tool.body;
 
         // Display token stats before any other output (if not in silent mode)
         if !self.tool_executor.is_silent() {
@@ -1102,8 +1102,8 @@ impl Agent {
         }
 
         // Display the assistant's text before executing the tool
-        if !parsed.text.is_empty() {
-            crate::conversation::print_assistant_response(&parsed.text);
+        if !parsed.prefix.is_empty() {
+            crate::conversation::print_assistant_response(&parsed.prefix);
         }
 
         // Everything before and including the tool invocation (we need this for conversation history)
@@ -1155,16 +1155,16 @@ impl Agent {
         let agent_response = if tool_result.success {
             format!(
                 "{}\n{}\n{}",
-                self.tool_result_start_tag(),
+                self.grammar.tool_result_start_tag(self.tool_invocation_counter),
                 tool_result.agent_output,
-                TOOL_RESULT_END
+                self.grammar.tool_result_end_tag()
             )
         } else {
             format!(
                 "{}\n{}\n{}",
-                self.tool_error_start_tag(),
+                self.grammar.tool_error_start_tag(self.tool_invocation_counter),
                 tool_result.agent_output,
-                TOOL_ERROR_END
+                self.grammar.tool_error_end_tag()
             )
         };
 
@@ -1320,6 +1320,17 @@ impl Agent {
         // Reset cache points since model changed
         self.reset_cache_points();
         Ok(())
+    }
+    
+    /// Set the grammar implementation
+    pub fn set_grammar(&mut self, grammar: Box<dyn Grammar>) {
+        self.grammar = grammar;
+        
+        // Update stop sequences based on new grammar
+        self.stop_sequences = Some(vec![
+            self.grammar.stop_sequences().done_stop_sequence.to_string(),
+            self.grammar.stop_sequences().error_stop_sequence.to_string(),
+        ]);
     }
 
 }

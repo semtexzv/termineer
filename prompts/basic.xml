@@ -69,11 +69,11 @@
     ### Patch
     Update file content by replacing text
     {ToolStart}patch [filepath]
-    <<<<BEFORE
+    {PATCH_BEFORE}
     [text before change]
-    <<<<AFTER
+    {PATCH_AFTER}
     [text after change]
-    <<<<END
+    {PATCH_END}
     {ToolEnd}
     
     ### Fetch
@@ -102,9 +102,4 @@
     [summary on multiple lines]
     {ToolEnd}
   </section>
-  
-  <variables>
-    <variable id="thinking_budget" default="4000"/>
-    <variable id="enable_tools" default="true"/>
-    <variable id="ToolStart" default="<tool>"/>
-    <variable id="ToolEnd" default="
+</template>
