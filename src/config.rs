@@ -6,7 +6,7 @@
 use std::env;
 use std::error::Error;
 
-// Return type for apply_args to differentiate between help and interactive mode
+// Return type for apply_args to differentiate between different run modes
 #[derive(Debug)]
 pub enum ArgResult {
     /// Query provided (non-interactive mode)
@@ -17,6 +17,9 @@ pub enum ArgResult {
 
     /// Help requested
     ShowHelp,
+    
+    /// Dump prompts and exit
+    DumpPrompts,
 }
 
 /// Application configuration structure
@@ -39,6 +42,9 @@ pub struct Config {
 
     /// Whether to resume the last session
     pub resume_last_session: bool,
+    
+    /// Whether to dump prompts and exit
+    pub dump_prompts: Option<String>,
 }
 
 impl Config {
@@ -52,6 +58,7 @@ impl Config {
             thinking_budget: 16384,
             use_minimal_prompt: false,
             resume_last_session: false,
+            dump_prompts: None,
         }
     }
 
@@ -139,6 +146,14 @@ impl Config {
                     self.resume_last_session = true;
                     i += 1;
                 }
+                "--dump-prompts" => {
+                    if i + 1 < args.len() {
+                        self.dump_prompts = Some(args[i + 1].clone());
+                        i += 2;
+                    } else {
+                        return Err("Error: --dump-prompts requires a TEMPLATE_NAME (basic/minimal)".into());
+                    }
+                }
                 _ => {
                     // If it doesn't start with --, treat it as the query
                     if !args[i].starts_with("--") && query.is_none() {
@@ -151,6 +166,10 @@ impl Config {
 
         if show_help {
             return Ok(ArgResult::ShowHelp);
+        }
+        
+        if self.dump_prompts.is_some() {
+            return Ok(ArgResult::DumpPrompts);
         }
 
         match query {

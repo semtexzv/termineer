@@ -1,0 +1,310 @@
+{{! Tools Template Partial }}
+{{!
+  This is a partial template containing only tool definitions.
+  It can be included in other templates using inclusion syntax
+  
+  This template uses the iftool helper for conditional content based on tool enablement.
+  Variable: enabled_tools - array of lowercase tool names
+}}
+
+{{#iftool "shell"}}
+
+### Shell
+Execute shell commands on the user's system
+{{#tool "shell"}}[command]{{/tool}}
+
+Example:
+{{#tool "shell"}}ls -la{{/tool}}
+
+Example response:
+### Shell
+Execute shell commands on the user's system:
+{{#tool "shell"}} [command]{{/tool}}
+
+Example:
+{{#tool "shell"}}ls -la{{/tool}}
+
+{{#done "shell" 0}}
+
+drwxr-xr-x  14 mhornicky  primarygroup    448 Feb 27 22:11 .
+drwxr-x---+ 89 mhornicky  primarygroup   2848 Feb 27 21:59 ..
+-rw-r--r--@  1 mhornicky  primarygroup   2169 Feb 27 22:09 .autoswe
+-rw-r--r--   1 mhornicky  primarygroup    127 Feb 27 13:44 .env
+-rw-r--r--@  1 mhornicky  primarygroup    175 Feb 27 10:48 .env.example
+{{/done}}
+
+Long-running commands can be interrupted in two ways:
+1. **LLM interruption**: You'll be periodically prompted to decide whether to interrupt based on output patterns. When interrupting, provide a concise reason with:
+`<interrupt>Your one-sentence reason here</interrupt>`
+
+2. **User interruption**: Users can press Ctrl+C to manually stop the command
+
+Use intelligent interruption to avoid wasting time on commands that have already provided sufficient information.
+
+When to use:
+- Explore directories and file structures
+- Run build commands, tests, or package managers
+- Check environment settings or configurations
+{{/iftool}}
+
+{{#iftool "read"}}
+### Read
+Read the contents of files or list directory contents:
+{{#tool "read"}}[offset=N] [limit=M] [filepath(s) or directory path]{{/tool}}
+- The `offset` parameter (optional) specifies the starting line number (0-indexed)
+- The `limit` parameter (optional) specifies the maximum number of lines to read
+- Multiple files can be read at once (space-separated) when not using offset/limit
+- For large files, only the first and last few lines will be shown
+- When a directory path is provided, lists all files and subdirectories in that directory
+
+Examples:
+{{#tool "read"}}/etc/hosts{{/tool}}
+
+{{#done "read" 0}}/etc/hosts
+File: (all 7 lines)
+127.0.0.1 localhost
+::1 localhost ip6-localhost ip6-loopback
+fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-localnet
+fc00:db20:35b:7399::5 ip6-mcastprefix
+fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-allnodes
+fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-allrouters
+192.168.1.100 ubuntu-vm
+{{/done}}
+
+{{#tool "read"}}offset=0 limit=1 /etc/hosts{{/tool}}
+
+{{#done "read" 0}}
+127.0.0.1 localhost
+{{/done}}
+
+#### Other examples:
+{{#tool "read"}}file1.txt file2.txt file3.txt{{/tool}}
+{{#tool "read"}}/path/to/directory{{/tool}}
+
+When to use:
+- Examine code, configuration files, logs, or documentation
+- List directory contents to explore project structure
+- Understand existing implementations before making changes
+- Compare multiple related files at once
+- Verify changes after they've been made
+{{/iftool}}
+
+{{#iftool "write"}}
+### Write
+Write content to a file:
+{{#tool "write"}}[filepath]
+[content on multiple lines]
+{{/tool}}
+
+Example:
+{{#tool "write"}}/tmp/example.txt
+This is example content
+that spans multiple lines
+in the file.
+{{/tool}}
+
+{{#done "write" 0}}
+File written successfully.
+{{/done}}
+
+When to use:
+- Create new files (scripts, configs, documentation)
+- Generate complete replacements for existing files
+- Output results or generate reports
+{{/iftool}}
+
+{{#iftool "patch"}}
+### Patch
+Update file content by replacing text
+{{#tool "patch"}}[filepath]
+{{#patch}}
+[text before change]
+{{else}}
+[text after change]
+{{/patch}}
+
+{{/tool}}
+
+{{#done "patch" 0}}
+File patched successfully.
+{{/done}}
+
+Example:
+{{#tool "patch"}}src/main.rs
+{{#patch}}
+[text before change]
+{{else}}
+{{/patch}}
+
+{{/tool}}
+
+{{#done "patch" 0}}
+
+File patched successfully.
+{{/done}}
+
+When to use:
+- Make targeted changes to specific sections of code
+- Fix bugs or implement new features in existing files
+- Update configuration settings without rewriting entire files
+{{/iftool}}
+
+{{#iftool "fetch"}}
+### Fetch
+Retrieve content from web URLs:
+{{#tool "fetch"}}URL{{/tool}}
+
+Example:
+{{#tool "fetch"}}https://example.com{{/tool}}
+
+{{#done "fetch" 0}}
+
+Fetched from https://example.com:
+
+# Example Domain
+
+This domain is for use in illustrative examples in documents.
+{{/done}}
+
+When to use:
+- Retrieve documentation from external sources
+- Get information from public APIs
+- Access web content (HTML is automatically converted to readable text)
+- Incorporate external reference material into your work
+
+{{/iftool}}
+
+{{#iftool "task"}}
+### Task
+Create a subtask to perform a specific goal
+{{#tool "task"}}
+
+[detailed task instructions on multiple lines]
+{{/tool}}
+
+{{#done "task" 0}}
+
+[Subtask output]
+{{/done}}
+
+Examples:
+{{#tool "task"}}
+
+Analyze log files to find error patterns
+Examine all log files in ./logs directory
+Identify recurring error patterns
+Summarize findings with error frequencies and potential causes
+{{/tool}}
+
+When to use:
+- Break down complex tasks into smaller, focused subtasks
+- Run operations in isolation from the main conversation flow
+- Process specialized tasks that require focused attention
+- Create modular solutions to complex problems
+- Parallelize research efforts (e.g., one task explores codebase while another researches documentation)
+
+Best practices for effective task usage:
+- Be highly specific about the subtask's objectives and expected outputs
+- Provide clear success criteria so the subtask knows when it's complete
+- Include relevant context from your main task to avoid redundant research
+- Use for targeted research that can be performed independently
+- Combine results from multiple subtasks for comprehensive solutions
+{{/iftool}}
+
+{{#iftool "agent"}}
+### Agent
+Create and communicate with other agents:
+{{#tool "agent"}}[subcommand] [arguments]
+
+[content on multiple lines]
+{{/tool}}
+
+{{#done "agent" 1}}
+
+[Result depends on subcommand]
+{{/done}}
+
+Subcommands:
+- `create`: Create a new agent
+- `send`: Send a message to another agent
+
+Examples:
+
+1. Creating a new agent:
+{{#tool "agent" }}create research_agent
+Research the latest JavaScript frameworks and provide a summary
+of their key features, performance characteristics, and use cases.
+{{/tool}}
+
+{{#done "agent" 0}}
+
+Agent 'research_agent' created with ID: 2
+Initial instructions sent to the agent.
+{{/done}}
+
+2. Sending a message to another agent:
+{{#tool "agent" 0}}send research_agent
+
+Please also include information about TypeScript integration
+in your framework comparison.
+{{/tool}}
+
+{{#done "agent" 0}}
+
+Message sent to agent research_agent [ID: 2]
+{{/done}}
+
+When to use:
+- Create specialized agents for parallel research or tasks
+- Delegate complex subtasks to dedicated agents
+- Enable collaborative problem-solving across multiple experts
+- Create supervisor-worker agent structures
+- Establish agent communication networks for complex workflows
+{{/iftool}}
+
+{{#iftool "wait"}}
+### Wait
+Pause the agent until a message is received:
+{{#tool "wait"}}
+
+[reason for waiting]
+{{/tool}}
+
+{{#done "wait" 0}}Resumed{{/done}}
+
+Example:
+{{#tool "wait"}}
+
+Waiting for database query results from the database_agent
+{{/tool}}
+
+{{#done "wait" 1}}Resumed{{/done}}
+
+When to use:
+- Wait for messages from other agents
+- Pause execution while waiting for external events
+- Signal to users that you're ready for additional input
+- Create synchronization points in multi-agent workflows
+{{/iftool}}
+
+{{#iftool "done"}}
+### Done
+Signal task completion with optional summary:
+{{#tool "done"}}
+
+[summary on multiple lines]
+{{/tool}}
+
+{{#done "done" 0}}{{/done}}
+
+Use this tool when a task is complete to provide a final summary and end the conversation.
+
+Example:
+{{#tool "done"}}
+
+Task completed. Created new file and configured settings.
+All requested changes have been implemented successfully.
+{{/tool}}
+
+{{#done "done" 1}}{{/done}}
+{{/iftool}}

@@ -14,15 +14,9 @@ use super::types::{
 };
 use crate::ansi_converter::strip_ansi_sequences;
 use crate::config::Config;
-use crate::constants::{
-    TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX,
-};
-use crate::conversation::{
-    sanitize_conversation, truncate_conversation, TruncationConfig,
-};
+use crate::conversation::{sanitize_conversation, truncate_conversation, TruncationConfig};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
-use crate::prompts::Grammar;
-use crate::prompts::OldGrammar;
+use crate::prompts::{select_grammar_for_model, Grammar};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
@@ -48,9 +42,9 @@ struct InterruptionCheck {
 pub struct Agent {
     /// Unique identifier for this agent
     pub id: AgentId,
-    
+
     /// Grammar for formatting tools and parsing responses
-    pub grammar: Box<dyn Grammar>,
+    pub grammar: Arc<dyn Grammar>,
 
     /// Human-readable name for this agent
     pub name: String,
@@ -79,7 +73,6 @@ pub struct Agent {
     /// Configuration for conversation truncation
     truncation_config: TruncationConfig,
 
-
     /// Sender of state updates
     sender: StateSender,
 
@@ -98,23 +91,25 @@ impl Agent {
         mut config: Config,
         sender: StateSender,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Initialize default grammar
-        let grammar: Box<dyn Grammar> = Box::new(OldGrammar {});
+        // Select grammar based on model name
+        let grammar: Arc<dyn Grammar>= crate::prompts::select_grammar_for_model(&config.model);
         // Initialize system prompt if not already set
         if config.system_prompt.is_none() {
-            // Create appropriate tool options based on whether tools are enabled
-            let tool_options = if config.enable_tools {
-                crate::prompts::ToolDocOptions::default()
+            // Convert enabled_tools setting to the appropriate list of tool names
+            let enabled_tools = if config.enable_tools {
+                crate::prompts::ALL_TOOLS.to_vec()
             } else {
-                crate::prompts::ToolDocOptions::readonly()
+                crate::prompts::READONLY_TOOLS.to_vec()
             };
 
+            let grammar = select_grammar_for_model(&config.model);
+
             // Generate the system prompt based on the minimal flag
-            let prompt = if config.use_minimal_prompt {
-                crate::prompts::generate_minimal_system_prompt(&tool_options, grammar.deref())
-            } else {
-                crate::prompts::generate_system_prompt(&tool_options, grammar.deref())
-            };
+            let prompt = crate::prompts::generate_system_prompt(
+                &enabled_tools,
+                config.use_minimal_prompt,
+                grammar,
+            );
 
             // Set the system prompt in the config
             config.system_prompt = Some(prompt);
@@ -164,7 +159,7 @@ impl Agent {
         interrupt_receiver: InterruptReceiver,
     ) {
         use crate::GLOBAL_AGENT_MANAGER;
-        
+
         crate::bprintln!(
             "🤖 {}Agent{} '{}' started",
             crate::constants::FORMAT_BOLD,
@@ -177,13 +172,9 @@ impl Agent {
         let (agent_interrupt_tx, mut agent_interrupt_rx) = mpsc::channel(10);
         let coordinator = Arc::new(InterruptCoordinator::new(agent_interrupt_tx));
         let _interrupt_monitor = spawn_interrupt_monitor(coordinator.clone(), interrupt_receiver);
-        
+
         // Set up the tool executor with this agent's ID (using global agent manager)
-        self.tool_executor = ToolExecutor::with_agent_manager(
-            false, 
-            false,
-            self.id
-        );
+        self.tool_executor = ToolExecutor::with_agent_manager(false, false, self.id);
 
         // Main agent loop
         'main: loop {
@@ -339,18 +330,23 @@ impl Agent {
                     crate::constants::FORMAT_RESET
                 );
             }
-            AgentMessage::AgentInput { content, source_id, source_name } => {
+            AgentMessage::AgentInput {
+                content,
+                source_id,
+                source_name,
+            } => {
                 // Format the message to indicate it's from another agent
                 let formatted_message = format!(
                     "<agent_message source=\"{}\" source_id=\"{}\">\n{}\n</agent_message>",
-                    source_name,
-                    source_id,
-                    content
+                    source_name, source_id, content
                 );
 
                 // Add message to conversation with special formatting to indicate agent source
-                self.conversation
-                    .push(Message::text("user", formatted_message.clone(), MessageInfo::User));
+                self.conversation.push(Message::text(
+                    "user",
+                    formatted_message.clone(),
+                    MessageInfo::User,
+                ));
                 self.set_state(AgentState::Processing);
 
                 // Display agent input with special formatting
@@ -435,23 +431,24 @@ impl Agent {
 
         // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
-        let mut rx = match execute_shell(&cmd_args, &body, interrupt_data.clone(), silent_mode).await {
-            Ok(rx) => rx,
-            Err(e) => {
-                // Make sure to clean up interrupt state if startup fails
-                interrupt_coordinator.set_shell_running(false, None);
-                self.set_state(AgentState::Processing);
+        let mut rx =
+            match execute_shell(&cmd_args, &body, interrupt_data.clone(), silent_mode).await {
+                Ok(rx) => rx,
+                Err(e) => {
+                    // Make sure to clean up interrupt state if startup fails
+                    interrupt_coordinator.set_shell_running(false, None);
+                    self.set_state(AgentState::Processing);
 
-                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
-                    "Shell execution error: {}",
-                    e
-                )));
-            }
-        };
+                    return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                        "Shell execution error: {}",
+                        e
+                    )));
+                }
+            };
 
         // Add a timestamp for tracking performance
         let start_time = std::time::Instant::now();
-        
+
         // Buffer to collect output for the conversation history
         let mut partial_output = String::new();
 
@@ -493,7 +490,7 @@ impl Agent {
                             // Add sanitized output to full output record
                             partial_output.push_str(&sanitized_line);
                             partial_output.push('\n');
-                            
+
                             // Check for interruption based on time or output volume
                             let should_check_interrupt = !interrupting && last_check_time.elapsed() > min_check_interval;
 
@@ -510,7 +507,7 @@ impl Agent {
                                 // Shell tools reuse the same index for both partial outputs and final result
                                 let partial_tool_result = format!(
                                     "{}\n{}",
-                                    self.grammar.tool_result_start_tag(self.tool_invocation_counter), 
+                                    self.grammar.tool_result_start_tag(self.tool_invocation_counter),
                                     partial_output
                                 );
 
@@ -536,7 +533,7 @@ impl Agent {
 
                                 // Calculate elapsed time since the command started
                                 let elapsed_duration = start_time.elapsed();
-                                
+
                                 // Send interruption check using the partial tool result and elapsed time
                                 if let Ok(interruption_check) = self.check_for_interruption(elapsed_duration).await {
                                     if interruption_check.interrupted {
@@ -666,9 +663,11 @@ impl Agent {
         // Format the shell output with appropriate delimiters
         // Note: Interruption is NOT an error, so we use TOOL_RESULT for it
         let agent_response = if success || interrupting {
-            self.grammar.format_tool_result(self.tool_invocation_counter, &result_message)
+            self.grammar
+                .format_tool_result("shell", self.tool_invocation_counter, &result_message)
         } else {
-            self.grammar.format_tool_error(self.tool_invocation_counter, &result_message)
+            self.grammar
+                .format_tool_error("shell", self.tool_invocation_counter, &result_message)
         };
 
         // Add the agent_response to the conversation history
@@ -716,10 +715,15 @@ impl Agent {
         let elapsed_time_str = if elapsed_seconds < 60 {
             format!("{} seconds", elapsed_seconds)
         } else if elapsed_seconds < 3600 {
-            format!("{} minutes {} seconds", elapsed_seconds / 60, elapsed_seconds % 60)
+            format!(
+                "{} minutes {} seconds",
+                elapsed_seconds / 60,
+                elapsed_seconds % 60
+            )
         } else {
-            format!("{} hours {} minutes", 
-                elapsed_seconds / 3600, 
+            format!(
+                "{} hours {} minutes",
+                elapsed_seconds / 3600,
                 (elapsed_seconds % 3600) / 60
             )
         };
@@ -741,8 +745,8 @@ impl Agent {
             - To interrupt: '<interrupt>ONE SENTENCE REASON</interrupt>'\n\
             \n\
             If interrupting, provide exactly ONE SENTENCE explaining why.\n\
-            Your decision:"
-            , elapsed_time_str
+            Your decision:",
+            elapsed_time_str
         );
 
         // Log interruption check with blue formatting
@@ -1113,7 +1117,7 @@ impl Agent {
         if tool_name == "shell" {
             // Convert the parsed args to a space-separated string
             let tool_args = tool.args.join(" ");
-            
+
             // Use a new dedicated interrupt channel
             let shell_result = self
                 .execute_streaming_shell(&tool_args, &tool_body, &interrupt_coordinator)
@@ -1132,17 +1136,22 @@ impl Agent {
         self.tool_invocation_counter += 1;
 
         // Execute the tool with pre-parsed components from grammar
-        let tool_args = tool.args.join(" ");  // Join the args array into a string
-        let tool_result = self.tool_executor.execute_with_parts(&tool_name, &tool_args, &tool_body).await;
+        let tool_args = tool.args.join(" "); // Join the args array into a string
+        let tool_result = self
+            .tool_executor
+            .execute_with_parts(&tool_name, &tool_args, &tool_body)
+            .await;
 
         // Set the state back to Processing by default - will be updated by the tool's state_change if needed
         self.state = AgentState::Processing;
 
         // Format the agent response with appropriate delimiters
         let agent_response = if tool_result.success {
-            self.grammar.format_tool_result(self.tool_invocation_counter, &tool_result.agent_output)
+            self.grammar
+                .format_tool_result(&tool_name, self.tool_invocation_counter, &tool_result.agent_output)
         } else {
-            self.grammar.format_tool_error(self.tool_invocation_counter, &tool_result.agent_output)
+            self.grammar
+                .format_tool_error(&tool_name, self.tool_invocation_counter, &tool_result.agent_output)
         };
 
         // Return value to use in the process flow
@@ -1170,7 +1179,9 @@ impl Agent {
         let msg_index = self.conversation.len();
         self.conversation.push(message);
 
-        if response_message_len > 500 {
+        if response_message_len > 500
+            || response.usage.as_ref().map(|u| u.input_tokens).unwrap_or_default() > 500
+        {
             self.cache_here();
         }
 
@@ -1184,13 +1195,13 @@ impl Agent {
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET
                 );
-    
+
                 return Ok(MessageResult {
                     response: result_for_response,
                     continue_processing: false,
                     token_usage: response.usage,
                 });
-            },
+            }
             crate::tools::AgentStateChange::Done => {
                 // Update state to Done with the final response
                 self.state = AgentState::Done(Some(result_for_response.clone()));
@@ -1199,13 +1210,13 @@ impl Agent {
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET
                 );
-    
+
                 return Ok(MessageResult {
                     response: result_for_response,
                     continue_processing: false,
                     token_usage: response.usage,
                 });
-            },
+            }
             crate::tools::AgentStateChange::Continue => {
                 // Continue normal processing, handled below
             }
@@ -1298,16 +1309,18 @@ impl Agent {
         self.reset_cache_points();
         Ok(())
     }
-    
+
     /// Set the grammar implementation
-    pub fn set_grammar(&mut self, grammar: Box<dyn Grammar>) {
+    pub fn set_grammar(&mut self, grammar: Arc<dyn Grammar>) {
         self.grammar = grammar;
-        
+
         // Update stop sequences based on new grammar
         self.stop_sequences = Some(vec![
             self.grammar.stop_sequences().done_stop_sequence.to_string(),
-            self.grammar.stop_sequences().error_stop_sequence.to_string(),
+            self.grammar
+                .stop_sequences()
+                .error_stop_sequence
+                .to_string(),
         ]);
     }
-
 }

@@ -33,6 +33,7 @@ use crossterm::{
 };
 use tokio::time::sleep;
 use ui_interface::TuiInterface;
+use crate::prompts::OldGrammar;
 
 // Global agent manager available to all components
 lazy_static! {
@@ -78,6 +79,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             print_help();
             return Ok(());
         },
+        ArgResult::DumpPrompts => {
+            // Dump prompt templates and exit
+            dump_prompt_templates(&config)?;
+            return Ok(());
+        },
         ArgResult::Query(query) => {
             // Run in single query mode
             run_single_query_mode(agent_manager, config, query).await?;
@@ -118,6 +124,43 @@ fn print_help() {
     println!("Example:");
     println!("  AutoSWE --model claude-3-haiku-20240307 \"What is the capital of France?\"");
     println!("  AutoSWE --model google/gemini-1.5-flash \"Explain quantum computing.\"");
+}
+
+/// Dump prompt templates to stdout
+///
+/// This function renders and outputs the specified prompt template to stdout.
+/// It's used with the --dump-prompts command line flag for debugging purposes.
+fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let template_name = match config.dump_prompts.as_deref() {
+        Some(name) => name,
+        None => {
+            return Err("No template name specified for --dump-prompts".into());
+        }
+    };
+
+    // Convert template name to lowercase for case-insensitive matching
+    let template_name = template_name.to_lowercase();
+    
+    // Get the appropriate list of tools based on config
+    let enabled_tools = if config.enable_tools {
+        prompts::ALL_TOOLS
+    } else {
+        prompts::READONLY_TOOLS
+    };
+    
+    // Render the template
+    let prompt = match template_name.as_str() {
+        "basic" => prompts::render_template("basic", enabled_tools, Arc::new(OldGrammar)),
+        "minimal" => prompts::render_template("minimal", enabled_tools, Arc::new(OldGrammar)),
+        _ => {
+            return Err(format!("Unknown template name: {}. Available templates: basic, minimal, all", template_name).into());
+        }
+    };
+    
+    // Output the rendered template
+    println!("{}", prompt);
+    
+    Ok(())
 }
 
 /// Run the application in interactive mode with TUI

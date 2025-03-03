@@ -1,11 +1,11 @@
-use crate::agent::{Agent, AgentId, AgentMessage, AgentState};
+use std::sync::Arc;
+use crate::agent::{AgentMessage, AgentState};
 use crate::agent::types::InterruptSignal;
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
-use crate::llm::{Content, MessageInfo};
 use crate::tools::ToolResult;
 use tokio::sync::{mpsc, watch};
-use crate::prompts::{ToolDocOptions, generate_system_prompt};
+use crate::prompts::OldGrammar;
 
 pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the args string to check for model parameter
@@ -103,11 +103,11 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     
     // Create a tool executor that's silent depending on the parent's silent mode
     // and set the system prompt
-    let tool_options = ToolDocOptions::default();
+    // Use all available tools for task agents
+    let enabled_tools = crate::prompts::ALL_TOOLS;
     
-    // Use OldGrammar as the default grammar for now
-    let grammar = crate::prompts::OldGrammar {};
-    let system_prompt = generate_system_prompt(&tool_options, &grammar);
+    // Generate the system prompt using the template system
+    let system_prompt = crate::prompts::generate_system_prompt(enabled_tools, false, Arc::new(OldGrammar));
     config.system_prompt = Some(system_prompt);
     
     // For now, just return a message saying the task functionality is under development

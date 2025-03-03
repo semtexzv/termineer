@@ -82,7 +82,7 @@ impl ToolResult {
     pub fn wait(reason: String) -> Self {
         Self {
             success: true,
-            agent_output: format!("Agent is now waiting: {}\nAny input will resume processing.", reason),
+            agent_output: "Resumed".to_string(),
             state_change: AgentStateChange::Wait,
         }
     }
@@ -182,33 +182,6 @@ impl ToolExecutor {
         result
     }
     
-    /// Execute a tool based on content provided by the LLM (backward compatibility)
-    pub async fn execute(&self, tool_content: &str) -> ToolResult {
-        // Parse the tool content into args (first line) and body (subsequent lines)
-        let (tool_name, args, body) = self.parse_tool_content(tool_content);
-        self.execute_with_parts(&tool_name, args, &body).await
-    }
-
-    /// Parse tool content into name, args, and body
-    fn parse_tool_content<'a>(&self, tool_content: &'a str) -> (String, &'a str, String) {
-        // Split the tool content into args (first line) and body (subsequent lines)
-        let mut lines = tool_content.trim().lines();
-        let args_line = lines.next().unwrap_or("").trim();
-        let body = lines.collect::<Vec<&str>>().join("\n");
-
-        // Parse the tool name from the args line
-        let parts: Vec<&str> = args_line.splitn(2, char::is_whitespace).collect();
-        let tool_name = if !parts.is_empty() {
-            parts[0].trim().to_lowercase()
-        } else {
-            "unknown".to_string()
-        };
-
-        let args = if parts.len() > 1 { parts[1] } else { "" };
-
-        (tool_name, args, body)
-    }
-
     /// Check if a tool is read-only
     fn is_readonly_tool(&self, name: &str) -> bool {
         matches!(name, "read" | "shell" | "fetch" | "done" | "task" | "agent" | "wait")

@@ -3,7 +3,6 @@
 //! This module provides the agent tool with subcommands:
 //! - create: Create a new agent
 //! - send: Send a message to another agent
-//! - wait: Wait for messages from other agents
 
 use crate::agent::{AgentManager, AgentMessage, AgentId};
 use crate::config::Config;
@@ -35,12 +34,9 @@ pub async fn execute_agent_tool(
         "send" => {
             execute_send_subcommand(subcommand_args, body, silent_mode, agent_manager, source_agent_id).await
         }
-        "wait" => {
-            execute_wait_subcommand(silent_mode, agent_manager).await
-        }
         _ => {
             let error_msg = format!(
-                "Unknown agent subcommand: '{}'. Available subcommands: create, send, wait", 
+                "Unknown agent subcommand: '{}'. Available subcommands: create, send",
                 subcommand
             );
             if !silent_mode {
@@ -264,26 +260,4 @@ async fn execute_send_subcommand(
             target_id
         )
     )
-}
-
-/// Execute the 'wait' subcommand to wait for messages
-async fn execute_wait_subcommand(
-    silent_mode: bool,
-    _agent_manager: Arc<Mutex<AgentManager>>,
-) -> ToolResult {
-    if !silent_mode {
-        crate::btool_println!(
-            "agent",
-            "{}⏸️ Waiting:{} Agent will wait for messages",
-            crate::constants::FORMAT_BOLD,
-            crate::constants::FORMAT_RESET
-        );
-    }
-    
-    // Use the wait method directly to set the state to Wait
-    ToolResult {
-        success: true,
-        agent_output: "Agent is now waiting: Waiting for messages from other agents\nAny input will resume processing.".to_string(),
-        state_change: crate::tools::AgentStateChange::Wait,
-    }
 }
