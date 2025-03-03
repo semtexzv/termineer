@@ -9,15 +9,18 @@ use std::time::Duration;
 
 use super::interrupt::{spawn_interrupt_monitor, InterruptCoordinator};
 use super::types::{
-    AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, InterruptReceiver,
-    StateSender,
+    AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, InterruptReceiver, StateSender,
 };
-use crate::config::Config;
-use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_START_PREFIX, TOOL_RESULT_END};
-use crate::conversation::{is_done_tool, parse_assistant_response};
-use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::ansi_converter::strip_ansi_sequences;
-use crate::conversation::{sanitize_conversation, truncate_conversation, ToolMapper, TruncationConfig};
+use crate::config::Config;
+use crate::constants::{
+    TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX,
+};
+use crate::conversation::{is_done_tool, parse_assistant_response};
+use crate::conversation::{
+    sanitize_conversation, truncate_conversation, ToolMapper, TruncationConfig,
+};
+use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
@@ -70,7 +73,7 @@ pub struct Agent {
 
     /// Configuration for conversation truncation
     truncation_config: TruncationConfig,
-    
+
     /// Tool mapper for tracking tool invocations and results
     tool_mapper: ToolMapper,
 
@@ -79,7 +82,7 @@ pub struct Agent {
 
     /// Current state of the agent
     state: AgentState,
-    
+
     /// Counter for tool invocations, used for indexing tool results
     tool_invocation_counter: usize,
 }
@@ -89,12 +92,12 @@ impl Agent {
     fn tool_result_start_tag(&self) -> String {
         format!("<tool_result index=\"{}\">", self.tool_invocation_counter)
     }
-    
+
     /// Generate a tool error start tag with the current tool invocation index
     fn tool_error_start_tag(&self) -> String {
         format!("<tool_error index=\"{}\">", self.tool_invocation_counter)
     }
-    
+
     /// Create a new agent with the given configuration and communication channels
     pub fn new(
         id: AgentId,
@@ -164,10 +167,12 @@ impl Agent {
         mut agent_receiver: AgentReceiver,
         interrupt_receiver: InterruptReceiver,
     ) {
-        crate::bprintln!("🤖 {}Agent{} '{}' started", 
+        crate::bprintln!(
+            "🤖 {}Agent{} '{}' started",
             crate::constants::FORMAT_BOLD,
             crate::constants::FORMAT_RESET,
-            self.name);
+            self.name
+        );
         self.set_state(AgentState::Idle);
 
         // Setup interrupt coordination channels
@@ -182,7 +187,7 @@ impl Agent {
 
             tokio::select! {
                 biased;
-                
+
                 // Handle any possible interrupts (routed to us by the monitor)
                 // This has highest priority (biased select)
                 _ = agent_interrupt_rx.recv() => {
@@ -200,13 +205,13 @@ impl Agent {
                     self.set_state(AgentState::Idle);
                     continue;
                 }
-                
+
                 // Call LLM (Interruptible) - only when in Processing state
                 result = self.send_message(&coordinator), if matches!(current_state, AgentState::Processing) => {
                     match result {
                         Ok(result) => {
                             if !result.continue_processing {
-                                crate::bprintln!("✅ {}Agent{} has completed its task.", 
+                                crate::bprintln!("✅ {}Agent{} has completed its task.",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET);
                                 self.set_state(AgentState::Done(Some(result.response)))
@@ -217,7 +222,7 @@ impl Agent {
                             self.set_state(AgentState::Idle);
                         }
                     }
-                    
+
                     // Process any pending messages that arrived during LLM processing
                     'queue: loop {
                         match agent_receiver.try_recv() {
@@ -234,7 +239,7 @@ impl Agent {
                                 break 'queue;
                             }
                             Err(TryRecvError::Disconnected) => {
-                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating", 
+                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET,
                                     self.name);
@@ -243,13 +248,13 @@ impl Agent {
                         }
                     }
                 }
-                
+
                 // Wait for and process messages when idle or done
                 msg = agent_receiver.recv(), if matches!(current_state, AgentState::Done(_) | AgentState::Idle) => {
                     match msg {
                         Some(message) => {
                             self.handle_message(message).await;
-                            
+
                             // Check if we've been terminated after handling message
                             if matches!(self.state, AgentState::Terminated) {
                                 break 'main;
@@ -257,7 +262,7 @@ impl Agent {
                         },
                         None => {
                             // Channel closed, terminate agent
-                            crate::bprintln!("{}Agent{} '{}' channel closed, terminating", 
+                            crate::bprintln!("{}Agent{} '{}' channel closed, terminating",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET,
                                     self.name);
@@ -280,7 +285,7 @@ impl Agent {
                                 break 'queue;
                             }
                             Err(TryRecvError::Disconnected) => {
-                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating", 
+                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET,
                                     self.name);
@@ -293,17 +298,21 @@ impl Agent {
 
             // Check if we've been terminated
             if matches!(self.state, AgentState::Terminated) {
-                crate::bprintln!("{}Agent{} processing was terminated.",
+                crate::bprintln!(
+                    "{}Agent{} processing was terminated.",
                     crate::constants::FORMAT_BOLD,
-                    crate::constants::FORMAT_RESET);
+                    crate::constants::FORMAT_RESET
+                );
                 break 'main;
             }
         }
 
-        crate::bprintln!("🤖 {}Agent{} '{}' terminated", 
+        crate::bprintln!(
+            "🤖 {}Agent{} '{}' terminated",
             crate::constants::FORMAT_BOLD,
             crate::constants::FORMAT_RESET,
-            self.name);
+            self.name
+        );
     }
 
     /// Handle incoming messages and commands
@@ -311,31 +320,32 @@ impl Agent {
         match msg {
             AgentMessage::UserInput(input) => {
                 // Add message to conversation and start processing
-                self.conversation.push(Message::text(
-                    "user",
-                    input.clone(),
-                    MessageInfo::User,
-                ));
+                self.conversation
+                    .push(Message::text("user", input.clone(), MessageInfo::User));
                 self.set_state(AgentState::Processing);
                 // Display user input with chevron and dark blue color
-                crate::bprintln!("{}{}>{} {}{}{}", 
+                crate::bprintln!(
+                    "{}{}>{} {}{}{}",
                     crate::constants::FORMAT_BLUE,
-                    crate::constants::FORMAT_BOLD,
-                    crate::constants::FORMAT_RESET, 
-                    crate::constants::FORMAT_BLUE,
-                    input,
-                    crate::constants::FORMAT_RESET);
-            },
-            AgentMessage::Command(cmd) => {
-                self.handle_command(cmd).await;
-            },
-            AgentMessage::Terminate => {
-                crate::bprintln!("🤖 {}Agent{} '{}' received terminate message", 
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET,
-                    self.name);
+                    crate::constants::FORMAT_BLUE,
+                    input,
+                    crate::constants::FORMAT_RESET
+                );
+            }
+            AgentMessage::Command(cmd) => {
+                self.handle_command(cmd).await;
+            }
+            AgentMessage::Terminate => {
+                crate::bprintln!(
+                    "🤖 {}Agent{} '{}' received terminate message",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    self.name
+                );
                 self.set_state(AgentState::Terminated);
-            },
+            }
         }
     }
     /// Handle a command message
@@ -359,6 +369,10 @@ impl Agent {
             AgentCommand::ResetConversation => {
                 self.clear_conversation();
                 crate::bprintln!("Conversation reset");
+            }
+            AgentCommand::SetThinkingBudget(budget) => {
+                self.set_thinking_budget(budget);
+                crate::bprintln!("Thinking budget set to {} tokens", budget);
             }
         }
     }
@@ -386,7 +400,7 @@ impl Agent {
 
         // Create interrupt data for coordination
         let interrupt_data = Arc::new(Mutex::new(InterruptData::new()));
-        
+
         // Create channel for high-priority interrupt signals
         let (interrupt_tx, mut interrupt_rx) = mpsc::channel(10);
 
@@ -401,7 +415,7 @@ impl Agent {
                 // Make sure to clean up interrupt state if startup fails
                 interrupt_coordinator.set_shell_running(false, None);
                 self.set_state(AgentState::Processing);
-                
+
                 return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
                     "Shell execution error: {}",
                     e
@@ -409,10 +423,14 @@ impl Agent {
             }
         };
 
+        // Add a timestamp for tracking performance
+        let start_time = std::time::Instant::now();
+        
         // Buffer to collect output for the conversation history
         let mut partial_output = String::new();
 
-        let mut result_message = String::new();
+        // This will hold the final message after command completion
+        let result_message;
         let mut success = true;
 
         // Flag to track if we're in the process of interrupting
@@ -422,22 +440,19 @@ impl Agent {
 
         // Track time between interruption checks (to prevent excessive API calls)
         let mut last_check_time = std::time::Instant::now();
-        
+
         // Configure interruption check interval based on command type
         // Shorter for commands that produce a lot of output quickly
-        let min_check_interval = if cmd_args.contains("grep") || 
-                                   cmd_args.contains("find") || 
-                                   cmd_args.contains("watch") {
-            Duration::from_secs(5)  // Check more frequently for verbose commands
-        } else {
-            Duration::from_secs(10) // Standard interval for most commands
-        };
+        let min_check_interval =
+            if cmd_args.contains("grep") || cmd_args.contains("find") || cmd_args.contains("watch")
+            {
+                Duration::from_secs(5) // Check more frequently for verbose commands
+            } else {
+                Duration::from_secs(10) // Standard interval for most commands
+            };
 
         // Track if we have a partial tool result in the conversation
         let mut has_partial_result = false;
-        
-        // Track output size for adaptive interruption checks
-        let mut output_lines = 0;
 
         // Loop to receive output and check for interruption
         loop {
@@ -448,22 +463,17 @@ impl Agent {
                         Some(ShellOutput::Stdout(line)) => {
                             // Sanitize line by removing ANSI escape sequences
                             let sanitized_line = strip_ansi_sequences(&line);
-                            
+
                             // Add sanitized output to full output record
                             partial_output.push_str(&sanitized_line);
                             partial_output.push('\n');
-                            output_lines += 1;
-
+                            
                             // Check for interruption based on time or output volume
-                            let should_check_interrupt = 
-                                !interrupting && 
-                                (last_check_time.elapsed() > min_check_interval ||
-                                 (output_lines > 100 && last_check_time.elapsed() > Duration::from_secs(3)));
+                            let should_check_interrupt = !interrupting && last_check_time.elapsed() > min_check_interval;
 
                             if should_check_interrupt {
                                 // Update last check time
                                 last_check_time = std::time::Instant::now();
-                                output_lines = 0; // Reset counter
 
                                 // Remove previous partial result if it exists
                                 if has_partial_result {
@@ -489,7 +499,7 @@ impl Agent {
                                         tool_index: Some(self.tool_invocation_counter),
                                     }
                                 );
-                                
+
                                 // Add partial result to conversation and update tool mapper
                                 let msg_index = self.conversation.len();
                                 self.conversation.push(partial_message);
@@ -497,8 +507,11 @@ impl Agent {
 
                                 has_partial_result = true;
 
-                                // Send interruption check using the partial tool result
-                                if let Ok(interruption_check) = self.check_for_interruption().await {
+                                // Calculate elapsed time since the command started
+                                let elapsed_duration = start_time.elapsed();
+                                
+                                // Send interruption check using the partial tool result and elapsed time
+                                if let Ok(interruption_check) = self.check_for_interruption(elapsed_duration).await {
                                     if interruption_check.interrupted {
                                         // Store the interruption reason if provided
                                         let reason = interruption_check.reason.unwrap_or_else(||
@@ -529,16 +542,15 @@ impl Agent {
                         Some(ShellOutput::Stderr(line)) => {
                             // Sanitize line by removing ANSI escape sequences
                             let sanitized_line = strip_ansi_sequences(&line);
-                            
+
                             // Add sanitized output to full output record
                             partial_output.push_str(&sanitized_line);
                             partial_output.push('\n');
-                            output_lines += 1;
                         },
                         Some(ShellOutput::Complete(tool_result)) => {
                             // Command completed, store results
                             success = tool_result.success;
-                            result_message = tool_result.agent_output;
+                            // Note: tool_result.agent_output will be used when determining the final result_message
                             // Clear interrupt_shell as the command is done
                             // Update coordinator to indicate shell is no longer running
                             interrupt_coordinator.set_shell_running(false, None);
@@ -587,13 +599,13 @@ impl Agent {
                     if interrupt_data.lock().unwrap().is_interrupted() && !interrupting {
                         // This would happen if the interrupt came from somewhere else
                         interrupting = true;
-                        
+
                         // Get the reason if available
                         let reason = {
                             let data = interrupt_data.lock().unwrap();
                             data.reason().cloned()
                         };
-                        
+
                         interruption_reason_str = reason.clone();
                         crate::bprintln!("{}{}{} detected: {}{}",
                             crate::constants::FORMAT_BOLD,
@@ -605,7 +617,6 @@ impl Agent {
                 },
             }
         }
-
 
         // Properly finish the partial tool result if it exists
         if has_partial_result {
@@ -630,12 +641,16 @@ impl Agent {
         let agent_response = if success || interrupting {
             format!(
                 "{}\n{}\n{}",
-                self.tool_result_start_tag(), result_message, TOOL_RESULT_END
+                self.tool_result_start_tag(),
+                result_message,
+                TOOL_RESULT_END
             )
         } else {
             format!(
                 "{}\n{}\n{}",
-                self.tool_error_start_tag(), result_message, TOOL_ERROR_END
+                self.tool_error_start_tag(),
+                result_message,
+                TOOL_ERROR_END
             )
         };
 
@@ -655,11 +670,12 @@ impl Agent {
 
         // Create the message
         let message = Message::text("user", agent_response.clone(), message_info);
-        
+
         // Add to conversation and update tool mapper
         let msg_index = self.conversation.len();
         self.conversation.push(message);
-        self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
+        self.tool_mapper
+            .process_message(msg_index, &self.conversation[msg_index]);
 
         // Reset state to Processing since we're continuing processing
         self.set_state(AgentState::Processing);
@@ -675,13 +691,28 @@ impl Agent {
     /// Sends a message to the LLM to check if it wants to interrupt the shell command
     async fn check_for_interruption(
         &mut self,
+        elapsed_duration: Duration,
     ) -> Result<InterruptionCheck, Box<dyn std::error::Error + Send + Sync>> {
         // Save current cache points for efficient token usage
         let current_cache_points = self.cache_points.clone();
 
+        // Format the elapsed time in a human-readable format
+        let elapsed_seconds = elapsed_duration.as_secs();
+        let elapsed_time_str = if elapsed_seconds < 60 {
+            format!("{} seconds", elapsed_seconds)
+        } else if elapsed_seconds < 3600 {
+            format!("{} minutes {} seconds", elapsed_seconds / 60, elapsed_seconds % 60)
+        } else {
+            format!("{} hours {} minutes", 
+                elapsed_seconds / 3600, 
+                (elapsed_seconds % 3600) / 60
+            )
+        };
+
         // Create a tailored prompt for the interruption check
         let interruption_check_message = format!(
             "========== COMMAND INTERRUPTION CHECK ==========\n\
+            The command has been running for {}.\n\
             Evaluate if this command should be interrupted based on its current output.\n\
             \n\
             Interrupt if:\n\
@@ -696,13 +727,16 @@ impl Agent {
             \n\
             If interrupting, provide exactly ONE SENTENCE explaining why.\n\
             Your decision:"
+            , elapsed_time_str
         );
 
         // Log interruption check with blue formatting
-        crate::bprintln!("{}{}Checking if shell command should be interrupted...{}",
+        crate::bprintln!(
+            "{}{}Checking if shell command should be interrupted...{}",
             crate::constants::FORMAT_BLUE,
             crate::constants::FORMAT_BOLD,
-            crate::constants::FORMAT_RESET);
+            crate::constants::FORMAT_RESET
+        );
 
         // Create a temporary message to add to conversation
         let temp_message = Message::text("user", interruption_check_message, MessageInfo::User);
@@ -718,7 +752,7 @@ impl Agent {
 
         // Start a timeout for the interruption check
         let timeout_duration = tokio::time::Duration::from_secs(10);
-        
+
         // Handle the LLM response with proper error conversion and timeout
         let response = match tokio::time::timeout(
             timeout_duration,
@@ -729,27 +763,32 @@ impl Agent {
                 None,
                 Some(&current_cache_points),
                 Some(max_tokens_for_check),
-            )
-        ).await {
+            ),
+        )
+        .await
+        {
             Ok(result) => match result {
                 Ok(response) => response,
                 Err(e) => {
                     // Convert the error to a Send + Sync error by using the string representation
                     crate::berror_println!("Interruption check failed: {}", e);
-                    
+
                     // Remove the temporary message before returning
                     self.conversation.pop();
-                    
+
                     return Err(format!("Interruption check failed: {}", e).into());
                 }
             },
             Err(_) => {
                 // Timeout occurred - clean up and return no interruption
-                crate::berror_println!("Interruption check timed out after {} seconds", timeout_duration.as_secs());
-                
+                crate::berror_println!(
+                    "Interruption check timed out after {} seconds",
+                    timeout_duration.as_secs()
+                );
+
                 // Remove the temporary message before returning
                 self.conversation.pop();
-                
+
                 return Ok(InterruptionCheck {
                     interrupted: false,
                     reason: None,
@@ -800,18 +839,22 @@ impl Agent {
 
         // Log the decision
         if should_interrupt {
-            crate::bprintln!("{}{}{} requested: {}{}",
-                                            crate::constants::FORMAT_BOLD,
-                                            crate::constants::FORMAT_BLUE,
-                                            "LLM interruption",
-                                            reason,
-                                            crate::constants::FORMAT_RESET);
+            crate::bprintln!(
+                "{}{}{} requested: {}{}",
+                crate::constants::FORMAT_BOLD,
+                crate::constants::FORMAT_BLUE,
+                "LLM interruption",
+                reason,
+                crate::constants::FORMAT_RESET
+            );
         } else {
-            crate::bprintln!("{}{}{} to continue execution{}",
+            crate::bprintln!(
+                "{}{}{} to continue execution{}",
                 crate::constants::FORMAT_BLUE,
                 crate::constants::FORMAT_BOLD,
                 "LLM decided",
-                crate::constants::FORMAT_RESET);
+                crate::constants::FORMAT_RESET
+            );
         }
 
         Ok(InterruptionCheck {
@@ -821,7 +864,7 @@ impl Agent {
     }
 
     /// Load project information from the specified file if it exists and the conversation is empty
-    /// 
+    ///
     /// # Arguments
     /// * `filepath` - Optional path to the project info file, defaults to ".autoswe" if None
     /// * `force` - If true, will add project info even if conversation is not empty
@@ -831,18 +874,18 @@ impl Agent {
     /// * `Ok(false)` if no project info was loaded (file doesn't exist or not needed)
     /// * `Err(...)` if an error occurred while loading the file
     async fn load_project_info(
-        &mut self, 
-        filepath: Option<&str>, 
-        force: bool
+        &mut self,
+        filepath: Option<&str>,
+        force: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let path = filepath.unwrap_or(".autoswe");
-        
+
         // Check if we should add project info (either conversation is empty or force=true)
         // and the specified file exists
         if (self.conversation.is_empty() || force) && tokio::fs::try_exists(path).await? {
             let working = std::env::current_dir()?;
             let project_info = tokio::fs::read_to_string(path).await?;
-            
+
             let content = format!(
                 "# You're currently working in this directory:\n```\n{}\n```\n# Project information:\n{}",
                 working.to_str().unwrap_or("unknown"),
@@ -852,15 +895,17 @@ impl Agent {
             // Insert as a regular user message at the beginning
             self.conversation
                 .push(Message::text("user", content, MessageInfo::User));
-                
-            crate::bprintln!("{}Loaded project information from {} file{}",
+
+            crate::bprintln!(
+                "{}Loaded project information from {} file{}",
                 crate::constants::FORMAT_CYAN,
                 path,
-                crate::constants::FORMAT_RESET);
-                
+                crate::constants::FORMAT_RESET
+            );
+
             return Ok(true);
         }
-        
+
         Ok(false)
     }
 
@@ -876,17 +921,21 @@ impl Agent {
         // Get necessary values for token counting
         let thinking_budget = Some(self.config.thinking_budget);
         let safe_token_limit = self.llm.safe_input_token_limit();
-        
+
         // Apply conversation truncation if needed to stay within token limits
         // This prevents the conversation from exceeding the model's context window
         // by intelligently replacing older tool outputs with placeholders
         let needs_cache_reset = {
             // Temporary scope to limit borrow of system_prompt
             let system_prompt = self.config.system_prompt.as_deref();
-            
+
             // Count tokens in the current conversation using the LLM backend's accurate counter
             // This ensures we have precise token counts for making truncation decisions
-            match self.llm.count_tokens(&self.conversation, system_prompt).await {
+            match self
+                .llm
+                .count_tokens(&self.conversation, system_prompt)
+                .await
+            {
                 Ok(usage) => {
                     // Only apply truncation if we successfully counted tokens
                     // Check if truncation is needed and apply it
@@ -904,13 +953,13 @@ impl Agent {
                             truncation_result.truncated_messages,
                             truncation_result.estimated_tokens_saved
                         );
-                        
+
                         // Need to reset cache points after truncation
                         true
                     } else {
                         false
                     }
-                },
+                }
                 Err(e) => {
                     // Log token counting error but continue without truncation
                     crate::berror_println!("Failed to count tokens for truncation: {}", e);
@@ -918,12 +967,12 @@ impl Agent {
                 }
             }
         };
-        
+
         // Reset cache points if needed
         if needs_cache_reset {
             self.reset_cache_points();
         }
-        
+
         // Apply conversation maintenance to remove empty messages
         // This ensures the conversation structure is clean before sending to the LLM
         let removed_messages = sanitize_conversation(&mut self.conversation);
@@ -935,14 +984,14 @@ impl Agent {
                 crate::constants::FORMAT_RESET,
                 removed_messages
             );
-            
+
             // Reset cache points since message structure changed
             self.reset_cache_points();
         }
-        
+
         // Get the system prompt after any modifications to conversation
         let system_prompt = self.config.system_prompt.as_deref();
-        
+
         // Handle the LLM response with proper error conversion
         let response = match self
             .llm
@@ -1038,15 +1087,16 @@ impl Agent {
                 tool_index: Some(self.tool_invocation_counter),
             },
         );
-        
+
         // Add to conversation and update tool mapper
         let msg_index = self.conversation.len();
         self.conversation.push(tool_call_message);
-        self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
+        self.tool_mapper
+            .process_message(msg_index, &self.conversation[msg_index]);
 
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
-        
+
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
             // Use a new dedicated interrupt channel
@@ -1065,7 +1115,7 @@ impl Agent {
 
         // Increment the tool invocation counter
         self.tool_invocation_counter += 1;
-        
+
         // Execute the tool
         let tool_result = self.tool_executor.execute(&tool_content).await;
 
@@ -1085,12 +1135,16 @@ impl Agent {
         let agent_response = if tool_result.success {
             format!(
                 "{}\n{}\n{}",
-                self.tool_result_start_tag(), tool_result.agent_output, TOOL_RESULT_END
+                self.tool_result_start_tag(),
+                tool_result.agent_output,
+                TOOL_RESULT_END
             )
         } else {
             format!(
                 "{}\n{}\n{}",
-                self.tool_error_start_tag(), tool_result.agent_output, TOOL_ERROR_END
+                self.tool_error_start_tag(),
+                tool_result.agent_output,
+                TOOL_ERROR_END
             )
         };
 
@@ -1111,7 +1165,6 @@ impl Agent {
             }
         };
 
-
         let response_message_len = agent_response.len();
 
         let message = Message::text("user", agent_response.clone(), message_info);
@@ -1119,8 +1172,9 @@ impl Agent {
         // Add to conversation and update tool mapper
         let msg_index = self.conversation.len();
         self.conversation.push(message);
-        self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
-        
+        self.tool_mapper
+            .process_message(msg_index, &self.conversation[msg_index]);
+
         if response_message_len > 500 {
             self.cache_here();
         }
@@ -1129,9 +1183,11 @@ impl Agent {
         if is_done {
             // Update state to Done with the final response
             self.state = AgentState::Done(Some(result_for_response.clone()));
-            crate::bprintln!("✅ {}Agent{} has marked task as completed.", 
+            crate::bprintln!(
+                "✅ {}Agent{} has marked task as completed.",
                 crate::constants::FORMAT_BOLD,
-                crate::constants::FORMAT_RESET);
+                crate::constants::FORMAT_RESET
+            );
 
             return Ok(MessageResult {
                 response: result_for_response,
@@ -1178,9 +1234,11 @@ impl Agent {
         // Reset state to Idle if it was Done
         if matches!(self.state, AgentState::Done(_)) {
             self.state = AgentState::Idle;
-            crate::bprintln!("🤖 {}Agent{} state reset to Idle.",
+            crate::bprintln!(
+                "🤖 {}Agent{} state reset to Idle.",
                 crate::constants::FORMAT_BOLD,
-                crate::constants::FORMAT_RESET);
+                crate::constants::FORMAT_RESET
+            );
         }
     }
 
@@ -1202,7 +1260,7 @@ impl Agent {
     }
 
     /// Load project information from a specified file
-    /// 
+    ///
     /// # Arguments
     /// * `filepath` - Path to the project info file (optional, defaults to ".autoswe")
     /// * `force` - If true, will add project info even if conversation is not empty
@@ -1210,13 +1268,13 @@ impl Agent {
     /// This method is useful for CLI interfaces or other external code that wants
     /// to explicitly load a project file.
     pub async fn load_project_file(
-        &mut self, 
+        &mut self,
         filepath: Option<&str>,
-        force: bool
+        force: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.load_project_info(filepath, force).await
     }
-    
+
     /// Set the model to use
     pub fn set_model(&mut self, model: String) -> Result<(), Box<dyn std::error::Error>> {
         self.config.model = model.clone();
@@ -1226,32 +1284,41 @@ impl Agent {
         self.reset_cache_points();
         Ok(())
     }
-    
+
     /// Get all tool interactions in the conversation
     pub fn get_tool_interactions(&self) -> Vec<&crate::conversation::ToolInteraction> {
         self.tool_mapper.get_interactions()
     }
-    
+
     /// Get a specific tool interaction by tool index
-    pub fn get_tool_interaction(&self, tool_index: usize) -> Option<&crate::conversation::ToolInteraction> {
+    pub fn get_tool_interaction(
+        &self,
+        tool_index: usize,
+    ) -> Option<&crate::conversation::ToolInteraction> {
         self.tool_mapper.get_interaction(tool_index)
     }
-    
+
     /// Get the tool interaction associated with a specific message
-    pub fn get_tool_interaction_for_message(&self, message_index: usize) -> Option<&crate::conversation::ToolInteraction> {
+    pub fn get_tool_interaction_for_message(
+        &self,
+        message_index: usize,
+    ) -> Option<&crate::conversation::ToolInteraction> {
         self.tool_mapper.get_interaction_for_message(message_index)
     }
-    
+
     /// Get all tool interactions for a specific tool name
-    pub fn get_tool_interactions_by_name(&self, tool_name: &str) -> Vec<&crate::conversation::ToolInteraction> {
+    pub fn get_tool_interactions_by_name(
+        &self,
+        tool_name: &str,
+    ) -> Vec<&crate::conversation::ToolInteraction> {
         self.tool_mapper.get_interactions_by_name(tool_name)
     }
-    
+
     /// Get any pending tool calls that don't have results yet
     pub fn get_pending_tool_calls(&self) -> Vec<(usize, &str, usize)> {
         self.tool_mapper.get_pending_calls()
     }
-    
+
     /// Refresh the tool mapping from the current conversation
     pub fn refresh_tool_mapping(&mut self) {
         self.tool_mapper.process_conversation(&self.conversation);

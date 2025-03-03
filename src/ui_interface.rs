@@ -3,7 +3,7 @@
 //! This module implements a Text User Interface (TUI) using ratatui,
 //! providing a more interactive and visually appealing interface.
 
-use crate::agent::{AgentManager, AgentCommand, AgentId, AgentMessage, AgentState};
+use crate::agent::{AgentManager, AgentId, AgentMessage, AgentState};
 use crate::output::SharedBuffer;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -110,6 +110,7 @@ impl CommandSuggestionsPopup {
             CommandSuggestion { name: "/tools".to_string(), description: "Enable or disable tools".to_string() },
             CommandSuggestion { name: "/system".to_string(), description: "Set the system prompt".to_string() },
             CommandSuggestion { name: "/reset".to_string(), description: "Reset the conversation".to_string() },
+            CommandSuggestion { name: "/thinking".to_string(), description: "Set the thinking budget in tokens".to_string() },
         ];
         
         Self {
@@ -880,16 +881,8 @@ impl TuiInterface {
                     }
                     
                     if input.starts_with('/') {
-                        // Simply send the command directly to the agent
-                        // Add user input to buffer with blue color (slash command)
-                        self.state.agent_buffer.stdout(&format!("Command: {}", input)).unwrap();
-
-                        // Send to selected agent
-                        let manager = self.agent_manager.lock().unwrap();
-                        manager.send_message(
-                            self.state.selected_agent_id,
-                            AgentMessage::UserInput(input),
-                        )?;
+                        // Process slash commands through our dedicated handler
+                        self.process_command(&input).await?;
                         
                         // Clear the input after submitting
                         self.state.input.clear();
@@ -1350,10 +1343,186 @@ impl TuiInterface {
         Ok(())
     }
 
-    /// This function is kept as a no-op for compatibility
-    /// Command output is now sent directly to the agent
-    fn show_command_result(&mut self, _title: String, _content: String) {
-        // No-op - command output now goes to agent
+    /// This function is now used to display temporary command results
+    fn show_command_result(&mut self, title: String, content: String) {
+        self.state.temp_output.show(title, content);
+    }
+    
+    /// Process slash commands
+    async fn process_command(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Split command and arguments
+        let parts: Vec<&str> = input.splitn(2, ' ').collect();
+        let command = parts[0].trim_start_matches('/');
+        let args = parts.get(1).map(|s| s.trim()).unwrap_or("");
+        
+        // Log command to buffer
+        self.state.agent_buffer.stdout(&format!("Command: {}", input)).unwrap();
+        
+        match command {
+            "help" => {
+                // Show help information
+                let help_text = "\
+                Available commands:
+                /help - Show this help information
+                /exit, /quit - Exit the application
+                /interrupt - Interrupt the current agent
+                /model MODEL - Set the model (e.g., claude-3-haiku-20240307)
+                /tools on|off - Enable or disable tools
+                /system TEXT - Set the system prompt
+                /reset - Reset the conversation
+                /thinking NUMBER - Set thinking budget in tokens (e.g., 10000)
+                
+                Agent selection:
+                #ID or #NAME - Switch to agent by ID or name
+                ";
+                
+                self.show_command_result("Help".to_string(), help_text.to_string());
+            },
+            
+            "exit" | "quit" => {
+                // Exit the application
+                self.state.should_quit = true;
+            },
+            
+            "interrupt" => {
+                // Interrupt the current agent
+                let manager = self.agent_manager.lock().unwrap();
+                manager.interrupt_agent_with_reason(
+                    self.state.selected_agent_id,
+                    "User requested interruption via /interrupt command".to_string(),
+                )?;
+                
+                // Add feedback to buffer
+                self.state.agent_buffer.stdout("Interrupting agent...").unwrap();
+            },
+            
+            "model" => {
+                if args.is_empty() {
+                    self.show_command_result("Error".to_string(), "Model name is required".to_string());
+                    return Ok(());
+                }
+                
+                // Create SetModel command
+                use crate::agent::types::AgentCommand;
+                let cmd = AgentCommand::SetModel(args.to_string());
+                
+                // Send to agent
+                let manager = self.agent_manager.lock().unwrap();
+                manager.send_message(
+                    self.state.selected_agent_id,
+                    AgentMessage::Command(cmd),
+                )?;
+                
+                // Add feedback to buffer
+                self.state.agent_buffer.stdout(&format!("Model set to: {}", args)).unwrap();
+            },
+            
+            "tools" => {
+                let enable = match args.to_lowercase().as_str() {
+                    "on" | "true" | "yes" | "1" => true,
+                    "off" | "false" | "no" | "0" => false,
+                    _ => {
+                        self.show_command_result("Error".to_string(), "Invalid argument. Use 'on' or 'off'".to_string());
+                        return Ok(());
+                    }
+                };
+                
+                // Create EnableTools command
+                use crate::agent::types::AgentCommand;
+                let cmd = AgentCommand::EnableTools(enable);
+                
+                // Send to agent
+                let manager = self.agent_manager.lock().unwrap();
+                manager.send_message(
+                    self.state.selected_agent_id,
+                    AgentMessage::Command(cmd),
+                )?;
+                
+                // Add feedback to buffer
+                self.state.agent_buffer.stdout(&format!("Tools {}", if enable { "enabled" } else { "disabled" })).unwrap();
+            },
+            
+            "system" => {
+                if args.is_empty() {
+                    self.show_command_result("Error".to_string(), "System prompt is required".to_string());
+                    return Ok(());
+                }
+                
+                // Create SetSystemPrompt command
+                use crate::agent::types::AgentCommand;
+                let cmd = AgentCommand::SetSystemPrompt(args.to_string());
+                
+                // Send to agent
+                let manager = self.agent_manager.lock().unwrap();
+                manager.send_message(
+                    self.state.selected_agent_id,
+                    AgentMessage::Command(cmd),
+                )?;
+                
+                // Add feedback to buffer
+                self.state.agent_buffer.stdout("System prompt updated").unwrap();
+            },
+            
+            "reset" => {
+                // Create ResetConversation command
+                use crate::agent::types::AgentCommand;
+                let cmd = AgentCommand::ResetConversation;
+                
+                // Send to agent
+                let manager = self.agent_manager.lock().unwrap();
+                manager.send_message(
+                    self.state.selected_agent_id,
+                    AgentMessage::Command(cmd),
+                )?;
+                
+                // Add feedback to buffer
+                self.state.agent_buffer.stdout("Conversation reset").unwrap();
+            },
+            
+            "thinking" => {
+                // Parse the thinking budget argument
+                if args.is_empty() {
+                    self.show_command_result("Error".to_string(), "Thinking budget (number of tokens) is required".to_string());
+                    return Ok(());
+                }
+                
+                let budget = match args.parse::<usize>() {
+                    Ok(value) => value,
+                    Err(_) => {
+                        self.show_command_result("Error".to_string(), "Invalid number format".to_string());
+                        return Ok(());
+                    }
+                };
+                
+                // Create the SetThinkingBudget command
+                use crate::agent::types::AgentCommand;
+                let cmd = AgentCommand::SetThinkingBudget(budget);
+                
+                // Send command to agent
+                let manager = self.agent_manager.lock().unwrap();
+                
+                // Log the action
+                self.state.agent_buffer.stdout(&format!("Setting thinking budget to {} tokens", budget)).unwrap();
+                
+                // Send the command
+                manager.send_message(
+                    self.state.selected_agent_id,
+                    AgentMessage::Command(cmd),
+                )?;
+            },
+            
+            // Unknown command, pass to agent as regular input
+            _ => {
+                // Send to agent as regular input
+                let manager = self.agent_manager.lock().unwrap();
+                manager.send_message(
+                    self.state.selected_agent_id,
+                    AgentMessage::UserInput(input.to_string()),
+                )?;
+            }
+        }
+        
+        Ok(())
     }
     
     /// Handle pound command for agent switching

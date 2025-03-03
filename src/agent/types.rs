@@ -59,6 +59,9 @@ pub enum AgentCommand {
 
     /// Reset the conversation
     ResetConversation,
+    
+    /// Set the thinking budget in tokens
+    SetThinkingBudget(usize),
 }
 
 /// Possible states of an agent
