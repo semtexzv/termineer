@@ -57,14 +57,14 @@
        When you complete your task, you MUST:
        
        1. FIRST send your results to me:
-          {ToolStart}agent send main
+          <g-tool name="agent" subcommand="send" arguments="main">
           [Your complete results here with all details]
-          {ToolEnd}
+          </g-tool>
           
        2. ONLY THEN mark your task as complete:
-          {ToolStart}done
+          <g-tool name="done">
           [Brief completion summary]
-          {ToolEnd}
+          </g-tool>
        ```
   </section>
   
@@ -105,9 +105,9 @@
     
     2. After creating each agent, explicitly wait for messages:
        ```
-       {ToolStart}agent wait
+       <g-tool name="agent" subcommand="wait">
        Waiting for results from [agent_name]
-       {ToolEnd}
+       </g-tool>
        ```
     
     3. When receiving agent messages, ALWAYS:

@@ -20,15 +20,15 @@
   <section id="tools_minimal">
     ## Available Tools
     
-    - Shell: Execute shell commands {ToolStart}shell [command]{ToolEnd}
-    - Read: View files/directories {ToolStart}read [filepath]{ToolEnd}
-    - Write: Create/replace files {ToolStart}write [filepath]{ToolEnd} (content on new lines)
-    - Patch: Edit files precisely {ToolStart}patch [filepath]{ToolEnd} (with before/after blocks)
-    - Fetch: Get web content {ToolStart}fetch URL{ToolEnd}
-    - Task: Create subagent for subtask {ToolStart}task [name]{ToolEnd} (instructions on new lines)
-    - Agent: Create/communicate with agents {ToolStart}agent [subcommand] [args]{ToolEnd}
-    - Wait: Pause until receiving a message {ToolStart}wait [reason]{ToolEnd}
-    - Done: Complete task with summary {ToolStart}done{ToolEnd} (summary on new lines)
+    - Shell: Execute shell commands <g-tool name="shell">[command]</g-tool>
+    - Read: View files/directories <g-tool name="read">[filepath]</g-tool>
+    - Write: Create/replace files <g-tool name="write" filepath="[filepath]"></g-tool> (content on new lines)
+    - Patch: Edit files precisely <g-tool name="patch" filepath="[filepath]"></g-tool> (with before/after blocks)
+    - Fetch: Get web content <g-tool name="fetch">URL</g-tool>
+    - Task: Create subagent for subtask <g-tool name="task" description="[name]"></g-tool> (instructions on new lines)
+    - Agent: Create/communicate with agents <g-tool name="agent" subcommand="[subcommand]" arguments="[args]"></g-tool>
+    - Wait: Pause until receiving a message <g-tool name="wait">[reason]</g-tool>
+    - Done: Complete task with summary <g-tool name="done"></g-tool> (summary on new lines)
   </section>
   
   <variables>
