@@ -647,9 +647,11 @@ impl TuiState {
 
     /// Calculate the number of lines needed for the input text
     fn calculate_input_height(&self) -> u16 {
-        // Calculate required height based on input text and width
-        // Get a reasonable estimate of available width (approximate terminal width minus borders and padding)
-        let estimated_width = 80u16.saturating_sub(4); // Reasonable default with borders
+        // Use terminal size for more accurate width calculation
+        // We'll set a reasonable default in case terminal size can't be determined
+        let terminal_width = crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80);
+        // Available width is terminal width minus borders and some padding
+        let available_width = terminal_width.saturating_sub(4); 
         
         // Count how many lines the input will take
         let input_chars = self.input.chars().count() as u16;
@@ -658,7 +660,7 @@ impl TuiState {
         }
         
         // Calculate lines needed (min of 1)
-        let lines_needed = ((input_chars / estimated_width) + if input_chars % estimated_width > 0 { 1 } else { 0 })
+        let lines_needed = ((input_chars / available_width) + if input_chars % available_width > 0 { 1 } else { 0 })
             .max(1);
             
         // Count newlines in the input
@@ -705,14 +707,49 @@ impl TuiState {
 
         // Only show cursor if temporary output is not visible
         if !self.temp_output.visible {
-            // Calculate cursor position for wrapped text
-            // This is a simplified calculation that works for basic wrapping
+            // Get available width (accounting for borders)
             let available_width = area.width.saturating_sub(2) as usize; // -2 for borders
             
-            // Calculate cursor row and column
-            let cursor_pos_in_chars = self.cursor_position;
-            let cursor_column = (cursor_pos_in_chars % available_width) as u16 + 1; // +1 for border
-            let cursor_row = (cursor_pos_in_chars / available_width) as u16 + 1; // +1 for border
+            // Calculate cursor position accounting for actual newlines
+            let mut cursor_row = 1; // Start at row 1 (accounting for top border)
+            let mut cursor_column = 1; // Start at column 1 (accounting for left border)
+            
+            // Get the input text up to the cursor position
+            let text_before_cursor = self.input.chars().take(self.cursor_position).collect::<String>();
+            
+            // Process each line (split by newline)
+            for line in text_before_cursor.split('\n') {
+                let chars_on_current_line = line.chars().count();
+                
+                // Calculate wrapped lines for this segment
+                let wrapped_lines = (chars_on_current_line / available_width) +
+                                    if chars_on_current_line % available_width > 0 { 1 } else { 0 };
+                
+                // Add all but the last wrapped line to the row count
+                cursor_row += wrapped_lines as u16 - 1;
+                
+                // Last part of the line determines the column
+                if chars_on_current_line >= available_width {
+                    // Position in the last wrapped segment
+                    cursor_column = (chars_on_current_line % available_width) as u16 + 1;
+                    if cursor_column == 1 && chars_on_current_line % available_width == 0 {
+                        // Handle the edge case where we're exactly at the end of a wrapped line
+                        cursor_column = available_width as u16 + 1;
+                    }
+                } else {
+                    // For short lines, it's simply the character count plus 1
+                    cursor_column = chars_on_current_line as u16 + 1;
+                }
+                
+                // Advance to next line for next iteration
+                cursor_row += 1;
+            }
+            
+            // If we have newlines in the text, we need to adjust the cursor row
+            // because the last line doesn't end with a newline
+            if text_before_cursor.contains('\n') {
+                cursor_row -= 1;
+            }
             
             // Show cursor at calculated position
             f.set_cursor(
@@ -755,6 +792,57 @@ pub struct TuiInterface {
 }
 
 impl TuiInterface {
+    /// Helper method to format input text with proper line wrapping
+    /// to match how it's visually displayed in the TUI
+    fn format_input_with_wrapping(input: &str) -> String {
+        // Get terminal width for accurate wrapping
+        let terminal_width = crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80);
+        // Available width is terminal width minus borders and padding
+        let available_width = terminal_width.saturating_sub(4) as usize;
+        
+        // Split input by explicit newlines first
+        let mut result = String::with_capacity(input.len() + (input.len() / available_width) + 1);
+        
+        for line in input.split('\n') {
+            // If line is empty or shorter than available width, keep as is
+            if line.is_empty() || line.len() <= available_width {
+                result.push_str(line);
+                result.push('\n');
+                continue;
+            }
+            
+            // For longer lines, split based on available width
+            let mut chars_remaining = line.chars().count();
+            let mut start_index = 0;
+            
+            while chars_remaining > 0 {
+                // Determine how many characters to include in this segment
+                let chars_to_include = available_width.min(chars_remaining);
+                
+                // Extract this segment
+                let segment: String = line.chars()
+                    .skip(start_index)
+                    .take(chars_to_include)
+                    .collect();
+                
+                // Add segment with a newline
+                result.push_str(&segment);
+                result.push('\n');
+                
+                // Update counters
+                start_index += chars_to_include;
+                chars_remaining -= chars_to_include;
+            }
+        }
+        
+        // Remove trailing newline if original input didn't end with one
+        if !input.ends_with('\n') && result.ends_with('\n') {
+            result.pop();
+        }
+        
+        result
+    }
+
     /// Create a new TUI interface
     pub fn new(
         agent_manager: Arc<Mutex<AgentManager>>,
@@ -897,14 +985,15 @@ impl TuiInterface {
                         self.state.cursor_position = 0;
                         self.state.pound_command_mode = false;
                     } else {
-                        // Don't add user input to buffer here, agent will handle it
-                        // No need to prefix with chevron as the agent will format it properly
-
-                        // Send to selected agent
+                        // Format the input text to match how it's displayed in the TUI
+                        // by converting visual wrapping to actual newlines
+                        let formatted_input = Self::format_input_with_wrapping(&input);
+                        
+                        // Send to selected agent with properly formatted line breaks
                         let manager = self.agent_manager.lock().unwrap();
                         manager.send_message(
                             self.state.selected_agent_id,
-                            AgentMessage::UserInput(input),
+                            AgentMessage::UserInput(formatted_input),
                         )?;
                     }
                 }
