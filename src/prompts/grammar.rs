@@ -96,7 +96,7 @@ impl Grammar for OldGrammar {
     fn format_tool_error(&self, tool_name: &str, index: usize, content: &str) -> String {
         let tool_attribute = format!(" tool=\"{}\"", tool_name);
         let tag = format!("{} index=\"{}\"{}>", TOOL_ERROR_START_PREFIX, index, tool_attribute);
-        let content = content.trim();
+        let content = content.trim_end();
         let separator = if !content.contains('\n') {
             ""
         } else {
@@ -114,7 +114,7 @@ impl Grammar for OldGrammar {
     fn format_tool_result(&self, tool_name: &str, index: usize, content: &str) -> String {
         let tool_attribute = format!(" tool=\"{}\"", tool_name);
         let tag = format!("{} index=\"{}\"{}>", TOOL_RESULT_START_PREFIX, index, tool_attribute);
-        let content = content.trim();
+        let content = content.trim_end();
         let separator = if !content.contains('\n') {
             ""
         } else {

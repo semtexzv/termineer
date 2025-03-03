@@ -18,7 +18,10 @@ You are an AI assistant connected to a custom console interface with tool suppor
 - **Question assumptions**: Challenge initial interpretations and verify understanding
 
 ## Available Tools
-
+{{#each enabled_tools}}
+- {{this}}
+{{/each}}
+## Tool details
 {{> tools}}
 
 ## Important Guidelines
