@@ -34,6 +34,17 @@ pub trait Backend: Send + Sync {
         messages: &[Message],
         system: Option<&str>,
     ) -> Result<TokenUsage, LlmError>;
+    
+    /// Get the maximum token limit for this model
+    /// This is the total limit including both input and output tokens
+    fn max_token_limit(&self) -> usize;
+    
+    /// Get the safe input token limit for this model
+    /// This is typically 80-90% of the max limit, accounting for output tokens
+    fn safe_input_token_limit(&self) -> usize {
+        // Default implementation: 80% of max token limit
+        (self.max_token_limit() as f64 * 0.8) as usize
+    }
 
     /// Get the provider name
     /// Included in the API for provider identification but not currently used

@@ -16,13 +16,11 @@ use crate::config::Config;
 use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_START_PREFIX, TOOL_RESULT_END};
 use crate::conversation::{is_done_tool, parse_assistant_response};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
+use crate::ansi_converter::strip_ansi_sequences;
+use crate::conversation_truncation::{truncate_conversation, TruncationConfig};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
-use crate::agent::tokens::{
-    TokenManager,
-    TOKEN_LIMIT_WARNING_THRESHOLD, TOKEN_LIMIT_CRITICAL_THRESHOLD, MAX_EXPECTED_OUTPUT_TOKENS
-};
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -70,6 +68,9 @@ pub struct Agent {
     /// Cache points for conversation history
     pub cache_points: BTreeSet<usize>,
 
+    /// Configuration for conversation truncation
+    truncation_config: TruncationConfig,
+
     /// Sender of state updates
     sender: StateSender,
 
@@ -78,358 +79,9 @@ pub struct Agent {
     
     /// Counter for tool invocations, used for indexing tool results
     tool_invocation_counter: usize,
-    
-    /// Token manager for tracking and optimizing token usage
-    token_manager: TokenManager,
 }
 
 impl Agent {
-    /// Truncate irrelevant tool outputs in the conversation history
-    fn truncate_irrelevant_tool_outputs(&mut self) -> usize {
-        let mut tokens_saved = 0;
-        let conversation_len = self.conversation.len();
-        
-        // Iterate through the conversation history
-        for i in 0..conversation_len {
-            // First collect the info we need without holding a reference to self.conversation
-            let (should_truncate, index_value, original_len, is_result, info_clone) = {
-                let msg = &self.conversation[i];
-                
-                // Get the tool index from MessageInfo
-                let tool_index = match &msg.info {
-                    MessageInfo::ToolResult { tool_name: _, tool_index } => tool_index,
-                    MessageInfo::ToolError { tool_name: _, tool_index } => tool_index,
-                    _ => &None,
-                };
-                
-                if let (Some(index), Content::Text { text }) = (tool_index, &msg.content) {
-                    // Check if this tool output is marked as irrelevant using the token manager
-                    if self.token_manager.is_irrelevant(*index) {
-                        (true, *index, text.len(), matches!(msg.info, MessageInfo::ToolResult { .. }), msg.info.clone())
-                    } else {
-                        (false, 0, 0, false, msg.info.clone())
-                    }
-                } else {
-                    (false, 0, 0, false, msg.info.clone())
-                }
-            };
-            
-            // Now we can modify the conversation if needed
-            if should_truncate {
-                let tool_tag_name = if is_result { "tool_result" } else { "tool_error" };
-                
-                let truncated_text = format!(
-                    "<{} index=\"{}\"> [OUTPUT TRUNCATED: No longer needed] </{}>",
-                    tool_tag_name, index_value, tool_tag_name
-                );
-                
-                // Estimate tokens saved (rough approximation)
-                let estimated_tokens_saved = (original_len - truncated_text.len()) / 4;
-                tokens_saved += estimated_tokens_saved;
-                
-                // Replace the message with the truncated version
-                self.conversation[i] = Message::text(
-                    "user",
-                    truncated_text,
-                    info_clone // Keep the same MessageInfo with the index
-                );
-                
-                // Log the truncation
-                crate::bprintln!("{}Truncated tool output with index {} (saved ~{} tokens){}",
-                    crate::constants::FORMAT_CYAN,
-                    index_value,
-                    estimated_tokens_saved,
-                    crate::constants::FORMAT_RESET);
-            }
-        }
-        
-        // Reset cache points since we've modified the conversation
-        self.reset_cache_points();
-        
-        tokens_saved
-    }
-    
-    /// Check if token usage is approaching limits and handle if needed
-    async fn check_token_usage(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Get an accurate token count from the backend
-        let token_usage = match self.llm.count_tokens(
-            &self.conversation,
-            self.config.system_prompt.as_deref()
-        ).await {
-            Ok(usage) => usage,
-            Err(e) => {
-                crate::bprintln!("{}WARNING: Failed to count tokens accurately: {}{}",
-                    crate::constants::FORMAT_YELLOW,
-                    e,
-                    crate::constants::FORMAT_RESET);
-                    
-                // Fall back to a conservative estimate
-                TokenUsage {
-                    input_tokens: self.conversation.len() * 500, // Very rough estimate
-                    output_tokens: 0,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: 0,
-                }
-            }
-        };
-        
-        // For debugging purposes, we'll artificially inflate the token count to trigger the management
-        let debug_multiplier = if self.conversation.len() > 5 { 2.0 } else { 1.0 };
-        let input_tokens = (token_usage.input_tokens as f32 * debug_multiplier) as usize;
-        
-        // For debugging, add a baseline after several messages
-        let artificial_baseline = if self.conversation.len() > 5 { 3000 } else { 0 };
-        let total_input_tokens = input_tokens + artificial_baseline;
-        
-        if artificial_baseline > 0 {
-            crate::bprintln!("{}DEBUG: Added {} baseline tokens to trigger token management{}",
-                crate::constants::FORMAT_YELLOW,
-                artificial_baseline,
-                crate::constants::FORMAT_RESET);
-        }
-        
-        // Add buffer for the expected output tokens
-        let total_tokens = total_input_tokens + MAX_EXPECTED_OUTPUT_TOKENS;
-        
-        crate::bprintln!("{}Token usage: {} actual tokens + {} debugging baseline + {} reserved for output = {}{}",
-            crate::constants::FORMAT_CYAN,
-            input_tokens - (if debug_multiplier > 1.0 { (token_usage.input_tokens as f32 * (debug_multiplier - 1.0)) as usize } else { 0 }),
-            artificial_baseline + (if debug_multiplier > 1.0 { (token_usage.input_tokens as f32 * (debug_multiplier - 1.0)) as usize } else { 0 }),
-            MAX_EXPECTED_OUTPUT_TOKENS,
-            total_tokens,
-            crate::constants::FORMAT_RESET);
-        
-        // Check if we're approaching token limits
-        if total_tokens > TOKEN_LIMIT_WARNING_THRESHOLD {
-            crate::bprintln!("{}WARNING: Approaching debug token limit ({} of {}){}",
-                crate::constants::FORMAT_YELLOW,
-                total_tokens,
-                TOKEN_LIMIT_CRITICAL_THRESHOLD,
-                crate::constants::FORMAT_RESET);
-            crate::bprintln!("{}DEBUG: This is using the reduced token thresholds for testing{}",
-                crate::constants::FORMAT_YELLOW,
-                crate::constants::FORMAT_RESET);
-                
-            // Pass the total tokens to the identify_irrelevant_tool_outputs method
-            let relevant_changed = self.identify_irrelevant_tool_outputs(total_tokens).await?;
-            
-            // Add debug logging to show the current tool indices and their relevance
-            crate::bprintln!("{}DEBUG: Current tool indices and relevance:{}",
-                crate::constants::FORMAT_CYAN,
-                crate::constants::FORMAT_RESET);
-            
-            // Use the formatted tool details from the token manager
-            let tool_details = self.token_manager.format_tool_details(total_tokens);
-            for line in tool_details.lines() {
-                crate::bprintln!("{}DEBUG: {}{}",
-                    crate::constants::FORMAT_CYAN,
-                    line,
-                    crate::constants::FORMAT_RESET);
-            }
-                
-            if relevant_changed {
-                // Actually truncate the irrelevant outputs
-                let tokens_saved = self.truncate_irrelevant_tool_outputs();
-                
-                crate::bprintln!("{}DEBUG: Truncated irrelevant tool outputs (saved ~{} tokens){}",
-                    crate::constants::FORMAT_GREEN,
-                    tokens_saved,
-                    crate::constants::FORMAT_RESET);
-                    
-                return Ok(true);
-            }
-        }
-        
-        Ok(false) // No action needed
-    }
-    
-    /// Ask the LLM to identify which tool outputs are no longer relevant
-    async fn identify_irrelevant_tool_outputs(&mut self, total_tokens: usize) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Get detailed tool information from the token manager
-        let tool_details = self.token_manager.format_tool_details(total_tokens);
-        
-        // Get a list of tool indices
-        let tool_indices: Vec<usize> = self.token_manager.get_tool_indices();
-        
-        if tool_indices.is_empty() {
-            return Ok(false); // No tools to check
-        }
-        
-        // Create a temporary message to ask the LLM about tool relevance
-        let token_warning_message = format!(
-            "WARNING: TOKEN LIMIT MANAGEMENT ACTIVE. You are approaching token limits and need to identify which tool outputs can be truncated.\n\n\
-            TOOL INVOCATION DETAILS:\n{}\n\
-            CURRENT TASK ANALYSIS:\n\
-            - Consider your current reasoning path and remaining work\n\
-            - Identify which previous tool outputs you no longer need to reference\n\
-            - Tool outputs with larger token counts will save more space when truncated\n\n\
-            RESPONSE FORMAT (XML):\n\
-            - To truncate outputs: <truncate>X,Y,Z,W</truncate> (where X,Y,Z,W are indices of tool outputs to truncate)\n\
-            - To keep all outputs: <keep_all/>\n\n\
-            IMPORTANT: Use ONLY the exact XML tags shown above. Do NOT add any explanations or prose - just respond with the appropriate XML tag.",
-            tool_details
-        );
-        
-        // Log our token management query for debugging
-        crate::bprintln!("{}DEBUG: Sending token management query with XML response format{}",
-            crate::constants::FORMAT_CYAN,
-            crate::constants::FORMAT_RESET);
-        
-        // Add message temporarily
-        let temp_message = Message::text("user", token_warning_message, MessageInfo::User);
-        self.conversation.push(temp_message);
-        
-        // We want to limit this query to be very brief to save tokens
-        let stop_sequences = vec!["</truncate>".to_string(), "<keep_all/>".to_string()];
-        let max_tokens = Some(100); // Very limited response
-        
-        // Handle the LLM response with proper error conversion
-        let response = match self.llm.send_message(
-            &self.conversation,
-            self.config.system_prompt.as_deref(),
-            Some(&stop_sequences),
-            None,
-            Some(&self.cache_points),
-            max_tokens,
-        ).await {
-            Ok(response) => response,
-            Err(e) => {
-                // Remove the temporary message
-                self.conversation.pop();
-                return Err(format!("Failed to check tool relevance: {}", e).into());
-            }
-        };
-        
-        // Remove the temporary message
-        self.conversation.pop();
-        
-        // Log the full response details for debugging
-        crate::bprintln!("{}DEBUG: LLM FULL RESPONSE:{}",
-            crate::constants::FORMAT_CYAN,
-            crate::constants::FORMAT_RESET);
-            
-        crate::bprintln!("{}DEBUG: Stop reason: {:?}{}",
-            crate::constants::FORMAT_CYAN,
-            response.stop_reason,
-            crate::constants::FORMAT_RESET);
-            
-        crate::bprintln!("{}DEBUG: Stop sequence: {:?}{}",
-            crate::constants::FORMAT_CYAN,
-            response.stop_sequence,
-            crate::constants::FORMAT_RESET);
-            
-        if let Some(usage) = &response.usage {
-            crate::bprintln!("{}DEBUG: Token usage: {} input, {} output{}",
-                crate::constants::FORMAT_CYAN,
-                usage.input_tokens,
-                usage.output_tokens,
-                crate::constants::FORMAT_RESET);
-        }
-        
-        // Extract and log each content element separately
-        crate::bprintln!("{}DEBUG: RESPONSE CONTENT:{}",
-            crate::constants::FORMAT_CYAN,
-            crate::constants::FORMAT_RESET);
-            
-        for (i, content) in response.content.iter().enumerate() {
-            match content {
-                Content::Text { text } => {
-                    crate::bprintln!("{}DEBUG: Content[{}] (Text): {}{}",
-                        crate::constants::FORMAT_CYAN,
-                        i,
-                        text,
-                        crate::constants::FORMAT_RESET);
-                },
-                _ => {
-                    crate::bprintln!("{}DEBUG: Content[{}] (Other type): {:?}{}",
-                        crate::constants::FORMAT_CYAN,
-                        i,
-                        content,
-                        crate::constants::FORMAT_RESET);
-                }
-            }
-        }
-        
-        // Extract content from response
-        let response_text = response.content.iter()
-            .filter_map(|c| if let Content::Text { text } = c { Some(text.clone()) } else { None })
-            .collect::<Vec<String>>()
-            .join("");
-        
-        // Log the combined response text for debugging
-        crate::bprintln!("{}DEBUG: COMBINED RESPONSE TEXT: '{}'{}",
-            crate::constants::FORMAT_CYAN,
-            response_text,
-            crate::constants::FORMAT_RESET);
-            
-        // Parse the response to get indices to truncate using the XML format
-        if response_text.contains("<truncate>") &&  response.stop_sequence.as_deref() == Some("</truncate>") {
-            // Extract content between <truncate> and </truncate> tags
-            let start_tag = "<truncate>";
-            let start_pos = response_text.find(start_tag).map(|pos| pos + start_tag.len());
-            
-            if let Some(start) = start_pos {
-                let indices_str = &response_text[start..];
-
-                crate::bprintln!("{}DEBUG: Extracted indices string from XML: '{}'{}",
-                    crate::constants::FORMAT_CYAN,
-                    indices_str,
-                    crate::constants::FORMAT_RESET);
-
-                let indices_to_truncate: Vec<usize> = indices_str
-                    .split(',')
-                    .filter_map(|s| {
-                        let result = s.trim().parse::<usize>();
-                        if result.is_err() {
-                            crate::bprintln!("{}DEBUG: Failed to parse index: '{}'{}",
-                                crate::constants::FORMAT_RED,
-                                s.trim(),
-                                crate::constants::FORMAT_RESET);
-                        }
-                        result.ok()
-                    })
-                    .collect();
-
-                crate::bprintln!("{}DEBUG: Parsed indices to truncate: {:?}{}",
-                    crate::constants::FORMAT_CYAN,
-                    indices_to_truncate,
-                    crate::constants::FORMAT_RESET);
-
-                if !indices_to_truncate.is_empty() {
-                    // Mark these tool outputs as irrelevant
-                    for idx in indices_to_truncate {
-                        crate::bprintln!("{}DEBUG: Marking tool index {} as irrelevant{}",
-                            crate::constants::FORMAT_YELLOW,
-                            idx,
-                            crate::constants::FORMAT_RESET);
-
-                        // Mark this tool output as irrelevant in the token manager
-                        self.token_manager.mark_irrelevant(idx);
-                    }
-
-                    // Return true to indicate we identified irrelevant outputs
-                    return Ok(true);
-
-                }
-            } else {
-                crate::bprintln!("{}DEBUG: Malformed XML truncate tags in response{}",
-                    crate::constants::FORMAT_RED,
-                    crate::constants::FORMAT_RESET);
-            }
-        } else if response_text.contains("<keep_all/>") || response_text.contains("<keep_all>") {
-            crate::bprintln!("{}DEBUG: LLM indicated to keep all tool outputs (XML format){}",
-                crate::constants::FORMAT_GREEN,
-                crate::constants::FORMAT_RESET);
-        } else {
-            crate::bprintln!("{}DEBUG: Could not parse LLM response for tool relevance (expected XML format){}",
-                crate::constants::FORMAT_RED,
-                crate::constants::FORMAT_RESET);
-        }
-        
-        // If the response was "keep_all" or we couldn't parse indices, all outputs are still relevant
-        Ok(false)
-    }
-
     /// Generate a tool result start tag with the current tool invocation index
     fn tool_result_start_tag(&self) -> String {
         format!("<tool_result index=\"{}\">", self.tool_invocation_counter)
@@ -491,10 +143,10 @@ impl Agent {
                 TOOL_ERROR_START_PREFIX.to_string(),
             ]),
             cache_points: BTreeSet::new(),
+            truncation_config: TruncationConfig::default(),
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
-            token_manager: TokenManager::new(),
         })
     }
     fn set_state(&mut self, state: AgentState) {
@@ -790,8 +442,11 @@ impl Agent {
                 output = rx.recv() => {
                     match output {
                         Some(ShellOutput::Stdout(line)) => {
-                            // Add to full output record
-                            partial_output.push_str(&line);
+                            // Sanitize line by removing ANSI escape sequences
+                            let sanitized_line = strip_ansi_sequences(&line);
+                            
+                            // Add sanitized output to full output record
+                            partial_output.push_str(&sanitized_line);
                             partial_output.push('\n');
                             output_lines += 1;
 
@@ -863,8 +518,11 @@ impl Agent {
                             }
                         },
                         Some(ShellOutput::Stderr(line)) => {
-                            // Add to full output record
-                            partial_output.push_str(&line);
+                            // Sanitize line by removing ANSI escape sequences
+                            let sanitized_line = strip_ansi_sequences(&line);
+                            
+                            // Add sanitized output to full output record
+                            partial_output.push_str(&sanitized_line);
                             partial_output.push('\n');
                             output_lines += 1;
                         },
@@ -1197,28 +855,61 @@ impl Agent {
         &mut self,
         interrupt_coordinator: &InterruptCoordinator,
     ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
-        // Always show current token usage for debugging
-        crate::bprintln!("{}DEBUG: Checking token usage before sending message...{}",
-            crate::constants::FORMAT_CYAN,
-            crate::constants::FORMAT_RESET);
-            
-        // Check if we're approaching token limits and handle if needed
-        let token_check_result = self.check_token_usage().await?;
-        
-        if token_check_result {
-            crate::bprintln!("{}DEBUG: Token management performed truncation{}",
-                crate::constants::FORMAT_GREEN,
-                crate::constants::FORMAT_RESET);
-        }
-        
         // Load project information from .autoswe file if needed
         // Using default path (.autoswe) and only loading if conversation is empty
         self.load_project_info(None, false).await?;
 
-        // Send the request using our LLM provider
-        let system_prompt = self.config.system_prompt.as_deref();
+        // Get necessary values for token counting
         let thinking_budget = Some(self.config.thinking_budget);
-
+        let safe_token_limit = self.llm.safe_input_token_limit();
+        
+        // Apply conversation truncation if needed to stay within token limits
+        let needs_cache_reset = {
+            // Temporary scope to limit borrow of system_prompt
+            let system_prompt = self.config.system_prompt.as_deref();
+            
+            // Count tokens in the current conversation
+            match self.llm.count_tokens(&self.conversation, system_prompt).await {
+                Ok(usage) => {
+                    // Only apply truncation if we successfully counted tokens
+                    // Check if truncation is needed and apply it
+                    if let Some(truncation_result) = truncate_conversation(
+                        &mut self.conversation,
+                        safe_token_limit,
+                        &usage,
+                        &self.truncation_config,
+                    ) {
+                        // Log truncation occurred
+                        crate::bprintln!(
+                            "🔍 {}Truncated{} {} tool outputs to save approximately {} tokens",
+                            crate::constants::FORMAT_BOLD,
+                            crate::constants::FORMAT_RESET,
+                            truncation_result.truncated_messages,
+                            truncation_result.estimated_tokens_saved
+                        );
+                        
+                        // Need to reset cache points after truncation
+                        true
+                    } else {
+                        false
+                    }
+                },
+                Err(e) => {
+                    // Log token counting error but continue without truncation
+                    crate::berror_println!("Failed to count tokens for truncation: {}", e);
+                    false
+                }
+            }
+        };
+        
+        // Reset cache points if needed
+        if needs_cache_reset {
+            self.reset_cache_points();
+        }
+        
+        // Get the system prompt after any modifications to conversation
+        let system_prompt = self.config.system_prompt.as_deref();
+        
         // Handle the LLM response with proper error conversion
         let response = match self
             .llm
@@ -1318,19 +1009,6 @@ impl Agent {
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
         
-        // Register this tool output with the token manager
-        self.token_manager.register_tool_output(
-            self.tool_invocation_counter,
-            tool_name.clone(),
-        );
-        
-        // Log tool invocation for debugging
-        crate::bprintln!("{}DEBUG: Created new tool output with index {} (tool: {}){}",
-            crate::constants::FORMAT_CYAN,
-            self.tool_invocation_counter,
-            tool_name,
-            crate::constants::FORMAT_RESET);
-        
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
             // Use a new dedicated interrupt channel
@@ -1399,39 +1077,6 @@ impl Agent {
         let response_message_len = agent_response.len();
 
         let message = Message::text("user", agent_response.clone(), message_info);
-
-        match self.llm.count_tokens(&[message.clone()], None).await {
-            Ok(token_usage) => {
-                // Update token usage in the token manager
-                self.token_manager.update_token_usage(
-                    self.tool_invocation_counter,
-                    Some(token_usage.input_tokens),
-                );
-                
-                crate::bprintln!("{}DEBUG: Updated {} tool metadata for index {} with accurate token count: {} tokens{}",
-                    crate::constants::FORMAT_CYAN,
-                    tool_name,
-                    self.tool_invocation_counter,
-                    token_usage.input_tokens,
-                    crate::constants::FORMAT_RESET);
-            },
-            Err(e) => {
-                // Fall back to estimation if token counting fails
-                let estimated_tokens = response_message_len / 4;  // ~4 chars per token as rough estimate
-                
-                // Update with estimated token count
-                self.token_manager.update_token_usage(
-                    self.tool_invocation_counter,
-                    Some(estimated_tokens),
-                );
-                
-                crate::bprintln!("{}DEBUG: Failed to count tokens for shell output ({}), using estimate: ~{} tokens{}",
-                    crate::constants::FORMAT_YELLOW,
-                    e,
-                    estimated_tokens,
-                    crate::constants::FORMAT_RESET);
-            }
-        }
 
         self.conversation.push(message);
         

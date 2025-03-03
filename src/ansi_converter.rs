@@ -2,6 +2,7 @@
 //!
 //! This module handles converting text with ANSI escape sequences
 //! to ratatui's Span-based formatting for use in the TUI.
+//! It also provides functionality to strip ANSI sequences from text.
 
 use crate::output::OutputLine;
 use ratatui::style::{Color, Modifier, Style};
@@ -219,5 +220,103 @@ mod tests {
         // Check that the middle span has red color and bold
         assert_eq!(line.spans[1].style.fg, Some(Color::Red));
         assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+    }
+}
+
+/// Strips ANSI escape sequences from text
+///
+/// This function removes all ANSI escape sequences from a text string, making it
+/// suitable for sending to LLMs or other contexts where formatting should be removed.
+/// 
+/// ANSI escape sequences are used for terminal formatting like colors, bold text,
+/// cursor movement, etc. When sending output to LLMs, these sequences should be
+/// removed to improve readability and reduce token consumption.
+///
+/// # Arguments
+/// * `text` - The text string containing ANSI escape sequences
+///
+/// # Returns
+/// A new string with all ANSI escape sequences removed
+///
+/// # Implementation Note
+/// This sanitizer handles all common ANSI escape sequences:
+/// - Text colors (foreground and background)
+/// - Text styles (bold, italic, underline, etc.)
+/// - Cursor movement commands
+/// - Screen clearing commands
+pub fn strip_ansi_sequences(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut i = 0;
+    
+    // Convert the string to chars for easier processing
+    let chars: Vec<char> = text.chars().collect();
+    
+    while i < chars.len() {
+        // Check for escape sequence start
+        if chars[i] == '\x1b' && i + 1 < chars.len() && chars[i + 1] == '[' {
+            // Find the end of the escape sequence (marked by one of several characters)
+            // Most sequences end with 'm', but others might end with different letters
+            let mut j = i + 2;
+            while j < chars.len() && !chars[j].is_alphabetic() {
+                j += 1;
+            }
+            
+            if j < chars.len() {
+                // Skip the entire escape sequence
+                i = j + 1;
+                continue;
+            }
+        }
+        
+        // Regular character, add to result
+        result.push(chars[i]);
+        i += 1;
+    }
+    
+    result
+}
+
+#[cfg(test)]
+mod tests_strip_ansi {
+    use super::*;
+    
+    #[test]
+    fn test_strip_plain_text() {
+        let text = "Hello, world!";
+        let result = strip_ansi_sequences(text);
+        
+        assert_eq!(result, "Hello, world!");
+    }
+    
+    #[test]
+    fn test_strip_bold_text() {
+        let text = "Hello, \x1b[1mbold\x1b[0m world!";
+        let result = strip_ansi_sequences(text);
+        
+        assert_eq!(result, "Hello, bold world!");
+    }
+    
+    #[test]
+    fn test_strip_colored_text() {
+        let text = "Normal \x1b[31mred\x1b[0m text";
+        let result = strip_ansi_sequences(text);
+        
+        assert_eq!(result, "Normal red text");
+    }
+    
+    #[test]
+    fn test_strip_multiple_styles() {
+        let text = "Normal \x1b[1;31mbold red\x1b[0m text";
+        let result = strip_ansi_sequences(text);
+        
+        assert_eq!(result, "Normal bold red text");
+    }
+    
+    #[test]
+    fn test_strip_cursor_movement() {
+        let text = "Text with \x1b[2Acursor\x1b[1B movement";
+        let result = strip_ansi_sequences(text);
+        
+        assert_eq!(result, "Text with cursor movement");
     }
 }

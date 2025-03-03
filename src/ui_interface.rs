@@ -721,18 +721,6 @@ impl TuiState {
         }
     }
     
-    /// Get a status indicator for the agent state using ASCII symbols
-    fn get_agent_state_indicator(state: Option<&AgentState>) -> &'static str {
-        match state {
-            Some(AgentState::Idle) => "•", // Bullet for ready
-            Some(AgentState::Processing) => "↻", // Processing symbol
-            Some(AgentState::RunningTool { .. }) => "⚙", // Gear for tool execution
-            Some(AgentState::Terminated) => "✕", // X for terminated
-            Some(AgentState::Done) => "✓", // Checkmark for done
-            None => "?", // Question mark for unknown state
-        }
-    }
-    
     /// Get a string representation of the selected agent's state
     fn get_agent_state_string(&self) -> String {
         if self.command_mode {

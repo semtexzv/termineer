@@ -6,9 +6,48 @@ use crate::jsonpath;
 use crate::llm::{Backend, Content, LlmError, LlmResponse, Message, TokenUsage};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::time::sleep;
+
+/// Get the token limit for an Anthropic model
+/// 
+/// Uses a pattern-matching approach to determine the appropriate token limit
+/// for a given model name, based on the model family and version.
+fn get_model_token_limit(model_name: &str) -> usize {
+    // Default to a conservative limit if no pattern matches
+    const DEFAULT_TOKEN_LIMIT: usize = 100_000;
+    
+    // Claude 3 and newer models (generally have 200K token context)
+    if model_name.starts_with("claude-3") || 
+       model_name.starts_with("claude-3.") || 
+       model_name.contains("claude-3-") || 
+       model_name.contains("claude-3.5") || 
+       model_name.contains("claude-3.7") ||
+       model_name.contains("claude-3-5") || 
+       model_name.contains("claude-3-7") {
+        return 200_000;
+    }
+    
+    // Claude 2.1 (200K token context)
+    if model_name.contains("claude-2.1") {
+        return 200_000;
+    }
+    
+    // Claude 2.0 and Claude 2 base (100K token context)
+    if model_name.contains("claude-2.0") || model_name.starts_with("claude-2") {
+        return 100_000;
+    }
+    
+    // Claude Instant models (100K token context)
+    if model_name.contains("claude-instant") {
+        return 100_000;
+    }
+    
+    // Fall back to default for any unknown models
+    DEFAULT_TOKEN_LIMIT
+}
 
 // Constants for the Anthropic API
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -231,6 +270,11 @@ impl Backend for Anthropic {
 
     fn model(&self) -> &str {
         &self.model
+    }
+    
+    fn max_token_limit(&self) -> usize {
+        // Get the token limit based on the model name pattern
+        get_model_token_limit(&self.model)
     }
     
     async fn count_tokens(

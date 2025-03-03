@@ -1,0 +1,32 @@
+## $ support
+- We should be able to run shell commands directly from the user interface.
+
+## Single query mode.
+- We used to have a feature where you could provide a query as a last argument and the application would run output the agent output and then finish whenever the agent was done.
+- reimplement this feature where we do not start the terminal user interface. We just accept one query as a command line argument and then we run the single agent until it goes into done state and then we output it's last message
+- We should also output its intermediate output, like the buffer, into standard error.
+- We should also support interruptions in this mode.
+
+## Conversation and tool mapping.
+- The agent should internally maintain a mapping between tool invocations and messages that contains the tool invocation request and tool response or tool error output.
+
+## Agent tool
+- Give running agents the ability to spawn new agents. Also give them ability to send messages to other agents.
+- Messages are delivered in the same way as user messages are. However, when they are injected into the agent conversation, they are injected with a XML tags, similar to how we use XML everywhere else. And the originating agent name is provided in the XML tags.
+- This all should be implemented under the agent tool that will have subcommands. First subcommand is create where the tool body will be the query used for the subagent. Second subcommand should be send which will send a message to another agent.
+- There should be a new wait command that the agent can use to wait for messages from other agents.The implementation should be similar to the done command. Basically the agent is put into the non-running state and any message from either user or other agents will put it into the running state.
+
+# Conversation Truncation
+- The element backend should be able to respond to us how many tokens does it support. Whenever we are approaching this number with our input tokens, let's say we are at 80%, with input plus output tokens of the last response, we should truncate the tool outputs in the first half of the conversation by basically removing them with dummy text.
+- However, first let's say 3 to 4 tool outputs should be spared because they are likely just listing of the files.
+- The truncation method should be abstract and expect only a list of tool indices to truncate.
+- internally the truncation method should translate this from tool indices into message indices like the referenced messages are the tool outputs
+
+# Cnversation maintenance
+- conversation maintenance deals with keeping the conversation structure in the agent nice and sane.
+- We should remove empty content blocks and we should remove messages that do not have any content blocks.
+- We should do this every time before we send a conversation to the LLM back-end.
+
+# LLM backend timeout and retry.
+- We should run the backend API calls with a really long timeout, let's say 30 to 60 seconds.
+- For example, when we receive a network issue, we should utilize a linear back-off with a maximum waiting time of 30 seconds.
