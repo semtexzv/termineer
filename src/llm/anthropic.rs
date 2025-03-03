@@ -15,11 +15,24 @@ use tokio::time::sleep;
 /// 
 /// Uses a pattern-matching approach to determine the appropriate token limit
 /// for a given model name, based on the model family and version.
+///
+/// This function supports all Anthropic Claude models with correct token limits
+/// and can be extended as new models are released. It uses a pattern-based approach
+/// rather than an explicit list to be more maintainable and future-proof.
+///
+/// Token limits are sourced from Anthropic's official documentation:
+/// https://docs.anthropic.com/claude/docs/model-comparison
 fn get_model_token_limit(model_name: &str) -> usize {
     // Default to a conservative limit if no pattern matches
     const DEFAULT_TOKEN_LIMIT: usize = 100_000;
     
     // Claude 3 and newer models (generally have 200K token context)
+    // This covers all Claude 3 variants including:
+    // - claude-3-opus-20240229
+    // - claude-3-sonnet-20240229
+    // - claude-3-haiku-20240307
+    // - claude-3-5-sonnet-20240620
+    // - claude-3-7-sonnet-20250219
     if model_name.starts_with("claude-3") || 
        model_name.starts_with("claude-3.") || 
        model_name.contains("claude-3-") || 
@@ -46,6 +59,7 @@ fn get_model_token_limit(model_name: &str) -> usize {
     }
     
     // Fall back to default for any unknown models
+    // Using a conservative default ensures we don't exceed context windows
     DEFAULT_TOKEN_LIMIT
 }
 

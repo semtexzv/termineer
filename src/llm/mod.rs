@@ -28,7 +28,17 @@ pub trait Backend: Send + Sync {
     ) -> Result<LlmResponse, LlmError>;
     
     /// Count tokens for messages without making a full API request
-    /// This allows efficiently tracking token usage without guessing
+    /// 
+    /// This allows efficiently tracking token usage without guessing.
+    /// Different LLM providers have different token counting algorithms, so this
+    /// method delegates to the provider-specific implementation.
+    ///
+    /// # Arguments
+    /// * `messages` - The conversation messages to count tokens for
+    /// * `system` - Optional system prompt
+    ///
+    /// # Returns
+    /// Token usage statistics or an error
     async fn count_tokens(
         &self,
         messages: &[Message],
@@ -36,11 +46,26 @@ pub trait Backend: Send + Sync {
     ) -> Result<TokenUsage, LlmError>;
     
     /// Get the maximum token limit for this model
-    /// This is the total limit including both input and output tokens
+    /// 
+    /// Returns the total context window size for the current model,
+    /// including both input and output tokens. This is used for
+    /// conversation truncation and to prevent exceeding model limits.
+    ///
+    /// # Returns
+    /// Maximum token limit as documented by the model provider
     fn max_token_limit(&self) -> usize;
     
     /// Get the safe input token limit for this model
-    /// This is typically 80-90% of the max limit, accounting for output tokens
+    /// 
+    /// Returns a conservative limit that leaves room for the model's response.
+    /// This is typically 80-90% of the max limit, ensuring we don't exceed
+    /// the context window when the model generates its response.
+    ///
+    /// Used by the conversation truncation system to determine when
+    /// truncation should be applied.
+    ///
+    /// # Returns
+    /// Safe input token limit (default: 80% of max_token_limit)
     fn safe_input_token_limit(&self) -> usize {
         // Default implementation: 80% of max token limit
         (self.max_token_limit() as f64 * 0.8) as usize

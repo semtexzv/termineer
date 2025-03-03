@@ -864,11 +864,14 @@ impl Agent {
         let safe_token_limit = self.llm.safe_input_token_limit();
         
         // Apply conversation truncation if needed to stay within token limits
+        // This prevents the conversation from exceeding the model's context window
+        // by intelligently replacing older tool outputs with placeholders
         let needs_cache_reset = {
             // Temporary scope to limit borrow of system_prompt
             let system_prompt = self.config.system_prompt.as_deref();
             
-            // Count tokens in the current conversation
+            // Count tokens in the current conversation using the LLM backend's accurate counter
+            // This ensures we have precise token counts for making truncation decisions
             match self.llm.count_tokens(&self.conversation, system_prompt).await {
                 Ok(usage) => {
                     // Only apply truncation if we successfully counted tokens

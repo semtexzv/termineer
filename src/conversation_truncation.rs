@@ -2,35 +2,64 @@
 //!
 //! This module provides functionality to truncate conversations
 //! when they approach token limits, replacing tool outputs with placeholders.
+//!
+//! As conversations grow longer, they can exceed model token limits.
+//! This module intelligently truncates older tool outputs while preserving
+//! the most important context (initial exploration and recent interactions).
+//!
+//! The truncation system:
+//! 1. Monitors token usage as the conversation progresses
+//! 2. Identifies candidate tool outputs for truncation
+//! 3. Preserves initial tool outputs (typically file listings)
+//! 4. Preserves recent tool outputs (for continuity)
+//! 5. Replaces lengthy tool outputs with short placeholders
+//! 6. Maintains overall conversation structure and flow
 
 use crate::llm::{Message, MessageInfo, Content, TokenUsage};
 use std::collections::BTreeSet;
 
 /// Configuration for conversation truncation
+///
+/// Controls the behavior of the truncation system, including when to truncate,
+/// which parts of the conversation to preserve, and how to represent truncated content.
 pub struct TruncationConfig {
     /// Percentage of the safe input token limit to trigger truncation (e.g., 0.8 = 80%)
+    /// When token usage exceeds this threshold, truncation will be applied
     pub threshold_percentage: f64,
     
     /// Number of initial tool outputs to preserve (often file listings)
+    /// The first N tool outputs are important for context and exploration history
     pub preserve_initial_tools: usize,
     
     /// Number of recent tool outputs to preserve
+    /// Recent outputs provide immediate context for the current conversation
     pub preserve_recent_tools: usize,
     
     /// Maximum size (in chars) to preserve from large tool outputs when truncating
+    /// Used to keep headers/footers with structure information
     pub max_preserved_chars: usize,
     
     /// Placeholder text to use for truncated tool outputs
+    /// This replaces the original content while indicating truncation occurred
     pub placeholder_text: String,
 }
 
 impl Default for TruncationConfig {
     fn default() -> Self {
         Self {
+            // Trigger at 80% of safe token limit to allow buffer for LLM response
             threshold_percentage: 0.8,
+            
+            // Keep first 3 tool outputs - typically file listings and initial exploration
             preserve_initial_tools: 3,
+            
+            // Keep last 5 tool outputs - provides recent context
             preserve_recent_tools: 5,
+            
+            // Preserve up to 200 chars when truncating (for headers, important metadata)
             max_preserved_chars: 200,
+            
+            // Clear descriptive placeholder for truncated content
             placeholder_text: "[Tool output truncated to save context space]".to_string(),
         }
     }
@@ -60,6 +89,13 @@ struct ToolResultInfo {
 
 /// Identifies and truncates eligible tool outputs in a conversation
 ///
+/// This is the main entry point for the truncation system. It examines the current
+/// token usage, determines if truncation is needed, identifies which messages to truncate,
+/// and applies the truncation by replacing content with placeholders.
+///
+/// The function is designed to be called before sending the conversation to the LLM,
+/// typically when token count is approaching the model's limit.
+///
 /// # Arguments
 /// * `messages` - The conversation messages to analyze and modify
 /// * `safe_token_limit` - The safe token limit for the model
@@ -68,6 +104,23 @@ struct ToolResultInfo {
 ///
 /// # Returns
 /// Information about the truncation performed, or None if no truncation was needed
+///
+/// # Example
+/// ```
+/// let result = truncate_conversation(
+///     &mut conversation,
+///     model.safe_input_token_limit(),
+///     &token_usage,
+///     &TruncationConfig::default()
+/// );
+///
+/// if let Some(truncation_result) = result {
+///     println!("Truncated {} messages, saved ~{} tokens",
+///         truncation_result.truncated_messages,
+///         truncation_result.estimated_tokens_saved
+///     );
+/// }
+/// ```
 pub fn truncate_conversation(
     messages: &mut Vec<Message>,
     safe_token_limit: usize,

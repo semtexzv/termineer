@@ -16,12 +16,6 @@
 - This all should be implemented under the agent tool that will have subcommands. First subcommand is create where the tool body will be the query used for the subagent. Second subcommand should be send which will send a message to another agent.
 - There should be a new wait command that the agent can use to wait for messages from other agents.The implementation should be similar to the done command. Basically the agent is put into the non-running state and any message from either user or other agents will put it into the running state.
 
-# Conversation Truncation
-- The element backend should be able to respond to us how many tokens does it support. Whenever we are approaching this number with our input tokens, let's say we are at 80%, with input plus output tokens of the last response, we should truncate the tool outputs in the first half of the conversation by basically removing them with dummy text.
-- However, first let's say 3 to 4 tool outputs should be spared because they are likely just listing of the files.
-- The truncation method should be abstract and expect only a list of tool indices to truncate.
-- internally the truncation method should translate this from tool indices into message indices like the referenced messages are the tool outputs
-
 # Cnversation maintenance
 - conversation maintenance deals with keeping the conversation structure in the agent nice and sane.
 - We should remove empty content blocks and we should remove messages that do not have any content blocks.
