@@ -411,7 +411,8 @@ impl Agent {
     /// Execute a shell command with streaming output and interruption capability
     async fn execute_streaming_shell(
         &mut self,
-        command: &str,
+        args: &str,
+        body: &str,
         interrupt_coordinator: &InterruptCoordinator,
     ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
         // Update state to running tool
@@ -420,18 +421,8 @@ impl Agent {
             interruptible: true,
         });
 
-        // Parse the command into args (first line) and body (subsequent lines)
-        let mut lines = command.trim().lines();
-        let first_line = lines.next().unwrap_or("").trim().to_string();
-        let body = lines.collect::<Vec<&str>>().join("\n");
-        
-        // Extract args from the first line
-        let parts: Vec<&str> = first_line.splitn(2, char::is_whitespace).collect();
-        let cmd_args = if parts.len() > 1 {
-            parts[1].to_string()
-        } else {
-            String::new()
-        };
+        // Args already contain the command arguments (everything after "shell")
+        let cmd_args = args.trim().to_string();
 
         // Create interrupt data for coordination
         let interrupt_data = Arc::new(Mutex::new(InterruptData::new()));
@@ -675,19 +666,9 @@ impl Agent {
         // Format the shell output with appropriate delimiters
         // Note: Interruption is NOT an error, so we use TOOL_RESULT for it
         let agent_response = if success || interrupting {
-            format!(
-                "{}\n{}\n{}",
-                self.grammar.tool_result_start_tag(self.tool_invocation_counter),
-                result_message,
-                self.grammar.tool_result_end_tag()
-            )
+            self.grammar.format_tool_result(self.tool_invocation_counter, &result_message)
         } else {
-            format!(
-                "{}\n{}\n{}",
-                self.grammar.tool_error_start_tag(self.tool_invocation_counter),
-                result_message,
-                self.grammar.tool_error_end_tag()
-            )
+            self.grammar.format_tool_error(self.tool_invocation_counter, &result_message)
         };
 
         // Add the agent_response to the conversation history
@@ -1093,7 +1074,7 @@ impl Agent {
         // At this point, we know we have a tool invocation
         let tool = parsed.tool.unwrap();
         let tool_name = tool.name;
-        let tool_content = tool.body;
+        let tool_body = tool.body;
 
         // Display token stats before any other output (if not in silent mode)
         if !self.tool_executor.is_silent() {
@@ -1130,9 +1111,12 @@ impl Agent {
 
         // Special handling for shell tool to support streaming and interruption
         if tool_name == "shell" {
+            // Convert the parsed args to a space-separated string
+            let tool_args = tool.args.join(" ");
+            
             // Use a new dedicated interrupt channel
             let shell_result = self
-                .execute_streaming_shell(&tool_content, &interrupt_coordinator)
+                .execute_streaming_shell(&tool_args, &tool_body, &interrupt_coordinator)
                 .await?;
             return Ok(shell_result);
         }
@@ -1149,26 +1133,16 @@ impl Agent {
 
         // Execute the tool with pre-parsed components from grammar
         let tool_args = tool.args.join(" ");  // Join the args array into a string
-        let tool_result = self.tool_executor.execute_with_parts(&tool_name, &tool_args, &tool.body).await;
+        let tool_result = self.tool_executor.execute_with_parts(&tool_name, &tool_args, &tool_body).await;
 
         // Set the state back to Processing by default - will be updated by the tool's state_change if needed
         self.state = AgentState::Processing;
 
         // Format the agent response with appropriate delimiters
         let agent_response = if tool_result.success {
-            format!(
-                "{}\n{}\n{}",
-                self.grammar.tool_result_start_tag(self.tool_invocation_counter),
-                tool_result.agent_output,
-                self.grammar.tool_result_end_tag()
-            )
+            self.grammar.format_tool_result(self.tool_invocation_counter, &tool_result.agent_output)
         } else {
-            format!(
-                "{}\n{}\n{}",
-                self.grammar.tool_error_start_tag(self.tool_invocation_counter),
-                tool_result.agent_output,
-                self.grammar.tool_error_end_tag()
-            )
+            self.grammar.format_tool_error(self.tool_invocation_counter, &tool_result.agent_output)
         };
 
         // Return value to use in the process flow
