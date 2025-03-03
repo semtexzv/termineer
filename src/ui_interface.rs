@@ -508,7 +508,7 @@ impl TuiState {
             AgentState::Processing => "🤔", // Thinking face for processing
             AgentState::RunningTool { .. } => "🔧", // Wrench for tool execution
             AgentState::Terminated => "⛔", // No entry sign for terminated
-            AgentState::Done => "✅", // Checkmark for done
+            AgentState::Done(_) => "✅", // Checkmark for done
         }
     }
 

@@ -77,7 +77,8 @@ pub enum AgentState {
     Terminated,
     
     /// Agent has completed its task (done tool used)
-    Done,
+    /// Optionally includes the final response from the agent
+    Done(Option<String>),
 }
 
 impl AgentState {
@@ -88,7 +89,7 @@ impl AgentState {
             AgentState::Processing => "Thinking...".to_string(),
             AgentState::RunningTool { tool, .. } => format!("Running: {}", tool),
             AgentState::Terminated => "Terminated".to_string(),
-            AgentState::Done => "Task completed".to_string(),
+            AgentState::Done(_) => "Task completed".to_string(),
         }
     }
 }

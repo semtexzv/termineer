@@ -209,7 +209,7 @@ impl Agent {
                                 crate::bprintln!("✅ {}Agent{} has completed its task.", 
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET);
-                                self.set_state(AgentState::Done)
+                                self.set_state(AgentState::Done(Some(result.response)))
                             }
                         },
                         Err(e) => {
@@ -245,7 +245,7 @@ impl Agent {
                 }
                 
                 // Wait for and process messages when idle or done
-                msg = agent_receiver.recv(), if matches!(current_state, AgentState::Done | AgentState::Idle) => {
+                msg = agent_receiver.recv(), if matches!(current_state, AgentState::Done(_) | AgentState::Idle) => {
                     match msg {
                         Some(message) => {
                             self.handle_message(message).await;
@@ -1127,8 +1127,8 @@ impl Agent {
 
         // If this was the "done" tool, set state to Done and return with continue_processing=false
         if is_done {
-            // Update state to Done
-            self.state = AgentState::Done;
+            // Update state to Done with the final response
+            self.state = AgentState::Done(Some(result_for_response.clone()));
             crate::bprintln!("✅ {}Agent{} has marked task as completed.", 
                 crate::constants::FORMAT_BOLD,
                 crate::constants::FORMAT_RESET);
@@ -1176,7 +1176,7 @@ impl Agent {
         // Reset the tool mapper
         self.tool_mapper = ToolMapper::new();
         // Reset state to Idle if it was Done
-        if matches!(self.state, AgentState::Done) {
+        if matches!(self.state, AgentState::Done(_)) {
             self.state = AgentState::Idle;
             crate::bprintln!("🤖 {}Agent{} state reset to Idle.",
                 crate::constants::FORMAT_BOLD,

@@ -95,7 +95,7 @@ impl Config {
     }
 
     /// Apply command line arguments to override configuration
-    pub fn apply_args(&mut self, args: &[String]) -> Result<ArgResult, Box<dyn Error>> {
+    pub fn apply_args(&mut self, args: &[String]) -> Result<ArgResult, Box<dyn std::error::Error + Send + Sync>> {
         let mut i = 1;
         let mut query = None;
         let mut show_help = false;
