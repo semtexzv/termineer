@@ -143,10 +143,10 @@ impl ToolExecutor {
         self.silent_mode
     }
 
-    /// Execute a tool based on content provided by the LLM
-    pub async fn execute(&self, tool_content: &str) -> ToolResult {
-        // Parse the tool content into args (first line) and body (subsequent lines)
-        let (tool_name, args, body) = self.parse_tool_content(tool_content);
+    /// Execute a tool based on name, args, and body provided by the LLM
+    pub async fn execute_with_parts(&self, tool_name: &str, args: &str, body: &str) -> ToolResult {
+        // Using pre-parsed components directly
+        let tool_name = tool_name.trim().to_lowercase();
 
         // In readonly mode, only allow read-only tools (and task which will create readonly subagents)
         if self.readonly_mode && !self.is_readonly_tool(&tool_name) {
@@ -162,14 +162,14 @@ impl ToolExecutor {
 
         // Execute the appropriate tool with silent mode flag. Shell handled externally
         let result = match tool_name.as_str() {
-            "agent" => execute_agent_tool(args, &body, self.silent_mode, self.agent_id).await,
-            "read" => execute_read(args, &body, self.silent_mode).await,
-            "write" => execute_write(args, &body, self.silent_mode).await,
-            "patch" => execute_patch(args, &body, self.silent_mode).await,
-            "fetch" => execute_fetch(args, &body, self.silent_mode).await,
-            "done" => execute_done(args, &body, self.silent_mode),
-            "task" => execute_task(args, &body, self.silent_mode).await,
-            "wait" => execute_wait(args, &body, self.silent_mode),
+            "agent" => execute_agent_tool(args, body, self.silent_mode, self.agent_id).await,
+            "read" => execute_read(args, body, self.silent_mode).await,
+            "write" => execute_write(args, body, self.silent_mode).await,
+            "patch" => execute_patch(args, body, self.silent_mode).await,
+            "fetch" => execute_fetch(args, body, self.silent_mode).await,
+            "done" => execute_done(args, body, self.silent_mode),
+            "task" => execute_task(args, body, self.silent_mode).await,
+            "wait" => execute_wait(args, body, self.silent_mode),
             _ => {
                 if !self.silent_mode {
                     // Always use buffer-based printing with direct formatting
@@ -180,6 +180,13 @@ impl ToolExecutor {
         };
         
         result
+    }
+    
+    /// Execute a tool based on content provided by the LLM (backward compatibility)
+    pub async fn execute(&self, tool_content: &str) -> ToolResult {
+        // Parse the tool content into args (first line) and body (subsequent lines)
+        let (tool_name, args, body) = self.parse_tool_content(tool_content);
+        self.execute_with_parts(&tool_name, args, &body).await
     }
 
     /// Parse tool content into name, args, and body

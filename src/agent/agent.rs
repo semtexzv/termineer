@@ -420,9 +420,13 @@ impl Agent {
             interruptible: true,
         });
 
-        // Extract the command from the tool content
-        let command_str = command.to_string();
-        let parts: Vec<&str> = command_str.trim().splitn(2, char::is_whitespace).collect();
+        // Parse the command into args (first line) and body (subsequent lines)
+        let mut lines = command.trim().lines();
+        let first_line = lines.next().unwrap_or("").trim().to_string();
+        let body = lines.collect::<Vec<&str>>().join("\n");
+        
+        // Extract args from the first line
+        let parts: Vec<&str> = first_line.splitn(2, char::is_whitespace).collect();
         let cmd_args = if parts.len() > 1 {
             parts[1].to_string()
         } else {
@@ -440,7 +444,7 @@ impl Agent {
 
         // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
-        let mut rx = match execute_shell(&cmd_args, "", interrupt_data.clone(), silent_mode).await {
+        let mut rx = match execute_shell(&cmd_args, &body, interrupt_data.clone(), silent_mode).await {
             Ok(rx) => rx,
             Err(e) => {
                 // Make sure to clean up interrupt state if startup fails
@@ -1119,8 +1123,6 @@ impl Agent {
             },
         );
 
-        // Add to conversation and update tool mapper
-        let msg_index = self.conversation.len();
         self.conversation.push(tool_call_message);
 
         // Increment the tool invocation counter for all tools
@@ -1145,8 +1147,9 @@ impl Agent {
         // Increment the tool invocation counter
         self.tool_invocation_counter += 1;
 
-        // Execute the tool
-        let tool_result = self.tool_executor.execute(&tool_content).await;
+        // Execute the tool with pre-parsed components from grammar
+        let tool_args = tool.args.join(" ");  // Join the args array into a string
+        let tool_result = self.tool_executor.execute_with_parts(&tool_name, &tool_args, &tool.body).await;
 
         // Set the state back to Processing by default - will be updated by the tool's state_change if needed
         self.state = AgentState::Processing;
