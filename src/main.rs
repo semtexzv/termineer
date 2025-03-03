@@ -8,8 +8,6 @@ mod ansi_converter;
 mod config;
 mod constants;
 mod conversation;
-mod conversation_maintenance;
-mod conversation_truncation;
 pub mod jsonpath;
 mod llm;
 mod macros;

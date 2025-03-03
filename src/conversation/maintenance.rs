@@ -17,7 +17,7 @@ use crate::llm::{Content, Message};
 ///
 /// # Returns
 /// `true` if the content is empty or lacks meaningful information
-fn is_empty_content(content: &Content) -> bool {
+pub fn is_empty_content(content: &Content) -> bool {
     match content {
         // Empty or whitespace-only text
         Content::Text { text } => text.trim().is_empty(),

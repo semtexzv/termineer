@@ -17,8 +17,7 @@ use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_STAR
 use crate::conversation::{is_done_tool, parse_assistant_response};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::ansi_converter::strip_ansi_sequences;
-use crate::conversation_maintenance::sanitize_conversation;
-use crate::conversation_truncation::{truncate_conversation, TruncationConfig};
+use crate::conversation::{sanitize_conversation, truncate_conversation, TruncationConfig};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;

@@ -307,7 +307,6 @@ fn extract_header_footer(text: &str) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{Content, Message, MessageInfo};
     
     #[test]
     fn test_should_truncate() {
