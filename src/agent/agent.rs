@@ -17,7 +17,7 @@ use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_STAR
 use crate::conversation::{is_done_tool, parse_assistant_response};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::ansi_converter::strip_ansi_sequences;
-use crate::conversation::{sanitize_conversation, truncate_conversation, TruncationConfig};
+use crate::conversation::{sanitize_conversation, truncate_conversation, ToolMapper, TruncationConfig};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
@@ -70,6 +70,9 @@ pub struct Agent {
 
     /// Configuration for conversation truncation
     truncation_config: TruncationConfig,
+    
+    /// Tool mapper for tracking tool invocations and results
+    tool_mapper: ToolMapper,
 
     /// Sender of state updates
     sender: StateSender,
@@ -144,6 +147,7 @@ impl Agent {
             ]),
             cache_points: BTreeSet::new(),
             truncation_config: TruncationConfig::default(),
+            tool_mapper: ToolMapper::new(),
             sender,
             state: AgentState::Idle,
             tool_invocation_counter: 0,
@@ -476,15 +480,20 @@ impl Agent {
                                 // Mark this point in conversation as a cache point
                                 self.cache_here();
 
-                                // Add partial result to conversation
-                                self.conversation.push(Message::text(
+                                // Create the partial result message
+                                let partial_message = Message::text(
                                     "user",
                                     partial_tool_result,
                                     MessageInfo::ToolResult {
                                         tool_name: "shell".to_string(),
                                         tool_index: Some(self.tool_invocation_counter),
                                     }
-                                ));
+                                );
+                                
+                                // Add partial result to conversation and update tool mapper
+                                let msg_index = self.conversation.len();
+                                self.conversation.push(partial_message);
+                                self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
 
                                 has_partial_result = true;
 
@@ -644,8 +653,13 @@ impl Agent {
             }
         };
 
-        self.conversation
-            .push(Message::text("user", agent_response.clone(), message_info));
+        // Create the message
+        let message = Message::text("user", agent_response.clone(), message_info);
+        
+        // Add to conversation and update tool mapper
+        let msg_index = self.conversation.len();
+        self.conversation.push(message);
+        self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
 
         // Reset state to Processing since we're continuing processing
         self.set_state(AgentState::Processing);
@@ -1015,15 +1029,20 @@ impl Agent {
         // Everything before and including the tool invocation (we need this for conversation history)
         let full_assistant_message = assistant_message.clone();
 
-        // Add the assistant's response (with tool invocation) to conversation history
-        self.conversation.push(Message::text(
+        // Create the tool call message
+        let tool_call_message = Message::text(
             "assistant",
             full_assistant_message,
             MessageInfo::ToolCall {
                 tool_name: tool_name.clone(),
                 tool_index: Some(self.tool_invocation_counter),
             },
-        ));
+        );
+        
+        // Add to conversation and update tool mapper
+        let msg_index = self.conversation.len();
+        self.conversation.push(tool_call_message);
+        self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
 
         // Increment the tool invocation counter for all tools
         self.tool_invocation_counter += 1;
@@ -1097,7 +1116,10 @@ impl Agent {
 
         let message = Message::text("user", agent_response.clone(), message_info);
 
+        // Add to conversation and update tool mapper
+        let msg_index = self.conversation.len();
         self.conversation.push(message);
+        self.tool_mapper.process_message(msg_index, &self.conversation[msg_index]);
         
         if response_message_len > 500 {
             self.cache_here();
@@ -1151,6 +1173,8 @@ impl Agent {
         self.conversation.clear();
         // Clear all cache points when conversation is cleared
         self.cache_points.clear();
+        // Reset the tool mapper
+        self.tool_mapper = ToolMapper::new();
         // Reset state to Idle if it was Done
         if matches!(self.state, AgentState::Done) {
             self.state = AgentState::Idle;
@@ -1201,5 +1225,35 @@ impl Agent {
         // Reset cache points since model changed
         self.reset_cache_points();
         Ok(())
+    }
+    
+    /// Get all tool interactions in the conversation
+    pub fn get_tool_interactions(&self) -> Vec<&crate::conversation::ToolInteraction> {
+        self.tool_mapper.get_interactions()
+    }
+    
+    /// Get a specific tool interaction by tool index
+    pub fn get_tool_interaction(&self, tool_index: usize) -> Option<&crate::conversation::ToolInteraction> {
+        self.tool_mapper.get_interaction(tool_index)
+    }
+    
+    /// Get the tool interaction associated with a specific message
+    pub fn get_tool_interaction_for_message(&self, message_index: usize) -> Option<&crate::conversation::ToolInteraction> {
+        self.tool_mapper.get_interaction_for_message(message_index)
+    }
+    
+    /// Get all tool interactions for a specific tool name
+    pub fn get_tool_interactions_by_name(&self, tool_name: &str) -> Vec<&crate::conversation::ToolInteraction> {
+        self.tool_mapper.get_interactions_by_name(tool_name)
+    }
+    
+    /// Get any pending tool calls that don't have results yet
+    pub fn get_pending_tool_calls(&self) -> Vec<(usize, &str, usize)> {
+        self.tool_mapper.get_pending_calls()
+    }
+    
+    /// Refresh the tool mapping from the current conversation
+    pub fn refresh_tool_mapping(&mut self) {
+        self.tool_mapper.process_conversation(&self.conversation);
     }
 }

@@ -7,9 +7,6 @@
 - We should also output its intermediate output, like the buffer, into standard error.
 - We should also support interruptions in this mode.
 
-## Conversation and tool mapping.
-- The agent should internally maintain a mapping between tool invocations and messages that contains the tool invocation request and tool response or tool error output.
-
 ## Agent tool
 - Give running agents the ability to spawn new agents. Also give them ability to send messages to other agents.
 - Messages are delivered in the same way as user messages are. However, when they are injected into the agent conversation, they are injected with a XML tags, similar to how we use XML everywhere else. And the originating agent name is provided in the XML tags.
