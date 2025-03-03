@@ -16,11 +16,6 @@
 - This all should be implemented under the agent tool that will have subcommands. First subcommand is create where the tool body will be the query used for the subagent. Second subcommand should be send which will send a message to another agent.
 - There should be a new wait command that the agent can use to wait for messages from other agents.The implementation should be similar to the done command. Basically the agent is put into the non-running state and any message from either user or other agents will put it into the running state.
 
-# Cnversation maintenance
-- conversation maintenance deals with keeping the conversation structure in the agent nice and sane.
-- We should remove empty content blocks and we should remove messages that do not have any content blocks.
-- We should do this every time before we send a conversation to the LLM back-end.
-
 # LLM backend timeout and retry.
 - We should run the backend API calls with a really long timeout, let's say 30 to 60 seconds.
 - For example, when we receive a network issue, we should utilize a linear back-off with a maximum waiting time of 30 seconds.

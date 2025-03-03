@@ -17,6 +17,7 @@ use crate::constants::{TOOL_ERROR_END, TOOL_ERROR_START_PREFIX, TOOL_RESULT_STAR
 use crate::conversation::{is_done_tool, parse_assistant_response};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::ansi_converter::strip_ansi_sequences;
+use crate::conversation_maintenance::sanitize_conversation;
 use crate::conversation_truncation::{truncate_conversation, TruncationConfig};
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
@@ -907,6 +908,22 @@ impl Agent {
         
         // Reset cache points if needed
         if needs_cache_reset {
+            self.reset_cache_points();
+        }
+        
+        // Apply conversation maintenance to remove empty messages
+        // This ensures the conversation structure is clean before sending to the LLM
+        let removed_messages = sanitize_conversation(&mut self.conversation);
+        if removed_messages > 0 {
+            // Log that messages were removed
+            crate::bprintln!(
+                "🧹 {}Removed{} {} empty message(s) from conversation",
+                crate::constants::FORMAT_BOLD,
+                crate::constants::FORMAT_RESET,
+                removed_messages
+            );
+            
+            // Reset cache points since message structure changed
             self.reset_cache_points();
         }
         
