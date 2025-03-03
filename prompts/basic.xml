@@ -106,4 +106,22 @@
     [summary on multiple lines]
     </g-tool>
   </section>
+  
+  <section id="tool_results">
+    ## Example Tool Results
+    
+    ### Success Result
+    When a tool executes successfully, you'll see output like this:
+    <g-done index="1">
+    Command 'ls -la' executed successfully.
+    File list retrieved.
+    </g-done>
+    
+    ### Error Result
+    When a tool encounters an error, you'll see output like this:
+    <g-error index="2">
+    Error: File not found: 'nonexistent.txt'
+    Please check the file path and try again.
+    </g-error>
+  </section>
 </template>

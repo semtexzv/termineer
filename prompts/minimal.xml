@@ -31,6 +31,14 @@
     - Done: Complete task with summary <g-tool name="done"></g-tool> (summary on new lines)
   </section>
   
+  <section id="result_examples">
+    ## Tool Results
+    
+    Success looks like this: <g-done index="1">Command executed successfully.</g-done>
+    
+    Errors look like this: <g-error index="2">Error: Invalid argument.</g-error>
+  </section>
+  
   <variables>
     <variable id="thinking_budget" default="2000"/>
   </variables>

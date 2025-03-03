@@ -67,6 +67,21 @@
           [Brief completion summary]
           </g-tool>
        ```
+    
+    4. Include examples of successful and error responses:
+       ```
+       Example of successful tool execution:
+       <g-done index="1">
+       Command executed successfully.
+       [Task output details]
+       </g-done>
+       
+       Example of error response:
+       <g-error index="2">
+       Error: Unable to complete task because [reason]
+       [Error details and troubleshooting suggestions]
+       </g-error>
+       ```
   </section>
   
   <section id="monitoring">

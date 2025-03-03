@@ -311,6 +311,7 @@ mod tests {
             sections: HashMap::new(),
             variables: Variables::new(),
             prompt_template: Some("{introduction}\n\n{body}".to_string()),
+            grammar_elements: Vec::new(),
         };
         
         // Add sections
