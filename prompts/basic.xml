@@ -62,13 +62,15 @@
     
     ### Write
     Write content to a file
-    <g-tool name="write" filepath="[filepath]">
+    <g-tool name="write">
+    [filepath]
     [content on multiple lines]
     </g-tool>
     
     ### Patch
     Update file content by replacing text
-    <g-tool name="patch" filepath="[filepath]">
+    <g-tool name="patch">
+    [filepath]
     {PATCH_BEFORE}
     [text before change]
     {PATCH_AFTER}
@@ -82,13 +84,15 @@
     
     ### Task
     Create a subagent to handle a specific subtask
-    <g-tool name="task" description="[task name/description]">
+    <g-tool name="task">
+    [task name/description]
     [detailed task instructions]
     </g-tool>
     
     ### Agent
     Create and communicate with other agents
-    <g-tool name="agent" subcommand="[subcommand]" arguments="[arguments]">
+    <g-tool name="agent">
+    [subcommand] [arguments]
     [content on multiple lines]
     </g-tool>
     

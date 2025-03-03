@@ -22,11 +22,11 @@
     
     - Shell: Execute shell commands <g-tool name="shell">[command]</g-tool>
     - Read: View files/directories <g-tool name="read">[filepath]</g-tool>
-    - Write: Create/replace files <g-tool name="write" filepath="[filepath]"></g-tool> (content on new lines)
-    - Patch: Edit files precisely <g-tool name="patch" filepath="[filepath]"></g-tool> (with before/after blocks)
+    - Write: Create/replace files <g-tool name="write">[filepath]</g-tool> (content on new lines)
+    - Patch: Edit files precisely <g-tool name="patch">[filepath]</g-tool> (with before/after blocks)
     - Fetch: Get web content <g-tool name="fetch">URL</g-tool>
-    - Task: Create subagent for subtask <g-tool name="task" description="[name]"></g-tool> (instructions on new lines)
-    - Agent: Create/communicate with agents <g-tool name="agent" subcommand="[subcommand]" arguments="[args]"></g-tool>
+    - Task: Create subagent for subtask <g-tool name="task">[name]</g-tool> (instructions on new lines)
+    - Agent: Create/communicate with agents <g-tool name="agent">[subcommand] [args]</g-tool>
     - Wait: Pause until receiving a message <g-tool name="wait">[reason]</g-tool>
     - Done: Complete task with summary <g-tool name="done"></g-tool> (summary on new lines)
   </section>

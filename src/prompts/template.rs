@@ -50,14 +50,27 @@ pub struct TemplateMeta {
     pub description: String,
 }
 
-/// Tool element extracted from the template
+/// Grammar element type
+#[derive(Debug, Clone, PartialEq)]
+pub enum GrammarElementType {
+    /// Regular tool invocation
+    Tool,
+    /// Tool result message
+    Done,
+    /// Tool error message
+    Error,
+}
+
+/// Grammar element extracted from the template
 #[derive(Debug, Clone)]
-pub struct ToolElement {
-    /// Tool name
+pub struct GrammarElement {
+    /// Element type
+    pub element_type: GrammarElementType,
+    /// Element name (tool name or index)
     pub name: String,
     /// Tool attributes
     pub attributes: HashMap<String, String>,
-    /// Tool content
+    /// Element content
     pub content: String,
 }
 
@@ -74,8 +87,8 @@ pub struct Template {
     pub variables: Variables,
     /// The composed prompt template (if specified)
     pub prompt_template: Option<String>,
-    /// Tool elements extracted from the template
-    pub tool_elements: Vec<ToolElement>,
+    /// Grammar elements extracted from the template
+    pub grammar_elements: Vec<GrammarElement>,
 }
 
 impl Template {
@@ -155,25 +168,47 @@ impl Template {
         // First, do the standard rendering to substitute variables and sections
         let rendered = self.render(variables)?;
         
-        // Then process any tool placeholders using the grammar
+        // Then process any grammar element placeholders
         let mut result = rendered;
         
-        // Process each tool element
-        for tool in &self.tool_elements {
-            let placeholder = format!("{{__TOOL_{}__}}", tool.name);
-            
-            // Extract attributes
-            let args = if let Some(args_str) = tool.attributes.get("args") {
-                args_str.to_string()
-            } else {
-                String::new()
-            };
-            
-            // Format the tool using the grammar
-            let formatted_tool = grammar.format_tool_call(&tool.name, &format!("{} {}", args, tool.content));
-            
-            // Replace the placeholder with the formatted tool
-            result = result.replace(&placeholder, &formatted_tool);
+        // Process each grammar element
+        for element in &self.grammar_elements {
+            match element.element_type {
+                GrammarElementType::Tool => {
+                    let placeholder = format!("{{__TOOL_{}__}}", element.name);
+                    
+                    // Format the tool using the grammar - only passing name and content
+                    // The tool itself will parse arguments from the content
+                    let formatted_element = grammar.format_tool_call(&element.name, &element.content);
+                    
+                    // Replace the placeholder with the formatted tool
+                    result = result.replace(&placeholder, &formatted_element);
+                },
+                GrammarElementType::Done => {
+                    let placeholder = format!("{{__DONE_{}}}", element.name);
+                    
+                    // Try to parse the index
+                    let index = element.name.parse::<usize>().unwrap_or(0);
+                    
+                    // Format the result using the grammar
+                    let formatted_element = grammar.format_tool_result(index, &element.content);
+                    
+                    // Replace the placeholder with the formatted result
+                    result = result.replace(&placeholder, &formatted_element);
+                },
+                GrammarElementType::Error => {
+                    let placeholder = format!("{{__ERROR_{}}}", element.name);
+                    
+                    // Try to parse the index
+                    let index = element.name.parse::<usize>().unwrap_or(0);
+                    
+                    // Format the error using the grammar
+                    let formatted_element = grammar.format_tool_error(index, &element.content);
+                    
+                    // Replace the placeholder with the formatted error
+                    result = result.replace(&placeholder, &formatted_element);
+                }
+            }
         }
         
         Ok(result)

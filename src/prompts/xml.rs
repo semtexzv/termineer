@@ -127,11 +127,12 @@ pub fn parse_template(xml: &str) -> Result<Template, TemplateError> {
         }
     }
     
-    // Extract tool elements
-    let mut tool_elements = Vec::new();
-    let extracted_tools = extract_tool_elements(&root);
-    for (name, attributes, content) in extracted_tools {
-        tool_elements.push(super::template::ToolElement {
+    // Extract grammar elements
+    let mut grammar_elements = Vec::new();
+    let extracted_elements = extract_grammar_elements(&root);
+    for (element_type, name, attributes, content) in extracted_elements {
+        grammar_elements.push(super::template::GrammarElement {
+            element_type,
             name,
             attributes,
             content,
@@ -144,7 +145,7 @@ pub fn parse_template(xml: &str) -> Result<Template, TemplateError> {
         sections,
         variables,
         prompt_template,
-        tool_elements,
+        grammar_elements,
     })
 }
 
@@ -156,13 +157,23 @@ fn get_element_text(element: &Element) -> Option<String> {
         match child {
             XMLNode::Text(content) => text.push_str(content),
             XMLNode::Element(elem) => {
-                // Special handling for g-tool elements
+                // Special handling for grammar elements
                 if elem.name == "g-tool" {
                     // We'll process these during rendering with Grammar trait
                     // Just include a placeholder for now
                     let tool_name = elem.attributes.get("name").map_or("", |s| s);
                     let tool_placeholder = format!("{{__TOOL_{}__}}", tool_name);
                     text.push_str(&tool_placeholder);
+                } else if elem.name == "g-done" {
+                    // Mark a result element for grammar formatting
+                    let index = elem.attributes.get("index").map_or("0", |s| s);
+                    let done_placeholder = format!("{{__DONE_{}}}", index);
+                    text.push_str(&done_placeholder);
+                } else if elem.name == "g-error" {
+                    // Mark an error element for grammar formatting
+                    let index = elem.attributes.get("index").map_or("0", |s| s);
+                    let error_placeholder = format!("{{__ERROR_{}}}", index);
+                    text.push_str(&error_placeholder);
                 } else {
                     // Recursively get text from child elements
                     if let Some(child_text) = get_element_text(elem) {
@@ -181,26 +192,34 @@ fn get_element_text(element: &Element) -> Option<String> {
     }
 }
 
-/// Extract tool elements from an XML element
-fn extract_tool_elements(element: &Element) -> Vec<(String, HashMap<String, String>, String)> {
-    let mut tools = Vec::new();
+/// Extract grammar elements from an XML element
+fn extract_grammar_elements(element: &Element) -> Vec<(super::template::GrammarElementType, String, HashMap<String, String>, String)> {
+    let mut elements = Vec::new();
     
-    // Process this element if it's a g-tool
+    // Process this element if it's a grammar element
     if element.name == "g-tool" {
         let name = element.attributes.get("name").map_or("", |s| s.as_str()).to_string();
         let content = get_element_text(element).unwrap_or_default();
-        tools.push((name, element.attributes.clone(), content));
+        elements.push((super::template::GrammarElementType::Tool, name, element.attributes.clone(), content));
+    } else if element.name == "g-done" {
+        let index = element.attributes.get("index").map_or("0", |s| s.as_str()).to_string();
+        let content = get_element_text(element).unwrap_or_default();
+        elements.push((super::template::GrammarElementType::Done, index, element.attributes.clone(), content));
+    } else if element.name == "g-error" {
+        let index = element.attributes.get("index").map_or("0", |s| s.as_str()).to_string();
+        let content = get_element_text(element).unwrap_or_default();
+        elements.push((super::template::GrammarElementType::Error, index, element.attributes.clone(), content));
     }
     
     // Recursively process child elements
     for child in &element.children {
         if let XMLNode::Element(elem) = child {
-            let mut child_tools = extract_tool_elements(elem);
-            tools.append(&mut child_tools);
+            let mut child_elements = extract_grammar_elements(elem);
+            elements.append(&mut child_elements);
         }
     }
     
-    tools
+    elements
 }
 
 #[cfg(test)]

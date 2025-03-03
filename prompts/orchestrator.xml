@@ -57,7 +57,8 @@
        When you complete your task, you MUST:
        
        1. FIRST send your results to me:
-          <g-tool name="agent" subcommand="send" arguments="main">
+          <g-tool name="agent">
+          send main
           [Your complete results here with all details]
           </g-tool>
           
@@ -105,7 +106,8 @@
     
     2. After creating each agent, explicitly wait for messages:
        ```
-       <g-tool name="agent" subcommand="wait">
+       <g-tool name="agent">
+       wait
        Waiting for results from [agent_name]
        </g-tool>
        ```
