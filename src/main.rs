@@ -218,6 +218,9 @@ async fn run_single_query_mode(
     let mut final_response = String::new();
     let mut agent_done = false;
     
+    // Track lines we've already output to stderr
+    let mut last_line_count = 0;
+    
     while !agent_done && start_time.elapsed() < max_wait_time {
         // Check agent state
         let state = {
@@ -225,37 +228,35 @@ async fn run_single_query_mode(
             manager.get_agent_state(main_agent_id).unwrap_or(AgentState::Idle)
         };
         
-        // Check if we have a final response from a Done state
+        // Stream new buffer content to stderr
+        {
+            let manager = agent_manager.lock().unwrap();
+            if let Ok(buffer) = manager.get_agent_buffer(main_agent_id) {
+                let lines = buffer.lines();
+                let current_count = lines.len();
+                
+                // If there are new lines, print them to stderr
+                if current_count > last_line_count {
+                    for i in last_line_count..current_count {
+                        if let Some(line) = lines.get(i) {
+                            eprintln!("{}", line.content);
+                        }
+                    }
+                    last_line_count = current_count;
+                }
+            }
+        }
+        
+        // Only consider the agent done when we have an explicit Done state with a response
         if let AgentState::Done(Some(response)) = state {
             final_response = response;
             agent_done = true;
             continue;
         }
         
-        // If the agent is idle but has content, it might be done
-        if matches!(state, AgentState::Idle) {
-            // Check if we've processed enough to consider ourselves done
-            let buffer_has_content = {
-                let manager = agent_manager.lock().unwrap();
-                if let Ok(buffer) = manager.get_agent_buffer(main_agent_id) {
-                    let lines = buffer.lines();
-                    // We need at least one line that's not the intro message
-                    lines.len() > 1 && lines.iter().any(|line| !line.content.starts_with("🤖"))
-                } else {
-                    false
-                }
-            };
-            
-            // If we have content and have been idle for a while, assume we're done
-            if buffer_has_content && start_time.elapsed() > Duration::from_secs(10) {
-                // We'll need to extract the response from the buffer later
-                agent_done = true;
-            }
-        }
-        
         // If not done, wait briefly to avoid busy-waiting
         if !agent_done {
-            sleep(Duration::from_millis(500)).await;
+            sleep(Duration::from_millis(100)).await;
         }
     }
     
