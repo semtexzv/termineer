@@ -12,13 +12,13 @@ pub use handlebars::TemplateManager;
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "read", "write", "patch", "fetch", 
+    "shell", "read", "write", "patch", "fetch", "search",
     "task", "done", "agent", "wait"
 ];
 
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
-    "shell", "read", "fetch", "done", "agent", "wait"
+    "shell", "read", "fetch", "search", "done", "agent", "wait"
 ];
 
 /// Get the default list of enabled tools
@@ -64,18 +64,25 @@ pub fn render_template(template_name: &str, enabled_tools: &[&str], grammar: Arc
 ///
 /// # Arguments
 /// * `enabled_tools` - The list of tool names to enable
-/// * `use_minimal` - Whether to use the minimal prompt template
+/// * `use_minimal` - Whether to use the minimal prompt template (legacy behavior)
+/// * `template_name` - Optional specific template to use (overrides use_minimal)
 ///
 /// # Returns
 /// The generated system prompt as a string
-pub fn generate_system_prompt(enabled_tools: &[&str], use_minimal: bool, grammar: Arc<dyn Grammar>) -> String {
-    let template_name = if use_minimal {
+pub fn generate_system_prompt(enabled_tools: &[&str], use_minimal: bool, template_name: Option<&str>, grammar: Arc<dyn Grammar>) -> String {
+    // Determine which template to use
+    let template = if let Some(name) = template_name {
+        // If a specific template is provided, use it
+        name
+    } else if use_minimal {
+        // Legacy behavior: if minimal is requested, use minimal template
         "minimal"
     } else {
+        // Default to basic template
         "basic"
     };
     
-    render_template(template_name, enabled_tools, grammar)
+    render_template(template, enabled_tools, grammar)
 }
 
 /// Select a grammar implementation based on model name

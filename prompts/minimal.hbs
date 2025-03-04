@@ -40,6 +40,11 @@ Get web content (HTML auto-converted):
 {{#tool "fetch"}}URL{{/tool}}
 {{/iftool}}
 
+{{#iftool "search"}}
+Search the web with Google:
+{{#tool "search"}}[search query]{{/tool}}
+{{/iftool}}
+
 {{#iftool "task"}}
 Run encapsulated subtask:
 {{#tool "task"}}[task name]

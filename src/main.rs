@@ -113,7 +113,7 @@ fn print_help() {
     println!("                         (default: claude-3-7-sonnet-20250219)");
     println!("  --grammar TYPE         Specify the grammar type to use (xml, markdown)");
     println!("                         (default: xml for most models, markdown for Gemini)");
-    println!("  --system PROMPT        Provide a system prompt");
+    println!("  --system TEMPLATE      Specify which template to use (basic, minimal, researcher)");
     println!("  --no-tools             Disable tools");
     println!("  --thinking-budget N    Set the thinking budget in tokens");
     println!("  --minimal-prompt       Use a minimal system prompt");
@@ -157,8 +157,9 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
     let prompt = match template_name.as_str() {
         "basic" => prompts::render_template("basic", enabled_tools, grammar),
         "minimal" => prompts::render_template("minimal", enabled_tools, grammar),
+        "researcher" => prompts::render_template("researcher", enabled_tools, grammar),
         _ => {
-            return Err(format!("Unknown template name: {}. Available templates: basic, minimal, all", template_name).into());
+            return Err(format!("Unknown template name: {}. Available templates: basic, minimal, researcher", template_name).into());
         }
     };
     

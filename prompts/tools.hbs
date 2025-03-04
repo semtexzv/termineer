@@ -173,6 +173,42 @@ When to use:
 
 {{/iftool}}
 
+{{#iftool "search"}}
+### Search
+Search the web using Google Search API:
+{{#tool "search"}}[search query]{{/tool}}
+
+Example:
+{{#tool "search"}}rust programming language{{/tool}}
+
+{{#done "search" 0}}
+Search results for "rust programming language":
+
+1. The Rust Programming Language - Rust Programming Language
+   URL: https://doc.rust-lang.org/book/
+   The Rust Programming Language is an introductory book about Rust, a programming language that helps you write faster, more reliable software.
+
+2. Rust Programming Language
+   URL: https://www.rust-lang.org/
+   Rust is a multi-paradigm, general-purpose programming language that emphasizes performance, type safety, and concurrency.
+
+3. Learn Rust - Rust Programming Language
+   URL: https://www.rust-lang.org/learn
+   Learn Rust programming with official documentation, books, and practice exercises.
+
+Total results: 9,850,000
+Search engine time: 0.25 seconds
+Total search time: 418.43ms
+{{/done}}
+
+When to use:
+- Research technical topics and documentation
+- Find information about libraries, frameworks, or tools
+- Gather reference material for programming tasks
+- Discover solutions to technical problems
+- Access up-to-date information from the web
+{{/iftool}}
+
 {{#iftool "task"}}
 ### Task
 Create a subtask to perform a specific goal

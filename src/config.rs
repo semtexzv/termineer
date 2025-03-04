@@ -30,7 +30,11 @@ pub struct Config {
     /// Model name to use (will infer provider from this)
     pub model: String,
 
-    /// Custom system prompt
+    /// Template to use for the system prompt (basic, minimal, researcher, etc.)
+    pub template_name: Option<String>,
+    
+    /// Custom system prompt (generated from template or directly provided)
+    /// This is kept for backward compatibility
     pub system_prompt: Option<String>,
 
     /// Whether to enable tools
@@ -58,6 +62,7 @@ impl Config {
         // Default configuration
         Self {
             model: "claude-3-7-sonnet-20250219".to_string(), // Default model
+            template_name: None,
             system_prompt: None,
             enable_tools: true,
             thinking_budget: 16384,
@@ -134,10 +139,10 @@ impl Config {
                 }
                 "--system" => {
                     if i + 1 < args.len() {
-                        self.system_prompt = Some(args[i + 1].clone());
+                        self.template_name = Some(args[i + 1].clone());
                         i += 2;
                     } else {
-                        return Err("Error: --system requires a PROMPT".into());
+                        return Err("Error: --system requires a TEMPLATE_NAME (basic, minimal, researcher)".into());
                     }
                 }
                 "--no-tools" => {

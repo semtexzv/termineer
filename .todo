@@ -4,15 +4,9 @@
 - For example, when we receive a network issue, we should utilize a linear back-off with a maximum waiting time of 30 seconds.
 - Maybe use a library timeout to detect network issues.
 
-# Resume after interrupt.
-- Add a new MessageInfo item, for interrupt messages
-- add a command to continue execution
-- IF we're continuing after an interruption, remove that interruption message from chat, and re-start the gent.
-
 # Simple Sessions.
 - Whenever user is working in the directory save the session periodically or after every model output to a file
 - This file should be called .session.
 
 # small things.
 - Remove serde_element_array file because there is a copy of it now in serde_utils.
-

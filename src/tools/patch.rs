@@ -4,8 +4,10 @@ use crate::constants::{
 };
 use crate::tools::ToolResult;
 use tokio::fs;
+use crate::bprintln;
 
 pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolResult {
+    bprintln!("patch: args = {}, body = {}", args, body);
     // Extract filename from args
     let filename = args.trim();
 

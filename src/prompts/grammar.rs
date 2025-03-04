@@ -135,9 +135,6 @@ impl Grammar for XmlGrammar {
             return format!("{}{}{}", TOOL_START, name, TOOL_END);
         }
         
-        if trimmed_content.contains('\n') {
-            return format!("{}{}\n{}\n{}", TOOL_START, name, content.trim_end(), TOOL_END);
-        }
         
         // For simple single-line content, just add a space
         format!("{}{} {}{}", TOOL_START, name, trimmed_content, TOOL_END)
@@ -168,6 +165,8 @@ impl Grammar for XmlGrammar {
                     Some((header, body)) => (header, body),
                     None => (tool_content, ""),
                 };
+                
+                bprintln!("Tool header: {:?}\nTool body: {:?}\n", header, body);
 
                 let mut args = header.split_whitespace().collect::<Vec<&str>>();
 

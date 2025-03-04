@@ -22,6 +22,7 @@ use crate::tools::ToolExecutor;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
+use crate::bprintln;
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
@@ -104,14 +105,15 @@ impl Agent {
             // Use the grammar specified in the config instead of inferring from model
             let grammar = crate::prompts::select_grammar_by_type(config.grammar_type);
 
-            // Generate the system prompt based on the minimal flag
+            // Generate the system prompt based on template_name or minimal flag
             let prompt = crate::prompts::generate_system_prompt(
                 &enabled_tools,
                 config.use_minimal_prompt,
+                config.template_name.as_deref(),
                 grammar,
             );
 
-            // Set the system prompt in the config
+            // Set the system prompt in the config's system_prompt field for compatibility
             config.system_prompt = Some(prompt);
         }
 
@@ -1069,7 +1071,7 @@ impl Agent {
             self.state = AgentState::Idle;
 
             return Ok(MessageResult {
-                response: assistant_message,
+                response: assistant_message.clone(),
                 continue_processing: false, // Stop processing, wait for user input
                 token_usage: response.usage,
             });
@@ -1077,8 +1079,10 @@ impl Agent {
 
         // At this point, we know we have a tool invocation
         let tool = parsed.tool.unwrap();
+        bprintln!("Parsed tool: {:#?}\n{:#?}", tool, assistant_message);
         let tool_name = tool.name;
         let tool_body = tool.body;
+
 
         // Display token stats before any other output (if not in silent mode)
         if !self.tool_executor.is_silent() {

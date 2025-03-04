@@ -107,7 +107,8 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     let enabled_tools = crate::prompts::ALL_TOOLS;
     
     // Generate the system prompt using the template system
-    let system_prompt = crate::prompts::generate_system_prompt(enabled_tools, false, Arc::new(XmlGrammar));
+    // Tasks use the default template (None for template_name)
+    let system_prompt = crate::prompts::generate_system_prompt(enabled_tools, false, None, Arc::new(XmlGrammar));
     config.system_prompt = Some(system_prompt);
     
     // For now, just return a message saying the task functionality is under development
