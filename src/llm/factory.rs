@@ -8,6 +8,7 @@ use crate::llm::anthropic::Anthropic;
 use crate::llm::openrouter::OpenRouter;
 use crate::llm::{Backend, LlmError};
 use std::env;
+use crate::bprintln;
 
 /// Supported model provider types
 #[derive(Debug, PartialEq, Eq)]

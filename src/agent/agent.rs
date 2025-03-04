@@ -4,7 +4,6 @@
 //! managing conversations, tool execution, and interactions with LLM backends.
 
 use std::collections::BTreeSet;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -91,8 +90,8 @@ impl Agent {
         mut config: Config,
         sender: StateSender,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Select grammar based on model name
-        let grammar: Arc<dyn Grammar>= crate::prompts::select_grammar_for_model(&config.model);
+        // Select grammar based on configuration's grammar_type
+        let grammar: Arc<dyn Grammar> = crate::prompts::select_grammar_by_type(config.grammar_type);
         // Initialize system prompt if not already set
         if config.system_prompt.is_none() {
             // Convert enabled_tools setting to the appropriate list of tool names
@@ -102,7 +101,8 @@ impl Agent {
                 crate::prompts::READONLY_TOOLS.to_vec()
             };
 
-            let grammar = select_grammar_for_model(&config.model);
+            // Use the grammar specified in the config instead of inferring from model
+            let grammar = crate::prompts::select_grammar_by_type(config.grammar_type);
 
             // Generate the system prompt based on the minimal flag
             let prompt = crate::prompts::generate_system_prompt(

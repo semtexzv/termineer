@@ -33,7 +33,7 @@ use crossterm::{
 };
 use tokio::time::sleep;
 use ui_interface::TuiInterface;
-use crate::prompts::OldGrammar;
+use crate::prompts::XmlGrammar;
 
 // Global agent manager available to all components
 lazy_static! {
@@ -111,6 +111,8 @@ fn print_help() {
     println!("Options:");
     println!("  --model MODEL_NAME     Specify the model to use");
     println!("                         (default: claude-3-7-sonnet-20250219)");
+    println!("  --grammar TYPE         Specify the grammar type to use (xml, markdown)");
+    println!("                         (default: xml for most models, markdown for Gemini)");
     println!("  --system PROMPT        Provide a system prompt");
     println!("  --no-tools             Disable tools");
     println!("  --thinking-budget N    Set the thinking budget in tokens");
@@ -148,10 +150,13 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
         prompts::READONLY_TOOLS
     };
     
+    // Get the grammar based on config
+    let grammar = prompts::select_grammar_by_type(config.grammar_type);
+    
     // Render the template
     let prompt = match template_name.as_str() {
-        "basic" => prompts::render_template("basic", enabled_tools, Arc::new(OldGrammar)),
-        "minimal" => prompts::render_template("minimal", enabled_tools, Arc::new(OldGrammar)),
+        "basic" => prompts::render_template("basic", enabled_tools, grammar),
+        "minimal" => prompts::render_template("minimal", enabled_tools, grammar),
         _ => {
             return Err(format!("Unknown template name: {}. Available templates: basic, minimal, all", template_name).into());
         }

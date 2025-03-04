@@ -114,6 +114,7 @@ struct OpenRouterMessage {
 /// OpenRouter response format
 #[derive(Deserialize, Debug)]
 struct OpenRouterResponse {
+    #[serde(default)]
     id: String,
     choices: Vec<OpenRouterChoice>,
     model: String,
@@ -305,9 +306,29 @@ impl OpenRouter {
             match response {
                 Ok(res) => {
                     if res.status().is_success() {
-                        return res.json::<OpenRouterResponse>().await.map_err(|e| {
-                            LlmError::ApiError(format!("Failed to parse OpenRouter response: {}", e))
-                        });
+                        // Get the raw response text first
+                        let raw_response = match res.text().await {
+                            Ok(text) => text,
+                            Err(e) => {
+                                return Err(LlmError::ApiError(format!(
+                                    "Failed to read response body: {}", e
+                                )));
+                            }
+                        };
+                        
+                        // Now try to parse the JSON
+                        match serde_json::from_str::<OpenRouterResponse>(&raw_response) {
+                            Ok(parsed) => return Ok(parsed),
+                            Err(e) => {
+                                // Log the raw response for debugging
+                                bprintln!("OpenRouter API raw response (JSON parse failed):");
+                                bprintln!("{}", raw_response);
+                                
+                                return Err(LlmError::ApiError(format!(
+                                    "Failed to parse OpenRouter response as JSON: {}. Raw response has been logged.", e
+                                )));
+                            }
+                        }
                     } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                         // Handle rate limiting
                         attempts += 1;

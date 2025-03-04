@@ -3,11 +3,11 @@
 //! This module handles loading, parsing, and rendering prompt templates.
 //! It uses a Handlebars template system for flexible prompt composition.
 
-mod grammar;
+pub mod grammar;
 mod handlebars;
 
 use std::sync::Arc;
-pub use grammar::{Grammar, OldGrammar};
+pub use grammar::{Grammar, XmlGrammar};
 pub use handlebars::TemplateManager;
 
 /// List of all available tools
@@ -81,24 +81,40 @@ pub fn generate_system_prompt(enabled_tools: &[&str], use_minimal: bool, grammar
 /// Select a grammar implementation based on model name
 ///
 /// This function returns the appropriate grammar implementation
-/// for the specified model. Currently, all models use OldGrammar,
-/// but this can be extended in the future for model-specific behaviors.
+/// for the specified model. It checks the model name against known
+/// patterns to determine the most compatible grammar format.
 ///
 /// # Arguments
 /// * `model_name` - The name of the model to select grammar for
 ///
 /// # Returns
 /// A boxed Grammar implementation appropriate for the model
-pub fn select_grammar_for_model(model_name: &str) -> Arc<dyn Grammar>{
-    // Currently all models use the OldGrammar implementation
-    // In the future, this can be extended for model-specific grammars
-    let _model_lower = model_name.to_lowercase();
+pub fn select_grammar_for_model(model_name: &str) -> Arc<dyn Grammar> {
+    use grammar::formats::{get_grammar, GrammarType};
     
-    // Example of how model-specific grammar could be implemented:
-    // if _model_lower.contains("gpt-4") {
-    //     return Box::new(SomeOtherGrammar {});
-    // }
+    // Choose grammar based on model name
+    let model_lower = model_name.to_lowercase();
     
-    // Default to OldGrammar for all models for now
-    Arc::new(OldGrammar {})
+    if model_lower.contains("gemini") {
+        // Use markdown grammar for Gemini models
+        get_grammar(GrammarType::MarkdownBlocks)
+    } else {
+        // Use XML tags for all other models including Claude
+        get_grammar(GrammarType::XmlTags)
+    }
+}
+
+/// Select a grammar implementation based on configuration
+///
+/// This function returns a grammar implementation based on the provided
+/// grammar type in the configuration.
+///
+/// # Arguments
+/// * `grammar_type` - The type of grammar to use from configuration
+///
+/// # Returns
+/// A boxed Grammar implementation for the specified type
+pub fn select_grammar_by_type(grammar_type: grammar::formats::GrammarType) -> Arc<dyn Grammar> {
+    use grammar::formats::get_grammar;
+    get_grammar(grammar_type)
 }

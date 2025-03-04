@@ -1,11 +1,4 @@
 
-## Agent tool
-- Give running agents the ability to spawn new agents. Also give them ability to send messages to other agents.
-- Messages are delivered in the same way as user messages are. However, when they are injected into the agent conversation, they are injected with a XML tags, similar to how we use XML everywhere else. And the originating agent name is provided in the XML tags.
-- This all should be implemented under the agent tool that will have subcommands. First subcommand is create where the tool body will be the query used for the subagent. Second subcommand should be send which will send a message to another agent.
-- There should be a new wait command that the agent can use to wait for messages from other agents.The implementation should be similar to the done command. Basically the agent is put into the non-running state and any message from either user or other agents will put it into the running state.
-- This nonrunning state should possibly be the existing idle state.
-
 # LLM backend timeout and retry.
 - We should run the backend API calls with a really long timeout, let's say 100 to 200 seconds.
 - For example, when we receive a network issue, we should utilize a linear back-off with a maximum waiting time of 30 seconds.

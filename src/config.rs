@@ -22,6 +22,8 @@ pub enum ArgResult {
     DumpPrompts,
 }
 
+use crate::prompts::grammar::formats::GrammarType;
+
 /// Application configuration structure
 #[derive(Clone)]
 pub struct Config {
@@ -45,6 +47,9 @@ pub struct Config {
     
     /// Whether to dump prompts and exit
     pub dump_prompts: Option<String>,
+    
+    /// Grammar type for tool formatting
+    pub grammar_type: GrammarType,
 }
 
 impl Config {
@@ -59,6 +64,7 @@ impl Config {
             use_minimal_prompt: false,
             resume_last_session: false,
             dump_prompts: None,
+            grammar_type: GrammarType::XmlTags, // Default to XML tags for compatibility
         }
     }
 
@@ -66,6 +72,8 @@ impl Config {
     pub fn with_model(model: String) -> Self {
         let mut config = Self::new();
         config.model = model;
+        // Apply model-specific grammar settings
+        config.apply_model_specific_grammar();
         config
     }
 
@@ -89,6 +97,8 @@ impl Config {
         // Override model from environment if provided
         if let Ok(model) = env::var("MODEL") {
             config.model = model;
+            // Apply model-specific grammar settings
+            config.apply_model_specific_grammar();
         }
 
         Ok(config)
@@ -102,6 +112,18 @@ impl Config {
 
         while i < args.len() {
             match args[i].as_str() {
+                "--grammar" => {
+                    if i + 1 < args.len() {
+                        match args[i + 1].to_lowercase().as_str() {
+                            "xml" => self.grammar_type = GrammarType::XmlTags,
+                            "markdown" | "md" => self.grammar_type = GrammarType::MarkdownBlocks,
+                            _ => return Err(format!("Unknown grammar type: {}. Valid options are: xml, markdown", args[i + 1]).into()),
+                        }
+                        i += 2;
+                    } else {
+                        return Err("Error: --grammar requires a TYPE (xml, markdown)".into());
+                    }
+                }
                 "--model" => {
                     if i + 1 < args.len() {
                         self.model = args[i + 1].clone();
@@ -172,9 +194,30 @@ impl Config {
             return Ok(ArgResult::DumpPrompts);
         }
 
+        // Auto-select grammar based on model name if user didn't explicitly specify a grammar
+        // This ensures that even when model is changed via CLI, the grammar is updated accordingly
+        if !args.iter().any(|arg| arg == "--grammar") {
+            self.apply_model_specific_grammar();
+        }
+
         match query {
             Some(q) => Ok(ArgResult::Query(q)),
             None => Ok(ArgResult::Interactive),
+        }
+    }
+    
+    /// Apply model-specific settings, such as selecting the appropriate grammar
+    /// based on the model name
+    fn apply_model_specific_grammar(&mut self) {
+        // Use model name to determine grammar type
+        let model_lower = self.model.to_lowercase();
+        
+        // Gemini models work better with Markdown grammar
+        if model_lower.contains("gemini") {
+            self.grammar_type = crate::prompts::grammar::formats::GrammarType::MarkdownBlocks;
+        } else {
+            // XML tags for all other models including Claude
+            self.grammar_type = crate::prompts::grammar::formats::GrammarType::XmlTags;
         }
     }
 }

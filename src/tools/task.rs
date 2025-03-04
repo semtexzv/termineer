@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
 use tokio::sync::{mpsc, watch};
-use crate::prompts::OldGrammar;
+use crate::prompts::XmlGrammar;
 
 pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the args string to check for model parameter
@@ -107,7 +107,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     let enabled_tools = crate::prompts::ALL_TOOLS;
     
     // Generate the system prompt using the template system
-    let system_prompt = crate::prompts::generate_system_prompt(enabled_tools, false, Arc::new(OldGrammar));
+    let system_prompt = crate::prompts::generate_system_prompt(enabled_tools, false, Arc::new(XmlGrammar));
     config.system_prompt = Some(system_prompt);
     
     // For now, just return a message saying the task functionality is under development
