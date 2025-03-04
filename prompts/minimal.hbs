@@ -45,6 +45,11 @@ Search the web with Google:
 {{#tool "search"}}[search query]{{/tool}}
 {{/iftool}}
 
+{{#iftool "mcp"}}
+Use MCP tools:
+{{#tool "mcp"}}connect|list|call [args]{{/tool}}
+{{/iftool}}
+
 {{#iftool "task"}}
 Run encapsulated subtask:
 {{#tool "task"}}[task name]

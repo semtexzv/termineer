@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod done;
 pub mod fetch;
+pub mod mcp;
 pub mod patch;
 pub mod read;
 pub mod search;
@@ -13,6 +14,7 @@ pub mod write;
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
 pub use fetch::execute_fetch;
+pub use mcp::execute_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
 pub use search::execute_search;
@@ -170,6 +172,7 @@ impl ToolExecutor {
             "patch" => execute_patch(args, body, self.silent_mode).await,
             "fetch" => execute_fetch(args, body, self.silent_mode).await,
             "search" => execute_search(args, body, self.silent_mode).await,
+            "mcp" => execute_mcp_tool(args, body, self.silent_mode).await,
             "done" => execute_done(args, body, self.silent_mode),
             "task" => execute_task(args, body, self.silent_mode).await,
             "wait" => execute_wait(args, body, self.silent_mode),
@@ -187,6 +190,6 @@ impl ToolExecutor {
     
     /// Check if a tool is read-only
     fn is_readonly_tool(&self, name: &str) -> bool {
-        matches!(name, "read" | "shell" | "fetch" | "search" | "done" | "task" | "agent" | "wait")
+        matches!(name, "read" | "shell" | "fetch" | "search" | "mcp" | "done" | "task" | "agent" | "wait")
     }
 }

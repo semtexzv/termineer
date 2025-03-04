@@ -12,13 +12,13 @@ pub use handlebars::TemplateManager;
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "read", "write", "patch", "fetch", "search",
+    "shell", "read", "write", "patch", "fetch", "search", "mcp",
     "task", "done", "agent", "wait"
 ];
 
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
-    "shell", "read", "fetch", "search", "done", "agent", "wait"
+    "shell", "read", "fetch", "search", "mcp", "done", "agent", "wait"
 ];
 
 /// Get the default list of enabled tools

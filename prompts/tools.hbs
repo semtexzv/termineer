@@ -209,6 +209,69 @@ When to use:
 - Access up-to-date information from the web
 {{/iftool}}
 
+{{#iftool "mcp"}}
+### MCP
+Connect to and use tools from Model Context Protocol (MCP) servers:
+{{#tool "mcp"}}[subcommand] [arguments]{{/tool}}
+
+Subcommands:
+- `connect [server_url]`: Connect to an MCP server
+- `list [server_url]`: List available tools on a connected server
+- `call [server_url] [tool_id]`: Call a tool on a connected server (with JSON input in the body)
+
+Example - Connect to a server:
+{{#tool "mcp"}}connect http://localhost:8080{{/tool}}
+
+{{#done "mcp" 0}}
+Connected to MCP server: http://localhost:8080. Found 5 tools.
+{{/done}}
+
+Example - List available tools:
+{{#tool "mcp"}}list http://localhost:8080{{/tool}}
+
+{{#done "mcp" 0}}
+Tools available from MCP server http://localhost:8080:
+
+- ID: weather-api
+  Name: Weather API
+  Description: Get current weather for a location
+  Parameters:
+    - location: string (City name or coordinates)
+    - units: string (Unit system: metric or imperial)
+
+- ID: calculator
+  Name: Calculator
+  Description: Perform mathematical calculations
+  Parameters:
+    - expression: string (Mathematical expression to evaluate)
+{{/done}}
+
+Example - Call a tool:
+{{#tool "mcp"}}call http://localhost:8080 weather-api
+{
+  "location": "New York",
+  "units": "metric"
+}{{/tool}}
+
+{{#done "mcp" 0}}
+Result from tool Weather API (Get current weather for a location) on MCP server http://localhost:8080:
+
+{
+  "temperature": 22.5,
+  "conditions": "Partly cloudy",
+  "humidity": 65,
+  "wind_speed": 12.3
+}
+{{/done}}
+
+When to use:
+- Access external tools and services via MCP servers
+- Perform specialized calculations or operations
+- Retrieve real-time data from connected services
+- Interact with domain-specific tools
+- Extend your capabilities with server-provided functionality
+{{/iftool}}
+
 {{#iftool "task"}}
 ### Task
 Create a subtask to perform a specific goal

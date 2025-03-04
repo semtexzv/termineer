@@ -9,6 +9,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.19"  # WebSocket support for MCP
 futures = "0.3"
 async-trait = "0.1"
 base64 = "0.21"

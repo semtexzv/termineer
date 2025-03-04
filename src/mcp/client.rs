@@ -1,0 +1,207 @@
+//! MCP client implementation
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use tokio::sync::Mutex;
+use serde::Serialize;
+
+use crate::mcp::connection::WebSocketConnection;
+use crate::mcp::error::{McpError, McpResult};
+use crate::mcp::protocol::{
+    JsonRpcMessage, MessageContent, Request, ClientInfo, ClientCapabilities,
+    RootsCapabilities, InitializeParams, InitializeResult, ServerInfo,
+    Tool, ListToolsParams, ListToolsResult, CallToolParams, CallToolResult
+};
+
+/// MCP client for communicating with MCP servers
+pub struct McpClient {
+    /// WebSocket connection to the MCP server
+    connection: Arc<Mutex<Option<WebSocketConnection>>>,
+    
+    /// Counter for generating request IDs
+    request_id: AtomicUsize,
+    
+    /// Whether the client has been initialized
+    initialized: Arc<AtomicBool>,
+    
+    /// Server info received during initialization
+    server_info: Arc<Mutex<Option<ServerInfo>>>,
+}
+
+/// Current MCP protocol version
+const PROTOCOL_VERSION: &str = "2024-11-05";
+
+impl McpClient {
+    /// Create a new unconnected MCP client
+    pub fn new() -> Self {
+        Self {
+            connection: Arc::new(Mutex::new(None)),
+            request_id: AtomicUsize::new(1),
+            initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            server_info: Arc::new(Mutex::new(None)),
+        }
+    }
+    
+    /// Connect to an MCP server
+    pub async fn connect(&self, url: &str) -> McpResult<()> {
+        // Create WebSocket connection
+        let ws_conn = WebSocketConnection::connect(url).await?;
+        
+        // Store the connection
+        let mut conn_guard = self.connection.lock().await;
+        *conn_guard = Some(ws_conn);
+        
+        Ok(())
+    }
+    
+    /// Initialize the MCP client with the server
+    pub async fn initialize(&self, client_info: ClientInfo) -> McpResult<InitializeResult> {
+        // Check if connected
+        if self.connection.lock().await.is_none() {
+            return Err(McpError::ConnectionError("Not connected".to_string()));
+        }
+        
+        // Check if already initialized
+        if self.initialized.load(Ordering::SeqCst) {
+            return Err(McpError::ProtocolError("Already initialized".to_string()));
+        }
+        
+        // Create initialize parameters
+        let params = InitializeParams {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            capabilities: ClientCapabilities {
+                roots: RootsCapabilities {
+                    list_changed: true,
+                }
+            },
+            client_info,
+        };
+        
+        // Send initialize request
+        let result = self.send_request::<_, InitializeResult>("initialize", params).await?;
+        
+        // Store server info
+        let mut server_info_guard = self.server_info.lock().await;
+        *server_info_guard = Some(result.server_info.clone());
+        
+        // Mark as initialized
+        self.initialized.store(true, Ordering::SeqCst);
+        
+        Ok(result)
+    }
+    
+    /// List available tools
+    pub async fn list_tools(&self, categories: Option<Vec<String>>) -> McpResult<Vec<Tool>> {
+        // Check if initialized
+        if !self.initialized.load(Ordering::SeqCst) {
+            return Err(McpError::ProtocolError("Not initialized".to_string()));
+        }
+        
+        // Create listTools parameters
+        let params = ListToolsParams { categories };
+        
+        // Send listTools request
+        let result = self.send_request::<_, ListToolsResult>("listTools", params).await?;
+        
+        Ok(result.tools)
+    }
+    
+    /// Call a tool
+    pub async fn call_tool(&self, tool_id: &str, input: serde_json::Value) -> McpResult<serde_json::Value> {
+        // Check if initialized
+        if !self.initialized.load(Ordering::SeqCst) {
+            return Err(McpError::ProtocolError("Not initialized".to_string()));
+        }
+        
+        // Create callTool parameters
+        let params = CallToolParams {
+            id: tool_id.to_string(),
+            input,
+            stream: None,
+        };
+        
+        // Send callTool request
+        let result = self.send_request::<_, CallToolResult>("callTool", params).await?;
+        
+        Ok(result.output)
+    }
+    
+    /// Get the server info if initialized
+    pub async fn server_info(&self) -> Option<ServerInfo> {
+        let server_info_guard = self.server_info.lock().await;
+        server_info_guard.clone()
+    }
+    
+    /// Check if the client is connected
+    pub async fn is_connected(&self) -> bool {
+        let conn_guard = self.connection.lock().await;
+        conn_guard.as_ref().map_or(false, |conn| conn.is_connected())
+    }
+    
+    /// Check if the client is initialized
+    pub fn is_initialized(&self) -> bool {
+        self.initialized.load(Ordering::SeqCst)
+    }
+    
+    /// Close the connection
+    pub async fn close(&self) -> McpResult<()> {
+        let mut conn_guard = self.connection.lock().await;
+        if let Some(conn) = conn_guard.as_ref() {
+            conn.close().await?;
+            *conn_guard = None;
+        }
+        Ok(())
+    }
+    
+    /// Send a request and parse the response
+    async fn send_request<P: Serialize, R: for<'de> serde::Deserialize<'de>>(
+        &self, 
+        method: &str, 
+        params: P
+    ) -> McpResult<R> {
+        // Generate request ID
+        let id = self.request_id.fetch_add(1, Ordering::SeqCst);
+        
+        // Create request message
+        let params_value = serde_json::to_value(params)?;
+        let message = JsonRpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: Some(serde_json::Value::Number(serde_json::Number::from(id))),
+            content: MessageContent::Request(Request {
+                method: method.to_string(),
+                params: Some(params_value),
+            }),
+        };
+        
+        // Get connection and send request
+        let conn_guard = self.connection.lock().await;
+        let conn = conn_guard.as_ref()
+            .ok_or_else(|| McpError::ConnectionError("Not connected".to_string()))?;
+        
+        // Send request and get response
+        let response = conn.send_message(message).await?;
+        
+        // Parse response
+        match response.content {
+            MessageContent::Response(resp) => {
+                // Parse result
+                let result: R = serde_json::from_value(resp.result)?;
+                Ok(result)
+            },
+            MessageContent::Error(err) => {
+                Err(McpError::JsonRpcError(err.error))
+            },
+            _ => {
+                Err(McpError::ProtocolError(format!(
+                    "Unexpected response type for method {}", method
+                )))
+            }
+        }
+    }
+}
+
+impl Default for McpClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}

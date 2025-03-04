@@ -11,6 +11,7 @@ mod conversation;
 pub mod jsonpath;
 mod llm;
 mod macros;
+mod mcp;
 mod output;
 mod prompts;
 pub mod serde_utils;
