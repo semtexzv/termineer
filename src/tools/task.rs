@@ -8,38 +8,28 @@ use tokio::sync::{mpsc, watch};
 use crate::prompts::XmlGrammar;
 
 pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
-    // Parse the args string to check for model parameter
-    let mut task_name = args.trim().to_string();
-    let mut model_name = None;
+    // Parse the args string to extract task name and parameters using key=value syntax
+    let args_string = args.trim().to_string();
+    let mut kind_name = None;
 
-    // Check for --model parameter in the args
-    if let Some(model_pos) = task_name.find("--model") {
-        // Extract the part of the string from the --model flag
-        let model_part = &task_name[model_pos..];
-
-        // Parse the model name - it should be after "--model "
-        if let Some(space_pos) = model_part.find(' ') {
-            // Check that there is a model name after the space
-            if space_pos + 1 < model_part.len() {
-                // Extract the model name up to the next space or end of string
-                let remaining = &model_part[space_pos + 1..];
-                let end_pos = remaining.find(' ').unwrap_or(remaining.len());
-                model_name = Some(remaining[..end_pos].to_string());
-
-                // Remove the model parameter from the task name
-                // This recreates the task name without the --model parameter
-                let mut clean_task_name = task_name[..model_pos].trim().to_string();
-                if model_pos + space_pos + 1 + end_pos < task_name.len() {
-                    if !clean_task_name.is_empty() {
-                        clean_task_name.push(' ');
-                    }
-                    clean_task_name
-                        .push_str(task_name[model_pos + space_pos + 1 + end_pos..].trim());
-                }
-                task_name = clean_task_name;
+    // Split the args by spaces to check for parameters with key=value syntax
+    let parts: Vec<&str> = args_string.split_whitespace().collect();
+    let mut task_name_parts = Vec::new();
+    
+    for part in parts {
+        if part.starts_with("kind=") {
+            // Extract kind parameter
+            if let Some(value) = part.strip_prefix("kind=") {
+                kind_name = Some(value.to_string());
             }
+        } else {
+            // This is part of the task name
+            task_name_parts.push(part);
         }
     }
+    
+    // Reconstruct the task name from non-parameter parts
+    let task_name = task_name_parts.join(" ");
 
     let task_instructions = body.trim();
 
@@ -54,26 +44,25 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
         return ToolResult::error(error_msg);
     }
 
-    // Print model information if specified and not in silent mode
+    // Print task information and kind if specified
     if !silent_mode {
-        // Use buffer-based printing with direct formatting
-        if let Some(model) = &model_name {
-            // With model info
+        if let Some(kind) = &kind_name {
+            // With kind info
             crate::btool_println!(
                 "task",
-                "\n{}🔄 Subtask Started:{} {}\n{}Using model: {}{}\n{}{}{}\n",
+                "\n{}🔄 Subtask Started:{} {}\n{}Using kind: {}{}\n{}{}{}\n",
                 FORMAT_BOLD,
                 FORMAT_RESET,
                 task_name,
                 FORMAT_GRAY,
-                model,
+                kind,
                 FORMAT_RESET,
                 FORMAT_GRAY,
                 task_instructions,
                 FORMAT_RESET
             );
         } else {
-            // Without model info
+            // Without kind info
             crate::btool_println!(
                 "task",
                 "\n{}🔄 Subtask Started:{} {}\n{}{}{}\n",
@@ -90,16 +79,11 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     // Create a configuration for the subtask
     let mut config = Config::new();
     
-    // Set the model if specified
-    if let Some(model) = model_name {
-        config.model = model;
-    }
-    
     // Create message channels for communicating with the agent
     let (_sender, _receiver) = mpsc::channel::<AgentMessage>(100);
     // Create dedicated interrupt channel
     let (_interrupt_sender, _interrupt_receiver) = mpsc::channel::<InterruptSignal>(10);
-    let (state_sender, _state_receiver) = watch::channel(AgentState::Idle);
+    let (_state_sender, _state_receiver) = watch::channel(AgentState::Idle);
     
     // Create a tool executor that's silent depending on the parent's silent mode
     // and set the system prompt
@@ -107,9 +91,17 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     let enabled_tools = crate::prompts::ALL_TOOLS;
     
     // Generate the system prompt using the template system
-    // Tasks use the default template (None for template_name)
-    let system_prompt = crate::prompts::generate_system_prompt(enabled_tools, false, None, Arc::new(XmlGrammar));
-    config.system_prompt = Some(system_prompt);
+    // Use kind parameter if provided, otherwise use default template
+    let system_prompt = crate::prompts::generate_system_prompt(
+        enabled_tools, 
+        false,
+        kind_name.as_deref(),  // Pass the kind name as template_name if provided
+        Arc::new(XmlGrammar)
+    );
+    config.system_prompt = Some(system_prompt.expect("Failed to generate system prompt"));
+    
+    // Set the kind parameter in the config
+    config.kind = kind_name;
     
     // For now, just return a message saying the task functionality is under development
     if !silent_mode {

@@ -4,11 +4,18 @@
 //! It uses a Handlebars template system for flexible prompt composition.
 
 pub mod grammar;
-mod handlebars;
+pub mod handlebars;
+
+// Protected prompts module for encrypted templates
+pub mod protected;
 
 use std::sync::Arc;
+use anyhow::bail;
 pub use grammar::{Grammar, XmlGrammar};
 pub use handlebars::TemplateManager;
+
+// Include the generated list of available kinds from build script
+include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
@@ -21,14 +28,34 @@ pub const READONLY_TOOLS: &[&str] = &[
     "shell", "read", "fetch", "search", "mcp", "done", "agent", "wait"
 ];
 
-/// Get the default list of enabled tools
-pub fn default_tools() -> Vec<String> {
-    ALL_TOOLS.iter().map(|&s| s.to_string()).collect()
+/// Check if a kind name is available in the compiled templates
+pub fn is_valid_kind(kind_name: &str) -> bool {
+    AVAILABLE_KINDS_ARRAY.iter().position(|it| it == &kind_name).is_some()
 }
 
-/// Get the read-only list of enabled tools
-pub fn readonly_tools() -> Vec<String> {
-    READONLY_TOOLS.iter().map(|&s| s.to_string()).collect()
+/// Get suggestions for kinds based on partial match
+/// 
+/// This function returns up to 3 suggestions that contain the query string.
+/// 
+/// # Arguments
+/// * `query` - The partial kind name to match
+/// 
+/// # Returns
+/// Vector of kind name suggestions (empty if no matches)
+pub fn get_kind_suggestions(query: &str) -> Vec<String> {
+    let query = query.to_lowercase();
+    let mut matches: Vec<String> = AVAILABLE_KINDS_ARRAY
+        .iter()
+        .filter(|kind| kind.to_lowercase().contains(&query))
+        .cloned()
+        .collect();
+    
+    // Limit to 3 suggestions
+    if matches.len() > 3 {
+        matches.truncate(3);
+    }
+    
+    matches
 }
 
 /// Render a template with specific tools enabled
@@ -42,7 +69,7 @@ pub fn readonly_tools() -> Vec<String> {
 ///
 /// # Returns
 /// The rendered template as a string, or an error message
-pub fn render_template(template_name: &str, enabled_tools: &[&str], grammar: Arc<dyn Grammar>) -> String {
+pub fn render_template(template_name: &str, enabled_tools: &[&str], grammar: Arc<dyn Grammar>) -> anyhow::Result<String> {
     
     // Create a template manager
     let mut template_manager = TemplateManager::new(grammar);
@@ -52,11 +79,13 @@ pub fn render_template(template_name: &str, enabled_tools: &[&str], grammar: Arc
         Ok(_) => {
             // Render the template with specified tools enabled
             match template_manager.render_with_tool_enablement(template_name, enabled_tools) {
-                Ok(rendered) => rendered,
-                Err(e) => format!("Error rendering template: {}", e),
+                Ok(rendered) => Ok(rendered),
+                Err(e) => {
+                    bail!("Error generating system prompt: {}", template_name);
+                },
             }
         },
-        Err(e) => format!("Error loading templates: {}", e),
+        Err(e) => bail!("Error loading templates: {}", e),
     }
 }
 
@@ -65,24 +94,56 @@ pub fn render_template(template_name: &str, enabled_tools: &[&str], grammar: Arc
 /// # Arguments
 /// * `enabled_tools` - The list of tool names to enable
 /// * `use_minimal` - Whether to use the minimal prompt template (legacy behavior)
-/// * `template_name` - Optional specific template to use (overrides use_minimal)
+/// * `kind_name` - Optional specific template to use (overrides use_minimal)
+/// * `grammar` - The grammar implementation to use for formatting
 ///
 /// # Returns
-/// The generated system prompt as a string
-pub fn generate_system_prompt(enabled_tools: &[&str], use_minimal: bool, template_name: Option<&str>, grammar: Arc<dyn Grammar>) -> String {
+/// The generated system prompt as a string, or an error with suggestions
+pub fn generate_system_prompt(
+    enabled_tools: &[&str], 
+    use_minimal: bool, 
+    kind_name: Option<&str>, 
+    grammar: Arc<dyn Grammar>
+) -> Result<String, anyhow::Error> {
     // Determine which template to use
-    let template = if let Some(name) = template_name {
-        // If a specific template is provided, use it
+    let kind = if let Some(name) = kind_name {
+        // If a specific template is provided, validate it
+        if !is_valid_kind(name) {
+            // Get suggestions for similar kinds
+            let suggestions = get_kind_suggestions(name);
+            
+            // Create helpful error message with suggestions
+            let mut error_msg = format!("Invalid agent kind: '{}'", name);
+            if !suggestions.is_empty() {
+                error_msg.push_str("\n\nDid you mean one of these?");
+                for suggestion in suggestions {
+                    error_msg.push_str(&format!("\n  - {}", suggestion));
+                }
+            }
+            
+            // Return the error with suggestions
+            bail!(error_msg);
+        }
+        
+        // Kind is valid, use it
         name
     } else if use_minimal {
         // Legacy behavior: if minimal is requested, use minimal template
         "minimal"
     } else {
         // Default to basic template
-        "basic"
+        "general"
     };
     
-    render_template(template, enabled_tools, grammar)
+    let kind = format!("kind/{}", kind);
+    
+    // Render the template
+    match render_template(&kind, enabled_tools, grammar) {
+        Ok(prompt) => Ok(prompt),
+        Err(e) => {
+            bail!("Failed to render template '{}': {}", kind, e);
+        }
+    }
 }
 
 /// Select a grammar implementation based on model name
@@ -111,17 +172,23 @@ pub fn select_grammar_for_model(model_name: &str) -> Arc<dyn Grammar> {
     }
 }
 
-/// Select a grammar implementation based on configuration
+/// Select a grammar implementation based on specified grammar type
 ///
 /// This function returns a grammar implementation based on the provided
 /// grammar type in the configuration.
 ///
 /// # Arguments
-/// * `grammar_type` - The type of grammar to use from configuration
+/// * `grammar_type` - Grammar type to use
 ///
 /// # Returns
 /// A boxed Grammar implementation for the specified type
-pub fn select_grammar_by_type(grammar_type: grammar::formats::GrammarType) -> Arc<dyn Grammar> {
-    use grammar::formats::get_grammar;
-    get_grammar(grammar_type)
+pub fn select_grammar_by_type(grammar_type: Option<grammar::formats::GrammarType>) -> Arc<dyn Grammar> {
+    use grammar::formats::{get_grammar, GrammarType};
+    
+    // This shouldn't be None at this point as the caller should have used select_grammar_for_model
+    // if they didn't have an explicit grammar type
+    match grammar_type {
+        Some(grammar) => get_grammar(grammar),
+        None => panic!("Grammar type should be specified when calling select_grammar_by_type")
+    }
 }

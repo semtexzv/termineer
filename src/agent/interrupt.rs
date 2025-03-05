@@ -34,11 +34,6 @@ impl InterruptCoordinator {
         *self.interrupt_data.lock().unwrap() = data;
     }
 
-    /// Check if a shell is currently running
-    pub fn is_shell_running(&self) -> bool {
-        self.interrupt_data.lock().unwrap().is_some()
-    }
-
     /// Handle an interrupt based on current state
     pub fn handle_interrupt(&self) -> impl Future<Output=()> + Send + 'static {
         let data = { self.interrupt_data.lock().unwrap().clone() };

@@ -6,6 +6,7 @@ use std::env;
 use std::time::Instant;
 
 // Google Search API response structures
+// Uses non-snake-case to match Google API response format
 #[derive(Debug, Deserialize)]
 struct GoogleSearchResponse {
     items: Option<Vec<GoogleSearchItem>>,
@@ -17,14 +18,18 @@ struct GoogleSearchItem {
     title: String,
     link: String,
     snippet: Option<String>,
+    #[allow(dead_code)]
     displayLink: Option<String>,
+    #[allow(dead_code)]
     formattedUrl: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SearchInformation {
     searchTime: Option<f64>,
+    #[allow(dead_code)]
     formattedSearchTime: Option<String>,
+    #[allow(dead_code)]
     totalResults: Option<String>,
     formattedTotalResults: Option<String>,
 }

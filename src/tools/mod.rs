@@ -3,6 +3,7 @@ pub mod done;
 pub mod fetch;
 pub mod mcp;
 pub mod patch;
+pub mod path_utils;
 pub mod read;
 pub mod search;
 pub mod shell;
@@ -83,7 +84,7 @@ impl ToolResult {
     }
     
     /// Create a tool result that puts the agent in waiting state
-    pub fn wait(reason: String) -> Self {
+    pub fn wait(_reason: String) -> Self {
         Self {
             success: true,
             agent_output: "Resumed".to_string(),
@@ -103,8 +104,6 @@ impl ToolResult {
 
 // Use macros for output instead of direct functions
 
-use std::sync::{Arc, Mutex};
-use crate::agent::AgentManager;
 use crate::agent::AgentId;
 
 /// Handles tool execution with consistent processing
@@ -136,11 +135,6 @@ impl ToolExecutor {
             agent_id: Some(agent_id),
         }
     }
-    
-    /// Set the agent ID for this tool executor
-    pub fn set_agent_id(&mut self, agent_id: AgentId) {
-        self.agent_id = Some(agent_id);
-    }
 
     /// Check if executor is in silent mode
     pub fn is_silent(&self) -> bool {
@@ -165,7 +159,7 @@ impl ToolExecutor {
         }
 
         // Execute the appropriate tool with silent mode flag. Shell handled externally
-        let result = match tool_name.as_str() {
+        let mut result = match tool_name.as_str() {
             "agent" => execute_agent_tool(args, body, self.silent_mode, self.agent_id).await,
             "read" => execute_read(args, body, self.silent_mode).await,
             "write" => execute_write(args, body, self.silent_mode).await,
@@ -185,11 +179,171 @@ impl ToolExecutor {
             }
         };
         
+        // Apply UTF-8 safe truncation to long tool outputs
+        if result.agent_output.len() > crate::constants::MAX_TOOL_OUTPUT_LENGTH {
+            let original_length = result.agent_output.len();
+            
+            // Apply truncation - use default parameters from constants
+            result.agent_output = truncate_utf8_content(&result.agent_output, None, None, None, None);
+            
+            // Log truncation if not in silent mode
+            if !self.silent_mode {
+                let truncated_bytes = original_length - result.agent_output.len();
+                let truncated_kb = truncated_bytes / 1024;
+                
+                crate::bprintln!(
+                    "{}🔍 Truncated tool output from {} KB to {} KB (saved {} KB){}",
+                    crate::constants::FORMAT_YELLOW,
+                    original_length / 1024,
+                    result.agent_output.len() / 1024,
+                    truncated_kb,
+                    crate::constants::FORMAT_RESET
+                );
+            }
+        }
+        
         result
     }
     
     /// Check if a tool is read-only
     fn is_readonly_tool(&self, name: &str) -> bool {
         matches!(name, "read" | "shell" | "fetch" | "search" | "mcp" | "done" | "task" | "agent" | "wait")
+    }
+}
+
+/// Truncates long string content while respecting UTF-8 character boundaries
+/// 
+/// This function handles proper truncation of tool outputs, ensuring that:
+/// 1. UTF-8 character boundaries are preserved (no broken Unicode characters)
+/// 2. A reasonable amount of content from the start is kept for context
+/// 3. Optionally preserves content from the end (configurable)
+/// 4. Inserts a placeholder to indicate truncation occurred
+/// 
+/// # Arguments
+/// * `content` - The string content to truncate
+/// * `max_length` - Maximum desired total length (default from constants)
+/// * `start_length` - How much to preserve from the start
+/// * `end_length` - How much to preserve from the end (0 to skip end preservation)
+/// * `placeholder` - Text to insert between preserved parts
+/// 
+/// # Returns
+/// Truncated string with placeholder if needed, or original string if short enough
+pub fn truncate_utf8_content(
+    content: &str, 
+    max_length: Option<usize>,
+    start_length: Option<usize>,
+    end_length: Option<usize>,
+    placeholder: Option<&str>,
+) -> String {
+    // Use provided values or defaults from constants
+    let max_length = max_length.unwrap_or(crate::constants::MAX_TOOL_OUTPUT_LENGTH);
+    let start_length = start_length.unwrap_or(crate::constants::PRESERVED_START_LENGTH);
+    let end_length = if crate::constants::PRESERVE_OUTPUT_END {
+        end_length.unwrap_or(crate::constants::PRESERVED_END_LENGTH)
+    } else {
+        0
+    };
+    let placeholder = placeholder.unwrap_or(crate::constants::TRUNCATION_PLACEHOLDER);
+    
+    // If content is already short enough, return as is
+    if content.len() <= max_length {
+        return content.to_string();
+    }
+    
+    // Calculate how much we can preserve from start and end
+    // We need to ensure the final output fits within max_length
+    let total_preserved = start_length + end_length + placeholder.len();
+    let (actual_start, actual_end) = if total_preserved > max_length {
+        // If the start, end, and placeholder combined exceed the max length,
+        // proportionally reduce start and end to fit
+        let available = max_length.saturating_sub(placeholder.len());
+        let start_ratio = start_length as f64 / (start_length + end_length) as f64;
+        let actual_start = (available as f64 * start_ratio) as usize;
+        let actual_end = available.saturating_sub(actual_start);
+        (actual_start, actual_end)
+    } else {
+        (start_length, end_length)
+    };
+    
+    // Find valid UTF-8 character boundary for start section
+    let prefix_boundary = if actual_start > 0 {
+        content.char_indices()
+            .take_while(|(idx, _)| *idx < actual_start)
+            .last()
+            .map(|(idx, c)| idx + c.len_utf8())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    
+    // Build result with or without end content
+    if actual_end > 0 {
+        // Find valid UTF-8 character boundary for end section
+        let suffix_start = content.char_indices()
+            .rev()
+            .take_while(|(idx, _)| content.len().saturating_sub(*idx) <= actual_end)
+            .last()
+            .map(|(idx, _)| idx)
+            .unwrap_or(content.len());
+        
+        // Combine start, placeholder, and end
+        format!(
+            "{}{}{}",
+            &content[..prefix_boundary],
+            placeholder,
+            &content[suffix_start..]
+        )
+    } else {
+        // Just use the start and placeholder
+        format!(
+            "{}{}",
+            &content[..prefix_boundary],
+            placeholder
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_utf8_truncation() {
+        // Test with ASCII content
+        let ascii = "A".repeat(10_000);
+        let truncated_ascii = truncate_utf8_content(&ascii, Some(1000), Some(100), Some(100), Some("[...]"));
+        
+        // Verify lengths
+        assert!(truncated_ascii.len() < ascii.len());
+        assert!(truncated_ascii.contains("[...]"));
+        
+        // Verify UTF-8 validity
+        assert!(std::str::from_utf8(truncated_ascii.as_bytes()).is_ok());
+        
+        // Test with multi-byte UTF-8 characters (emoji - 4 bytes each)
+        let emoji = "😀".repeat(1_000);
+        let truncated_emoji = truncate_utf8_content(&emoji, Some(500), Some(100), Some(100), Some("[...]"));
+        
+        // Verify proper truncation
+        assert!(truncated_emoji.len() < emoji.len());
+        assert!(truncated_emoji.contains("[...]"));
+        
+        // Most importantly, verify UTF-8 validity is maintained
+        assert!(std::str::from_utf8(truncated_emoji.as_bytes()).is_ok());
+        
+        // Test mixed content
+        let mixed = format!("{}{}{}", "A".repeat(100), "😀".repeat(100), "Z".repeat(100));
+        let truncated_mixed = truncate_utf8_content(&mixed, Some(200), Some(50), Some(50), Some("[...]"));
+        
+        // Verify truncation happened
+        assert!(truncated_mixed.len() < mixed.len());
+        assert!(truncated_mixed.contains("[...]"));
+        
+        // Verify both start and end sections are preserved
+        assert!(truncated_mixed.starts_with(&"A".repeat(10)));
+        assert!(truncated_mixed.ends_with(&"Z".repeat(10)));
+        
+        // Verify UTF-8 validity
+        assert!(std::str::from_utf8(truncated_mixed.as_bytes()).is_ok());
     }
 }

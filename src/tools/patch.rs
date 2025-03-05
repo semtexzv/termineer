@@ -4,10 +4,8 @@ use crate::constants::{
 };
 use crate::tools::ToolResult;
 use tokio::fs;
-use crate::bprintln;
 
 pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolResult {
-    bprintln!("patch: args = {}, body = {}", args, body);
     // Extract filename from args
     let filename = args.trim();
 
@@ -36,8 +34,23 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     // Use body as the patch content
     let patch_content = body;
 
+    // Validate path to prevent path traversal attacks
+    let validated_path = match crate::tools::path_utils::validate_path(filename) {
+        Ok(path) => path,
+        Err(e) => {
+            let error_msg = format!("Security error for file '{}': {}", filename, e);
+
+            if !silent_mode {
+                // Use buffer-based printing directly
+                crate::berror_println!("{}", error_msg);
+            }
+
+            return ToolResult::error(error_msg);
+        }
+    };
+
     // Read the file content
-    let file_content = match fs::read_to_string(filename).await {
+    let file_content = match fs::read_to_string(&validated_path).await {
         Ok(content) => content,
         Err(e) => {
             if !silent_mode {
@@ -151,8 +164,11 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
     let new_content = file_content.replace(before_text, after_text);
 
-    // Write the updated content
-    match fs::write(filename, new_content).await {
+    // Get a safe display path for output messages
+    let safe_display_path = validated_path.to_string_lossy();
+    
+    // Write the updated content (using validated path)
+    match fs::write(&validated_path, new_content).await {
         Ok(_) => {
             // Detailed output for the agent with line number information
             // First, find the line numbers in the original file where the patch was applied
@@ -168,7 +184,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
             let agent_output = format!(
                 "Successfully patched file '{}' at lines {}-{} (replaced {} lines with {} lines)",
-                filename,
+                safe_display_path,
                 start_line_number,
                 end_line_number,
                 before_text_lines,
@@ -280,7 +296,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 // Create a header for the diff summary
                 let diff_header = format!(
                     "{}🔄 Patch: {} (-{} lines, +{} lines){}",
-                    FORMAT_BOLD, filename, removed_lines, added_lines, FORMAT_RESET
+                    FORMAT_BOLD, safe_display_path, removed_lines, added_lines, FORMAT_RESET
                 );
 
                 // Add line information to the diff header

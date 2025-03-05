@@ -1,0 +1,11 @@
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Unicode-3.0",
+#    "Unicode-DFS-2016",
+    "Unlicense",
+    "BSD-3-Clause",
+    "Zlib"
+]
+unused-allowed-license = "warn"

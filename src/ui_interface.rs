@@ -23,6 +23,7 @@ use std::time::Duration;
 use ratatui::widgets::{BorderType, Clear};
 
 /// Maximum number of lines to keep in the conversation history view
+#[allow(dead_code)]
 const MAX_HISTORY_LINES: usize = 1000;
 
 /// Temporary output window that overlays the input area and can grow upward
@@ -33,8 +34,6 @@ pub struct TemporaryOutput {
     pub content: Vec<String>,
     /// Whether the output is visible
     pub visible: bool,
-    /// Maximum number of lines to display
-    pub max_lines: usize,
 }
 
 impl TemporaryOutput {
@@ -44,10 +43,9 @@ impl TemporaryOutput {
             title: String::new(),
             content: Vec::new(),
             visible: false,
-            max_lines: 20, // Default max height
         }
     }
-    
+
     /// Count the number of lines needed to display content
     pub fn count_lines(&self, width: u16) -> usize {
         self.content.iter().map(|line| {
@@ -112,7 +110,7 @@ impl CommandSuggestionsPopup {
             CommandSuggestion { name: "/reset".to_string(), description: "Reset the conversation".to_string() },
             CommandSuggestion { name: "/thinking".to_string(), description: "Set the thinking budget in tokens".to_string() },
         ];
-        
+
         Self {
             all_commands: all_commands.clone(),
             filtered_commands: all_commands,
@@ -120,30 +118,30 @@ impl CommandSuggestionsPopup {
             visible: false,
         }
     }
-    
+
     /// Show the suggestions popup and filter based on current input
     pub fn show(&mut self, current_input: &str) {
         self.visible = true;
         self.update_suggestions(current_input);
     }
-    
+
     /// Hide the suggestions popup
     pub fn hide(&mut self) {
         self.visible = false;
     }
-    
+
     /// Update filtered suggestions based on current input
     pub fn update_suggestions(&mut self, current_input: &str) {
         // Skip the leading slash for matching
         let search_text = current_input.trim_start_matches('/');
-        
+
         // If empty, show all commands
         if search_text.is_empty() {
             self.filtered_commands = self.all_commands.clone();
             self.selected_index = 0;
             return;
         }
-        
+
         // Filter commands that match the input prefix
         self.filtered_commands = self.all_commands
             .iter()
@@ -152,18 +150,18 @@ impl CommandSuggestionsPopup {
             })
             .cloned()
             .collect();
-        
+
         // Reset selection index
         self.selected_index = 0;
     }
-    
+
     /// Select the next suggestion
     pub fn next(&mut self) {
         if !self.filtered_commands.is_empty() {
             self.selected_index = (self.selected_index + 1) % self.filtered_commands.len();
         }
     }
-    
+
     /// Get the currently selected command if any
     pub fn selected_command(&self) -> Option<&CommandSuggestion> {
         if self.filtered_commands.is_empty() {
@@ -242,11 +240,11 @@ impl TuiState {
     /// Check if the current input is a command
     pub fn update_command_mode(&mut self) {
         let was_command_mode = self.command_mode;
-        
+
         // Update command mode flags
         self.command_mode = self.input.starts_with('/');
         self.pound_command_mode = self.input.starts_with('#');
-        
+
         // Handle command suggestions popup
         if self.command_mode {
             // If we just entered command mode or input changed, update suggestions
@@ -280,34 +278,34 @@ impl TuiState {
             }
         }
     }
-    
+
     /// Update scroll bounds based on current content and visible area
     pub fn update_scroll(&mut self) {
         let total_lines = self.agent_buffer.lines().len();
-        
+
         // Calculate new max_scroll_offset
         let new_max_scroll_offset = if total_lines > self.visible_height {
             total_lines - self.visible_height
         } else {
             0
         };
-        
+
         // Check if we were already at the most recent messages (at max_scroll_offset)
         let was_at_most_recent = self.scroll_offset == self.max_scroll_offset;
-        
+
         // Update the max scroll offset
         self.max_scroll_offset = new_max_scroll_offset;
-        
+
         // If we were viewing the most recent messages, auto-scroll to keep showing them
         if was_at_most_recent {
             self.scroll_offset = self.max_scroll_offset;
-        } 
+        }
         // Otherwise just make sure we don't exceed the new maximum
         else if self.scroll_offset > self.max_scroll_offset {
             self.scroll_offset = self.max_scroll_offset;
         }
     }
-    
+
     /// Scroll the conversation view
     pub fn scroll(&mut self, delta: isize) {
         let new_offset = if delta.is_negative() {
@@ -317,11 +315,11 @@ impl TuiState {
             // Scrolling down (showing newer messages)
             self.scroll_offset.saturating_add(delta as usize)
         };
-        
+
         // Clamp to valid range
         self.scroll_offset = new_offset.min(self.max_scroll_offset);
     }
-    
+
     /// Scroll to the bottom of the conversation (most recent messages)
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = self.max_scroll_offset;
@@ -331,7 +329,7 @@ impl TuiState {
     fn ui(&self, f: &mut Frame) {
         let size = f.size();
         f.render_widget(Clear, size);
-        
+
         // Calculate the height needed for input box based on content
         let input_height = if self.temp_output.visible {
             3 // Default height when showing temporary output
@@ -339,7 +337,7 @@ impl TuiState {
             // Dynamic height based on input content (min 3, includes borders)
             self.calculate_input_height() + 2 // +2 for borders
         };
-        
+
         // Create the layout with header, content, and variable-height input areas
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -361,40 +359,40 @@ impl TuiState {
         // Render the input prompt
         f.render_widget(Clear, chunks[2]);
         self.render_input(f, chunks[2]);
-        
+
         // Render the command suggestions popup if in command mode and temp output is not visible
         if self.command_mode && !self.temp_output.visible {
             self.render_command_suggestions(f);
         }
-        
+
         // Render the temporary output window if visible
         if self.temp_output.visible {
             self.render_temp_output(f, chunks[2], chunks[1]);
         }
     }
-    
+
     /// Render the temporary output window that overlays input and grows upward
     fn render_temp_output(&self, f: &mut Frame, input_area: Rect, content_area: Rect) {
         // Start with the input area as the base
         let mut output_area = input_area;
-        
+
         // Calculate the total number of lines needed for content
         let available_width = output_area.width.saturating_sub(4); // Allow for borders and padding
         let needed_lines = self.temp_output.count_lines(available_width);
-        
+
         // Determine how many lines we can extend upward into the content area
         let max_extension = content_area.height.saturating_sub(5) as usize; // Leave 5 lines of content visible
         let extension_lines = needed_lines.saturating_sub(1).min(max_extension);
-        
+
         // Extend upward if needed
         if extension_lines > 0 {
             output_area.y = output_area.y.saturating_sub(extension_lines as u16);
             output_area.height += extension_lines as u16;
         }
-        
+
         // Clear the area
         f.render_widget(Clear, output_area);
-        
+
         // Create the temporary output widget with dark orange styling
         let content_text = self.temp_output.content.join("\n");
         let output_widget = Paragraph::new(content_text)
@@ -408,96 +406,96 @@ impl TuiState {
                 .title(format!("{} (Press ESC or Enter to dismiss)", self.temp_output.title))
                 .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
             .wrap(Wrap { trim: true });
-        
+
         // Render the output
         f.render_widget(output_widget, output_area);
     }
-    
+
     /// Render command suggestions popup
     fn render_command_suggestions(&self, f: &mut Frame) {
         // Only render if suggestions are visible and we have any
         if !self.command_suggestions.visible || self.command_suggestions.filtered_commands.is_empty() {
             return;
         }
-        
+
         let area = f.size();
-        
+
         // Calculate total rows needed (one per command)
         let num_commands = self.command_suggestions.filtered_commands.len();
-        
+
         // Set a maximum height for the popup
         let popup_height = num_commands.min(8) as u16 + 2; // +2 for borders
-        
+
         // Calculate width based on longest command and description
         let max_cmd_width = self.command_suggestions.filtered_commands
             .iter()
             .map(|cmd| cmd.name.len())
             .max()
             .unwrap_or(10) as u16;
-            
+
         let max_desc_width = self.command_suggestions.filtered_commands
             .iter()
             .map(|cmd| cmd.description.len())
             .max()
             .unwrap_or(30) as u16;
-        
+
         // Set popup width with some padding
         let popup_width = (max_cmd_width + max_desc_width + 10).min(area.width.saturating_sub(4)).max(30);
-        
+
         // Position popup at the left bottom edge of screen, above input area
         let input_area_y = area.height.saturating_sub(3); // Input is 3 lines from bottom
-        
+
         // Fixed position at left edge
         let popup_x = 0;
         let popup_y = input_area_y.saturating_sub(popup_height);
-        
+
         let popup_area = Rect {
             x: popup_x,
             y: popup_y,
             width: popup_width,
             height: popup_height,
         };
-        
+
         // Clear the area under the popup
         f.render_widget(Clear, popup_area);
-        
+
         // Create lines for each suggestion with proper highlighting
         let mut content_lines: Vec<Line> = Vec::with_capacity(num_commands);
-        
+
         for (index, suggestion) in self.command_suggestions.filtered_commands.iter().enumerate() {
             // Determine if this is the selected suggestion
             let is_selected = index == self.command_suggestions.selected_index;
-            
+
             // Create style for command name based on selection
             let cmd_style = if is_selected {
                 Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Yellow)
             };
-            
+
             // Create style for description
             let desc_style = if is_selected {
                 Style::default().bg(Color::White).fg(Color::Black)
             } else {
                 Style::default().fg(Color::Gray)
             };
-            
+
             // Format the line with proper spacing
             let line = Line::from(vec![
                 Span::styled(suggestion.name.clone(), cmd_style),
                 Span::styled(" - ", desc_style),
                 Span::styled(suggestion.description.clone(), desc_style),
             ]);
-            
+
             content_lines.push(line);
         }
-        
+
         // Create the suggestions widget
         let suggestions_widget = Paragraph::new(content_lines)
             .block(Block::default()
                 .borders(Borders::ALL)
                 .title("Commands (TAB to complete)"));
-        
+
         // Render the suggestions
         f.render_widget(suggestions_widget, popup_area);
     }
@@ -518,14 +516,14 @@ impl TuiState {
         // Get agents directly from the agent manager
         let agent_spans = if let Ok(manager) = self.agent_manager.lock() {
             let agents = manager.get_agents();
-            
+
             // Collect all agent states in a single lock operation
             let mut agent_states = Vec::new();
             for (id, _) in &agents {
                 let state = manager.get_agent_state(*id).ok();
                 agent_states.push(state);
             }
-            
+
             // Create spans for each agent
             agents.iter().zip(agent_states.iter())
                 .map(|((id, name), state_opt)| {
@@ -535,7 +533,7 @@ impl TuiState {
                     } else {
                         "?" // Unknown state
                     };
-                    
+
                     if *id == self.selected_agent_id {
                         Span::styled(
                             format!(" {} {} [{}] ", state_char, name, id),
@@ -576,14 +574,14 @@ impl TuiState {
     fn render_content(&self, f: &mut Frame, area: Rect) {
         let lines = self.agent_buffer.lines();
         let total_lines = lines.len();
-        
+
         // Calculate visible area height (accounting for borders)
         // -2 for the top and bottom borders of the block
         let visible_height = area.height.saturating_sub(2) as usize;
-        
+
         // Create empty list items for filling the visible area
         let mut items: Vec<Line> = Vec::with_capacity(visible_height);
-        
+
         if total_lines > 0 {
             // Calculate the start index for the visible region
             let start_idx = if self.scroll_offset < total_lines {
@@ -591,7 +589,7 @@ impl TuiState {
             } else {
                 0
             };
-            
+
             // When at maximum scroll offset (bottom), we want to ensure the last line is visible
             // This requires special handling
             let adjusted_start = if self.scroll_offset == self.max_scroll_offset && total_lines > visible_height {
@@ -602,10 +600,10 @@ impl TuiState {
                 // Normal scroll position
                 start_idx
             };
-            
+
             // Get the visible range of lines
             let end_idx = (adjusted_start + visible_height).min(total_lines);
-            
+
             // Extract the lines for the visible range
             if adjusted_start < total_lines {
                 // Use an iterator to be more explicit about the range
@@ -615,7 +613,7 @@ impl TuiState {
                     .collect();
             }
         }
-        
+
         // Fill remaining space with empty lines to ensure old content is cleared
         while items.len() < visible_height {
             items.push(Line::from(""));
@@ -628,14 +626,14 @@ impl TuiState {
             } else {
                 ""
             };
-            
+
             format!(" | Scroll: {}/{}{}", self.scroll_offset, self.max_scroll_offset, latest_indicator)
         } else {
             String::new()
         };
-        
+
         let title = format!("Conversation ({} lines{})", total_lines, scroll_info);
-        
+
         let conversation = Paragraph::new(items)
             .block(Block::default()
                 .borders(Borders::ALL)
@@ -651,24 +649,24 @@ impl TuiState {
         let terminal_width = crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80);
         // Available width is terminal width minus borders and some padding
         let available_width = terminal_width.saturating_sub(2);
-        
+
         // Count how many lines the input will take
         let input_chars = self.input.chars().count() as u16;
         if input_chars == 0 {
             return 1; // Empty input still takes one line
         }
-        
+
         // Calculate lines needed (min of 1)
         let lines_needed = ((input_chars / available_width) + if input_chars % available_width > 0 { 1 } else { 0 })
             .max(1);
-            
+
         // Count newlines in the input
         let newlines = self.input.matches('\n').count() as u16;
-        
+
         // Return maximum of wrapped lines or newlines + 1
         (lines_needed).max(newlines + 1).min(10) // Cap at 10 lines maximum
     }
-    
+
     /// Render the input area with support for multi-line text
     fn render_input(&self, f: &mut Frame, area: Rect) {
         // Normal input rendering
@@ -682,7 +680,7 @@ impl TuiState {
 
         // Get the agent state from the agent manager
         let agent_state_str = self.get_agent_state_string();
-        
+
         // Get the current agent name directly from the agent manager
         let agent_name = if let Ok(manager) = self.agent_manager.lock() {
             // Clone the name to avoid lifetime issues
@@ -692,7 +690,7 @@ impl TuiState {
         } else {
             "Unknown".to_string()
         };
-        
+
         // Create title with agent state
         let title = format!("Input [{} [{}] | {}]", agent_name, self.selected_agent_id, agent_state_str);
 
@@ -709,12 +707,12 @@ impl TuiState {
             // Calculate cursor position for wrapped text
             // This is a simplified calculation that works for basic wrapping
             let available_width = area.width.saturating_sub(2) as usize; // -2 for borders
-            
+
             // Calculate cursor row and column
             let cursor_pos_in_chars = self.cursor_position;
             let cursor_column = (cursor_pos_in_chars % available_width) as u16 + 1; // +1 for border
             let cursor_row = (cursor_pos_in_chars / available_width) as u16 + 1; // +1 for border
-            
+
             // Show cursor at calculated position
             f.set_cursor(
                 area.x + cursor_column,
@@ -722,24 +720,24 @@ impl TuiState {
             );
         }
     }
-    
+
     /// Get a string representation of the selected agent's state
     fn get_agent_state_string(&self) -> String {
         if self.command_mode {
             return "Command Mode".to_string();
         }
-        
+
         if self.pound_command_mode {
             return "Agent Selection Mode".to_string();
         }
-        
+
         // Try to get the state from the agent manager
         if let Ok(manager) = self.agent_manager.lock() {
             if let Ok(state) = manager.get_agent_state(self.selected_agent_id) {
                 return state.as_display_string();
             }
         }
-        
+
         // Fallback if we can't get the state
         "Ready".to_string()
     }
@@ -783,7 +781,7 @@ impl TuiInterface {
         while !self.state.should_quit {
             // Process all pending events first
             let mut events_processed = false;
-            
+
             // Process events in a batch until there are none left
             while event::poll(Duration::from_millis(0))? {
                 events_processed = true;
@@ -799,16 +797,16 @@ impl TuiInterface {
                     },
                     _ => {}
                 }
-                
+
                 // Exit early if quit flag was set by an event handler
                 if self.state.should_quit {
                     break;
                 }
             }
-            
+
             // Ensure we have a valid agent selected before drawing
             self.state.ensure_selected_agent_valid();
-            
+
             // Draw the UI after processing all pending events
             self.terminal.draw(|f| {
                 // Update visible height based on frame size
@@ -817,7 +815,7 @@ impl TuiInterface {
                 self.state.update_scroll();
                 self.state.ui(f);
             })?;
-            
+
             // If no events were processed, wait a bit to avoid busy-waiting
             if !events_processed {
                 event::poll(Duration::from_millis(16))?;
@@ -843,7 +841,7 @@ impl TuiInterface {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.handle_ctrl_c_interrupt().await?;
             }
-            
+
             // Submit on Enter or insert newline with Shift+Enter
             KeyCode::Enter => {
                 // If temporary output is visible, dismiss it, reset state, and return
@@ -856,21 +854,21 @@ impl TuiInterface {
                     self.state.command_suggestions.hide();
                     return Ok(());
                 }
-                
+
                 // If Shift is held, insert a newline instead of submitting
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.state.input.insert(self.state.cursor_position, '\n');
                     self.state.cursor_position += 1;
                     return Ok(());
                 }
-                
+
                 let input = std::mem::take(&mut self.state.input);
                 self.state.cursor_position = 0;
-                
+
                 // Reset history navigation state
                 self.state.history_index = -1;
                 self.state.current_input = None;
-                
+
                 if !input.is_empty() {
                     // Add to command history (if not a duplicate of the last command)
                     if self.state.command_history.last() != Some(&input) {
@@ -880,11 +878,11 @@ impl TuiInterface {
                             self.state.command_history.remove(0);
                         }
                     }
-                    
+
                     if input.starts_with('/') {
                         // Process slash commands through our dedicated handler
                         self.process_command(&input).await?;
-                        
+
                         // Clear the input after submitting
                         self.state.input.clear();
                         self.state.cursor_position = 0;
@@ -892,7 +890,7 @@ impl TuiInterface {
                     } else if input.starts_with('#') {
                         // For pound commands for agent switching, keep the special handling
                         self.handle_pound_command(&input).await?;
-                        
+
                         // Clear the input after submitting
                         self.state.input.clear();
                         self.state.cursor_position = 0;
@@ -910,51 +908,51 @@ impl TuiInterface {
                     }
                 }
             }
-            
+
             // Backspace
             KeyCode::Backspace => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 if self.state.cursor_position > 0 {
                     self.state.input.remove(self.state.cursor_position - 1);
                     self.state.cursor_position -= 1;
                     self.state.update_command_mode();
-                    
+
                     // Handle special case: check if we're still in command mode
                     if self.state.command_mode {
                         self.state.command_suggestions.update_suggestions(&self.state.input);
                     }
                 }
             }
-            
+
             // Delete
             KeyCode::Delete => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 if self.state.cursor_position < self.state.input.len() {
                     self.state.input.remove(self.state.cursor_position);
                     self.state.update_command_mode();
-                    
+
                     // Update command suggestions if still in command mode
                     if self.state.command_mode {
                         self.state.command_suggestions.update_suggestions(&self.state.input);
                     }
                 }
             }
-            
+
             // Left arrow (with modifiers for macOS conventions)
             KeyCode::Left => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 // Command + Left: Move to beginning of line (macOS convention)
                 if key.modifiers.contains(KeyModifiers::META) {
                     self.state.cursor_position = 0;
@@ -966,17 +964,17 @@ impl TuiInterface {
                         // First skip any spaces directly to the left
                         let mut pos = self.state.cursor_position;
                         let chars: Vec<char> = self.state.input.chars().collect();
-                        
+
                         // Skip spaces backward
                         while pos > 0 && chars[pos - 1].is_whitespace() {
                             pos -= 1;
                         }
-                        
+
                         // Then skip non-spaces backward (the word)
                         while pos > 0 && !chars[pos - 1].is_whitespace() {
                             pos -= 1;
                         }
-                        
+
                         self.state.cursor_position = pos;
                     }
                 }
@@ -985,14 +983,14 @@ impl TuiInterface {
                     self.state.cursor_position -= 1;
                 }
             }
-            
+
             // Right arrow (with modifiers for macOS conventions)
             KeyCode::Right => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 // Command + Right: Move to end of line (macOS convention)
                 if key.modifiers.contains(KeyModifiers::META) {
                     self.state.cursor_position = self.state.input.len();
@@ -1003,26 +1001,26 @@ impl TuiInterface {
                     if self.state.cursor_position < self.state.input.len() {
                         let mut pos = self.state.cursor_position;
                         let chars: Vec<char> = self.state.input.chars().collect();
-                        
+
                         // Skip non-spaces forward (current word)
                         while pos < chars.len() && !chars[pos].is_whitespace() {
                             pos += 1;
                         }
-                        
+
                         // Then skip spaces forward
                         while pos < chars.len() && chars[pos].is_whitespace() {
                             pos += 1;
                         }
-                        
+
                         self.state.cursor_position = pos;
                     }
-                } 
+                }
                 // Regular right arrow: Move one character right
                 else if self.state.cursor_position < self.state.input.len() {
                     self.state.cursor_position += 1;
                 }
             }
-            
+
             // Home key handling
             KeyCode::Home => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -1034,7 +1032,7 @@ impl TuiInterface {
                     self.state.cursor_position = 0;
                 }
             }
-            
+
             // End key handling
             KeyCode::End => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -1046,36 +1044,36 @@ impl TuiInterface {
                     self.state.cursor_position = self.state.input.len();
                 }
             }
-            
+
             // Regular character input
             KeyCode::Char(c) => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 // Handle Option+Right (commonly produces 'f' character in macOS terminal - "forward")
                 if c == 'f' && key.modifiers.contains(KeyModifiers::ALT) {
                     // Move one word right
                     if self.state.cursor_position < self.state.input.len() {
                         let mut pos = self.state.cursor_position;
                         let chars: Vec<char> = self.state.input.chars().collect();
-                        
+
                         // Skip non-spaces forward (current word)
                         while pos < chars.len() && !chars[pos].is_whitespace() {
                             pos += 1;
                         }
-                        
+
                         // Then skip spaces forward
                         while pos < chars.len() && chars[pos].is_whitespace() {
                             pos += 1;
                         }
-                        
+
                         self.state.cursor_position = pos;
                     }
                     return Ok(());
                 }
-                
+
                 // Handle Option+Left (commonly produces 'b' character in macOS terminal - "backward")
                 if c == 'b' && key.modifiers.contains(KeyModifiers::ALT) {
                     // Move one word left
@@ -1083,39 +1081,39 @@ impl TuiInterface {
                         // First skip any spaces directly to the left
                         let mut pos = self.state.cursor_position;
                         let chars: Vec<char> = self.state.input.chars().collect();
-                        
+
                         // Skip spaces backward
                         while pos > 0 && chars[pos - 1].is_whitespace() {
                             pos -= 1;
                         }
-                        
+
                         // Then skip non-spaces backward (the word)
                         while pos > 0 && !chars[pos - 1].is_whitespace() {
                             pos -= 1;
                         }
-                        
+
                         self.state.cursor_position = pos;
                     }
                     return Ok(());
                 }
-                
+
                 self.state.input.insert(self.state.cursor_position, c);
                 self.state.cursor_position += 1;
                 self.state.update_command_mode();
-                
+
                 // Special handling when starting a command - show suggestions immediately
                 if self.state.input == "/" {
                     self.state.command_suggestions.show("/");
                 }
             }
-            
+
             // Tab key for command completion
             KeyCode::Tab => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 // Only handle Tab in command mode with visible suggestions
                 if self.state.command_mode && self.state.command_suggestions.visible {
                     // Get the currently selected command
@@ -1123,7 +1121,7 @@ impl TuiInterface {
                         // Replace current input with the selected command
                         self.state.input = selected.name.clone();
                         self.state.cursor_position = self.state.input.len();
-                        
+
                         // If there's only one suggestion, add a space for parameters
                         if self.state.command_suggestions.filtered_commands.len() == 1 {
                             self.state.input.push(' ');
@@ -1137,7 +1135,7 @@ impl TuiInterface {
                     }
                 }
             }
-            
+
             // Escape either dismisses temp output, hides suggestions, or clears the input
             KeyCode::Esc => {
                 if self.state.temp_output.visible {
@@ -1153,43 +1151,43 @@ impl TuiInterface {
                     self.state.current_input = None;
                 }
             }
-            
+
             // PageUp/PageDown for scrolling
             KeyCode::PageUp => {
                 // Scroll up (showing older messages)
                 let scroll_amount = self.state.visible_height / 2;
                 self.state.scroll(-(scroll_amount as isize));
             }
-            
+
             KeyCode::PageDown => {
                 // Scroll down (showing newer messages)
                 let scroll_amount = self.state.visible_height / 2;
                 self.state.scroll(scroll_amount as isize);
             }
-            
+
             // Up arrow handling - navigate suggestions, history, or scroll
             KeyCode::Up => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 // If command suggestions are visible, navigate up through them
                 if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
                     // Navigate to previous suggestion (looping to bottom if at top)
                     let current = self.state.command_suggestions.selected_index;
                     let count = self.state.command_suggestions.filtered_commands.len();
-                    
+
                     // Calculate previous index with wrap-around
                     let prev = if current == 0 { count - 1 } else { current - 1 };
                     self.state.command_suggestions.selected_index = prev;
-                    
+
                     // Automatically update input with the currently selected suggestion
                     if let Some(selected) = self.state.command_suggestions.selected_command() {
                         self.state.input = selected.name.clone();
                         self.state.cursor_position = self.state.input.len();
                     }
-                } 
+                }
                 // Handle as scroll with shift modifier
                 else if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.state.scroll(-1);
@@ -1200,7 +1198,7 @@ impl TuiInterface {
                     if self.state.history_index == -1 {
                         self.state.current_input = Some(self.state.input.clone());
                     }
-                    
+
                     // Go backward in history if not at beginning
                     if self.state.history_index < (self.state.command_history.len() as isize - 1) {
                         self.state.history_index += 1;
@@ -1210,25 +1208,25 @@ impl TuiInterface {
                     }
                 }
             }
-            
+
             // Down arrow handling - navigate suggestions, history, or scroll
             KeyCode::Down => {
                 // Ignore if temporary output is visible
                 if self.state.temp_output.visible {
                     return Ok(());
                 }
-                
+
                 // If command suggestions are visible, navigate down through them
                 if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
                     // Navigate to next suggestion (looping to top if at bottom)
                     self.state.command_suggestions.next();
-                    
+
                     // Automatically update input with the currently selected suggestion
                     if let Some(selected) = self.state.command_suggestions.selected_command() {
                         self.state.input = selected.name.clone();
                         self.state.cursor_position = self.state.input.len();
                     }
-                } 
+                }
                 // Handle as scroll with shift modifier
                 else if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.state.scroll(1);
@@ -1236,7 +1234,7 @@ impl TuiInterface {
                 // If currently navigating history, go forward
                 else if self.state.history_index > -1 {
                     self.state.history_index -= 1;
-                    
+
                     // If reached beyond the most recent history item, restore the original input
                     if self.state.history_index == -1 {
                         if let Some(original_input) = self.state.current_input.take() {
@@ -1252,11 +1250,11 @@ impl TuiInterface {
                     self.state.cursor_position = self.state.input.len();
                 }
             }
-            
+
             // Ignore other keys
             _ => {}
         }
-        
+
         Ok(())
     }
 
@@ -1274,7 +1272,7 @@ impl TuiInterface {
             },
             _ => {}
         }
-        
+
         Ok(())
     }
 
@@ -1282,10 +1280,10 @@ impl TuiInterface {
     async fn handle_ctrl_c_interrupt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Define the double-press window (3 seconds)
         const DOUBLE_PRESS_WINDOW: std::time::Duration = std::time::Duration::from_secs(3);
-        
+
         // Get current time
         let now = std::time::Instant::now();
-        
+
         // Check if this is a double-press (second Ctrl+C within window)
         if let Some(last_time) = self.state.last_interrupt_time {
             // Only count as double-press if previous Ctrl+C wasn't for interrupting a process
@@ -1294,53 +1292,53 @@ impl TuiInterface {
                 let popup_title = "Exiting Application".to_string();
                 let popup_content = "Received second Ctrl+C. Exiting application...".to_string();
                 self.show_command_result(popup_title, popup_content);
-                
+
                 self.state.should_quit = true;
                 return Ok(());
             }
         }
-        
+
         // Get current agent state
         let agent_state = {
             let manager = self.agent_manager.lock().unwrap();
             manager.get_agent_state(self.state.selected_agent_id).ok()
         };
-        
+
         let popup_title = "Interrupt".to_string();
         let popup_content;
-        
+
         match agent_state {
             // If running a shell command (interruptible tool) or if agent is actively processing
             Some(AgentState::RunningTool { .. }) | Some(AgentState::Processing) => {
                 // Use the dedicated interrupt channel with the agent manager
                 let manager = self.agent_manager.lock().unwrap();
                 manager.interrupt_agent_with_reason(
-                    self.state.selected_agent_id, 
+                    self.state.selected_agent_id,
                     "User pressed Ctrl+C".to_string()
                 )?;
-                
+
                 // Mark that we used Ctrl+C to interrupt a process
                 // This prevents it from counting towards the double-press exit timer
                 self.state.last_interrupt_time = Some(now);
                 self.state.last_interrupt_was_process = true;
-                
+
                 // Don't show popup when interrupting an agent
                 // Just silently interrupt the process
             },
-            
+
             // If agent is waiting for input (idle or done), start the double-press timer
             _ => {
                 popup_content = "Press Ctrl+C again within 3 seconds to exit application.".to_string();
-                
+
                 // Start the double-press timer for exiting the application
                 self.state.last_interrupt_time = Some(now);
                 self.state.last_interrupt_was_process = false;
-                
+
                 // Only show popup when we're counting toward application exit
                 self.show_command_result(popup_title, popup_content);
             }
         }
-        
+
         Ok(())
     }
 
@@ -1348,7 +1346,7 @@ impl TuiInterface {
     fn show_command_result(&mut self, title: String, content: String) {
         self.state.temp_output.show(title, content);
     }
-    
+
     /// Process slash commands
     async fn process_command(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Split command and arguments
@@ -1360,7 +1358,7 @@ impl TuiInterface {
         match command {
             "help" => {
                 // Show help information
-                let help_text = "\
+                let help_text = obfstr::obfstring!("\
                 Available commands:
                 /help - Show this help information
                 /exit, /quit - Exit the application
@@ -1370,19 +1368,19 @@ impl TuiInterface {
                 /system TEXT - Set the system prompt
                 /reset - Reset the conversation
                 /thinking NUMBER - Set thinking budget in tokens (e.g., 10000)
-                
+
                 Agent selection:
                 #ID or #NAME - Switch to agent by ID or name
-                ";
-                
-                self.show_command_result("Help".to_string(), help_text.to_string());
+                ");
+
+                self.show_command_result("Help".to_string(), help_text);
             },
-            
+
             "exit" | "quit" => {
                 // Exit the application
                 self.state.should_quit = true;
             },
-            
+
             "interrupt" => {
                 // Interrupt the current agent
                 let manager = self.agent_manager.lock().unwrap();
@@ -1391,17 +1389,17 @@ impl TuiInterface {
                     "User requested interruption via /interrupt command".to_string(),
                 )?;
             },
-            
+
             "model" => {
                 if args.is_empty() {
                     self.show_command_result("Error".to_string(), "Model name is required".to_string());
                     return Ok(());
                 }
-                
+
                 // Create SetModel command
                 use crate::agent::types::AgentCommand;
                 let cmd = AgentCommand::SetModel(args.to_string());
-                
+
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
 
@@ -1410,7 +1408,7 @@ impl TuiInterface {
                     AgentMessage::Command(cmd),
                 )?;
             },
-            
+
             "tools" => {
                 let enable = match args.to_lowercase().as_str() {
                     "on" | "true" | "yes" | "1" => true,
@@ -1420,11 +1418,11 @@ impl TuiInterface {
                         return Ok(());
                     }
                 };
-                
+
                 // Create EnableTools command
                 use crate::agent::types::AgentCommand;
                 let cmd = AgentCommand::EnableTools(enable);
-                
+
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
                 manager.send_message(
@@ -1432,17 +1430,17 @@ impl TuiInterface {
                     AgentMessage::Command(cmd),
                 )?;
             },
-            
+
             "system" => {
                 if args.is_empty() {
                     self.show_command_result("Error".to_string(), "System prompt is required".to_string());
                     return Ok(());
                 }
-                
+
                 // Create SetSystemPrompt command
                 use crate::agent::types::AgentCommand;
                 let cmd = AgentCommand::SetSystemPrompt(args.to_string());
-                
+
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
                 manager.send_message(
@@ -1450,12 +1448,12 @@ impl TuiInterface {
                     AgentMessage::Command(cmd),
                 )?;
             },
-            
+
             "reset" => {
                 // Create ResetConversation command
                 use crate::agent::types::AgentCommand;
                 let cmd = AgentCommand::ResetConversation;
-                
+
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
                 manager.send_message(
@@ -1463,14 +1461,14 @@ impl TuiInterface {
                     AgentMessage::Command(cmd),
                 )?;
             },
-            
+
             "thinking" => {
                 // Parse the thinking budget argument
                 if args.is_empty() {
                     self.show_command_result("Error".to_string(), "Thinking budget (number of tokens) is required".to_string());
                     return Ok(());
                 }
-                
+
                 let budget = match args.parse::<usize>() {
                     Ok(value) => value,
                     Err(_) => {
@@ -1478,62 +1476,62 @@ impl TuiInterface {
                         return Ok(());
                     }
                 };
-                
+
                 // Create SetThinkingBudget command
                 use crate::agent::types::AgentCommand;
-                
+
                 // Get the agent manager
                 let manager = self.agent_manager.lock().unwrap();
-                
+
                 // Send the command to the agent
                 manager.send_message(
                     self.state.selected_agent_id,
                     AgentMessage::Command(AgentCommand::SetThinkingBudget(budget)),
                 )?;
             },
-            
+
             // Unknown command
             _ => {
                 // Log error message to buffer
                 self.state.agent_buffer.stdout(&format!("Unknown command: '{}'. Type /help for available commands.", input)).unwrap();
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Handle pound command for agent switching
     async fn handle_pound_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Create popup for command result
         let command_title = format!("Agent Selection: {}", cmd);
         let mut result = String::new();
-        
+
         // Parse the agent number from the command
         let agent_str = cmd.trim_start_matches('#').trim();
-        
+
         // Try to parse as a number first (for ID-based selection)
         if let Ok(agent_id) = agent_str.parse::<u64>() {
             let agent_id = AgentId(agent_id);
-            
+
             // Check if this agent exists
             let agent_exists = self.agent_manager.lock()
                 .map(|manager| manager.get_agent_handle(agent_id).is_some())
                 .unwrap_or(false);
-            
+
             if agent_exists {
                 // Switch to this agent
                 self.state.selected_agent_id = agent_id;
-                
+
                 // Update buffer to show the selected agent's output
                 let manager = self.agent_manager.lock().unwrap();
                 if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
                     self.state.agent_buffer = buffer;
-                    
+
                     // Get agent name from manager
                     let agent_name = manager.get_agent_handle(agent_id)
                         .map(|handle| handle.name.clone())
                         .unwrap_or_else(|| "Unknown".to_string());
-                    
+
                     result.push_str(&format!("Switched to agent {} [{}]", agent_name, agent_id));
                 } else {
                     result.push_str(&format!("Failed to get buffer for agent {}", agent_id));
@@ -1544,7 +1542,7 @@ impl TuiInterface {
         } else {
             // Try to find agent by name using the manager
             let manager_result = self.agent_manager.lock().ok();
-            
+
             let agent_info = manager_result.and_then(|manager| {
                 manager.get_agent_id_by_name(agent_str).map(|id| {
                     let name = manager.get_agent_handle(id)
@@ -1553,11 +1551,11 @@ impl TuiInterface {
                     (id, name)
                 })
             });
-                
+
             if let Some((agent_id, name)) = agent_info {
                 // Switch to this agent
                 self.state.selected_agent_id = agent_id;
-                
+
                 // Update buffer to show the selected agent's output
                 let manager = self.agent_manager.lock().unwrap();
                 if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
@@ -1570,10 +1568,10 @@ impl TuiInterface {
                 result.push_str(&format!("Agent '{}' not found", agent_str));
             }
         }
-        
+
         // Show result in popup
         self.show_command_result(command_title, result);
-        
+
         Ok(())
     }
 

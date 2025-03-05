@@ -7,14 +7,16 @@ use handlebars::{
     Context, Handlebars, Helper, HelperDef, HelperResult, Output, RenderContext, RenderError,
     Renderable,
 };
+
+// Using RenderError::new which is deprecated, but we need it
+#[allow(deprecated)]
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::prompts::Grammar;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Errors that can occur with templates
 #[derive(Error, Debug)]
@@ -30,12 +32,6 @@ pub enum TemplateError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error("Invalid template format: {0}")]
-    InvalidFormat(String),
-
-    #[error("Missing grammar implementation")]
-    MissingGrammar,
 }
 
 /// Manager for Handlebars templates with grammar integration
@@ -43,11 +39,11 @@ pub struct TemplateManager {
     /// Handlebars registry
     handlebars: Handlebars<'static>,
 
-    /// Grammar store for helper access
-    grammar: Arc<dyn Grammar>,
-
     /// Templates directory
     templates_dir: PathBuf,
+    
+    /// Whether to prefer embedded templates (true in release mode)
+    prefer_embedded: bool,
 }
 
 /// Helper for formatting tool invocations
@@ -64,6 +60,7 @@ impl HelperDef for ToolHelper {
         rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
+        #[allow(deprecated)]
         let tool_name = h
             .param(0)
             .and_then(|v| v.value().as_str())
@@ -101,6 +98,7 @@ impl HelperDef for DoneHelper {
         let tool_name = h.param(0).and_then(|v| v.value().as_str()).unwrap();
 
         // Get the index parameter (required)
+        #[allow(deprecated)]
         let index = h
             .param(1)
             .and_then(|v| v.value().as_u64())
@@ -137,6 +135,7 @@ impl HelperDef for IfToolHelper {
         out: &mut dyn Output,
     ) -> HelperResult {
         // Get the tool name (required parameter) and convert to lowercase
+        #[allow(deprecated)]
         let tool_name = h
             .param(0)
             .and_then(|v| v.value().as_str())
@@ -182,6 +181,7 @@ impl HelperDef for ErrorHelper {
         let tool_name = h.param(0).and_then(|v| v.value().as_str()).unwrap();
 
         // Get the index parameter (required)
+        #[allow(deprecated)]
         let index = h
             .param(1)
             .and_then(|v| v.value().as_u64())
@@ -236,69 +236,45 @@ impl TemplateManager {
     pub fn new(grammar: Arc<dyn Grammar>) -> Self {
         let handlebars_instance = Self::create_handlebars_with_helpers(Arc::clone(&grammar));
 
+        // Use embedded templates in release mode, file-based in debug mode
+        let prefer_embedded = !cfg!(debug_assertions);
+
         Self {
             handlebars: handlebars_instance,
-            grammar,
             templates_dir: PathBuf::from("prompts"),
+            prefer_embedded,
         }
     }
 
-    /// Set the template directory
-    pub fn with_templates_dir<P: AsRef<Path>>(mut self, dir: P) -> Self {
-        self.templates_dir = dir.as_ref().to_path_buf();
-        self
-    }
-
-    /// Load a template from a file
-    pub fn load_template(&mut self, template_name: &str) -> Result<(), TemplateError> {
-        let path = self.templates_dir.join(format!("{}.hbs", template_name));
-
-        if !path.exists() {
-            return Err(TemplateError::TemplateNotFound(template_name.to_string()));
-        }
-
-        let source = fs::read_to_string(&path)?;
-
-        self.handlebars
-            .register_template_string(template_name, &source)
-            .map_err(|e| TemplateError::Render(e.into()))?;
+    /// Load all templates from embedded content and/or the templates directory
+    /// This loads regular templates and registers partials using path-based namespacing
+    pub fn load_all_templates(&mut self) -> Result<(), TemplateError> {
+        // Load from protected prompts if available
+        self.load_protected_templates()?;
 
         Ok(())
     }
-
-    /// Load all templates from the templates directory
-    /// This loads regular templates and registers partials
-    pub fn load_all_templates(&mut self) -> Result<(), TemplateError> {
-        if !self.templates_dir.exists() {
-            return Err(TemplateError::TemplateNotFound(
-                self.templates_dir.to_string_lossy().to_string(),
-            ));
-        }
-
-        // Read all .hbs files from the directory
-        for entry in fs::read_dir(&self.templates_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "hbs") {
-                let template_name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unnamed");
-
-                let source = fs::read_to_string(&path)?;
-
+    
+    /// Load protected templates
+    fn load_protected_templates(&mut self) -> Result<(), TemplateError> {
+        use crate::prompts::protected;
+        
+        // Get all available templates from protected storage
+        let templates = protected::list_available_templates();
+        
+        for template_name in templates {
+            if let Some(source) = protected::get_prompt_template(&template_name) {
                 // Register as both a template and a partial
                 self.handlebars
-                    .register_template_string(template_name, &source)
+                    .register_template_string(&template_name, &source)
                     .map_err(|e| TemplateError::Render(e.into()))?;
 
                 self.handlebars
-                    .register_partial(template_name, &source)
+                    .register_partial(&template_name, &source)
                     .map_err(|e| TemplateError::Render(e.into()))?;
             }
         }
-
+        
         Ok(())
     }
 

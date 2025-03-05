@@ -1,6 +1,5 @@
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::{AgentStateChange, ToolResult};
-use std::path::Path;
 use tokio::fs;
 
 /// Struct to hold parsed arguments for the read tool
@@ -181,7 +180,27 @@ async fn read_single_file(
     limit: Option<usize>,
     silent_mode: bool,
 ) -> ToolResult {
-    let path = Path::new(filepath);
+    // Validate path to prevent path traversal attacks
+    let validated_path = match crate::tools::path_utils::validate_path(filepath) {
+        Ok(path) => path,
+        Err(e) => {
+            let error_msg = format!("Security error: '{}': {}", filepath, e);
+
+            if !silent_mode {
+                // Use output buffer for error messages
+                crate::berror_println!("{}", error_msg);
+            }
+
+            return ToolResult {
+                success: false,
+                agent_output: error_msg,
+                state_change: AgentStateChange::Continue,
+            };
+        }
+    };
+
+    // Get the path as a reference
+    let path = validated_path.as_path();
 
     // Check if path exists
     if !fs::try_exists(path).await.unwrap_or(false) {
@@ -205,11 +224,12 @@ async fn read_single_file(
         .map(|m| m.is_dir())
         .unwrap_or(false)
     {
-        return read_directory(filepath, silent_mode).await;
+        // Important: Use the validated path object, not the original string
+        return read_directory(&validated_path.to_string_lossy(), silent_mode).await;
     }
 
-    // Handle regular file
-    read_file_content(filepath, offset, limit, silent_mode).await
+    // Handle regular file - use the validated path, not the original string
+    read_file_content(&validated_path.to_string_lossy(), offset, limit, silent_mode).await
 }
 
 /// Helper function to read file content with optional offset and limit
@@ -219,7 +239,28 @@ async fn read_file_content(
     limit: Option<usize>,
     silent_mode: bool,
 ) -> ToolResult {
-    match fs::read_to_string(filepath).await {
+    // Validate file path to prevent path traversal attacks
+    // (this validation may be redundant if called from read_single_file with validated path,
+    // but we keep it for safety in case this function is called directly)
+    let validated_path = match crate::tools::path_utils::validate_path(filepath) {
+        Ok(path) => path,
+        Err(e) => {
+            let error_msg = format!("Security error for file '{}': {}", filepath, e);
+
+            if !silent_mode {
+                // Use output buffer for error messages
+                crate::berror_println!("{}", error_msg);
+            }
+
+            return ToolResult {
+                success: false,
+                agent_output: error_msg,
+                state_change: AgentStateChange::Continue,
+            };
+        }
+    };
+
+    match fs::read_to_string(&validated_path).await {
         Ok(content) => {
             // Split content into lines
             let lines: Vec<&str> = content.lines().collect();
@@ -236,10 +277,13 @@ async fn read_file_content(
             let selected_lines = lines[start_line..end_line].join("\n");
             let lines_read = end_line - start_line;
 
+            // Get the display path from the validated path
+            let safe_display_path = validated_path.to_string_lossy();
+
             // Format the output to clearly indicate line numbers
             let agent_output = format!(
                 "File: {} (lines {}-{} of {}, {} lines read)\n\n```\n{}\n```",
-                filepath,
+                safe_display_path,
                 start_line + 1,
                 end_line,
                 total_lines,
@@ -263,7 +307,7 @@ async fn read_file_content(
                         "read",
                         "{}📄 Read: {} (lines {}-{} of {} total){}\n{}{}{}",
                         FORMAT_BOLD,
-                        filepath,
+                        safe_display_path,
                         start_line + 1,
                         end_line,
                         total_lines,
@@ -277,7 +321,7 @@ async fn read_file_content(
                         "read",
                         "{}📄 Read: {} (lines {}-{} of {} total){}",
                         FORMAT_BOLD,
-                        filepath,
+                        safe_display_path,
                         start_line + 1,
                         end_line,
                         total_lines,
@@ -303,7 +347,31 @@ async fn read_file_content(
 
 /// Helper function to list directory contents
 async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
-    match fs::read_dir(dirpath).await {
+    // Validate directory path to prevent path traversal attacks
+    // (this validation may be redundant if called from read_single_file with validated path,
+    // but we keep it for safety in case this function is called directly)
+    let validated_path = match crate::tools::path_utils::validate_directory(dirpath) {
+        Ok(path) => path,
+        Err(e) => {
+            let error_msg = format!("Security error for directory '{}': {}", dirpath, e);
+
+            if !silent_mode {
+                // Use output buffer for error messages
+                crate::berror_println!("{}", error_msg);
+            }
+
+            return ToolResult {
+                success: false,
+                agent_output: error_msg,
+                state_change: AgentStateChange::Continue,
+            };
+        }
+    };
+
+    // Get the display path from the validated path
+    let safe_display_path = validated_path.to_string_lossy();
+
+    match fs::read_dir(&validated_path).await {
         Ok(mut entries) => {
             let mut files = Vec::new();
             let mut dirs = Vec::new();
@@ -330,10 +398,10 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
             let entry_count = all_entries.len();
             let content = all_entries.join("\n");
 
-            // Format output for agent
+            // Format output for agent, using safe display path
             let agent_output = format!(
                 "Directory: {} ({} entries)\n\n{}",
-                dirpath, entry_count, content
+                safe_display_path, entry_count, content
             );
 
             // Direct output to console if not in silent mode
@@ -341,7 +409,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
                 // Build directory output string directly
                 let mut output = format!(
                     "{}📁 Directory: {} ({} items){}\n",
-                    FORMAT_BOLD, dirpath, entry_count, FORMAT_RESET
+                    FORMAT_BOLD, safe_display_path, entry_count, FORMAT_RESET
                 );
 
                 // Add directories with trailing slash and bold formatting
@@ -366,7 +434,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
             }
         }
         Err(e) => {
-            let error_msg = format!("Error reading directory '{}': {}", dirpath, e);
+            let error_msg = format!("Error reading directory '{}': {}", safe_display_path, e);
 
             if !silent_mode {
                 // Use buffer-based printing

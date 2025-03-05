@@ -8,7 +8,7 @@ use crate::bprintln;
 use crate::constants::{
     TOOL_ERROR_START_PREFIX,
     PATCH_DELIMITER_AFTER, PATCH_DELIMITER_BEFORE, PATCH_DELIMITER_END, TOOL_END, TOOL_ERROR_END,
-    TOOL_ERROR_START, TOOL_RESULT_END, TOOL_RESULT_START, TOOL_RESULT_START_PREFIX, TOOL_START,
+    TOOL_RESULT_END, TOOL_RESULT_START_PREFIX, TOOL_START,
 };
 
 // Constants for markdown-based grammar
@@ -165,8 +165,6 @@ impl Grammar for XmlGrammar {
                     Some((header, body)) => (header, body),
                     None => (tool_content, ""),
                 };
-                
-                bprintln!("Tool header: {:?}\nTool body: {:?}\n", header, body);
 
                 let mut args = header.split_whitespace().collect::<Vec<&str>>();
 
@@ -246,10 +244,6 @@ pub mod formats {
         }
     }
 
-    /// Get the default grammar implementation
-    pub fn default_grammar() -> Arc<dyn Grammar> {
-        get_grammar(GrammarType::XmlTags)
-    }
 }
 
 /// Markdown-based grammar using code blocks
@@ -279,7 +273,7 @@ impl Grammar for MarkdownGrammar {
         }
     }
     
-    fn format_tool_error(&self, tool_name: &str, index: usize, content: &str) -> String {
+    fn format_tool_error(&self, _tool_name: &str, index: usize, content: &str) -> String {
         // Format: ```tool_error[index]
         //         error content
         //         ```
@@ -292,7 +286,7 @@ impl Grammar for MarkdownGrammar {
         )
     }
     
-    fn format_tool_result(&self, tool_name: &str, index: usize, content: &str) -> String {
+    fn format_tool_result(&self, _tool_name: &str, index: usize, content: &str) -> String {
         // Format: ```tool_result[index]
         //         result content
         //         ```

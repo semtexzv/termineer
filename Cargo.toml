@@ -2,6 +2,7 @@
 name = "autoswe"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 anyhow = "1.0"  # Error handling
@@ -12,7 +13,6 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.19"  # WebSocket support for MCP
 futures = "0.3"
 async-trait = "0.1"
-base64 = "0.21"
 dotenvy = "0.15"
 crossterm = "0.27"
 ratatui = "0.26.1"
@@ -21,7 +21,17 @@ url = "2.5"
 chrono = "0.4"
 thiserror = "1.0"
 ctrlc = "3.4.1"
-arboard = "3.2.1"  # Clipboard support
 lazy_static = "1.4.0"  # For static initialization
+include_dir = "0.7.3"  # For embedding entire directories in the binary
 handlebars = "6.3.1"  # Handlebars templating
 urlencoding = "2.1.3"  # URL encoding for API requests
+aes-gcm = "0.10.3"     # AES-GCM encryption
+generic-array = "0.14.7" # For cryptographic arrays
+obfstr = "0.4.3"       # String obfuscation for sensitive constants
+
+[build-dependencies]
+aes-gcm = "0.10.3"     # AES-GCM encryption
+generic-array = "0.14.7" # For cryptographic arrays
+walkdir = "2.4.0"      # For walking directories in build script
+quote = "1.0.33"       # For code generation
+proc-macro2 = "1.0.78" # Required by quote

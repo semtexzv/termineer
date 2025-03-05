@@ -102,14 +102,6 @@ pub fn ansi_to_line(text: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Convert a string with ANSI escape sequences to multiple ratatui Lines
-pub fn ansi_to_lines(text: &str) -> Vec<Line<'static>> {
-    text.lines()
-        .map(ansi_to_line)
-        .collect()
-}
-
-
 /// Parse an ANSI escape sequence and update the style state
 fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
     // Extract the numeric part of the sequence

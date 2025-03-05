@@ -100,6 +100,7 @@ impl Message {
         }
     }
 
+    #[allow(dead_code)]
     /// Create a new message with arbitrary content
     pub fn new(role: &str, content: Content, info: MessageInfo) -> Self {
         Self {

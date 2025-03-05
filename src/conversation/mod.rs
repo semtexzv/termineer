@@ -36,8 +36,3 @@ pub fn print_token_stats(usage: &TokenUsage) {
         FORMAT_RESET
     );
 }
-
-/// Check if a tool name is the "done" tool
-pub fn is_done_tool(tool_name: &str) -> bool {
-    tool_name == "done"
-}

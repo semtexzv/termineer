@@ -275,10 +275,12 @@ When to use:
 {{#iftool "task"}}
 ### Task
 Create a subtask to perform a specific goal
-{{#tool "task"}}
-
+{{#tool "task"}}[parameters] task_name
 [detailed task instructions on multiple lines]
 {{/tool}}
+
+Parameters (optional):
+- `kind=TYPE`: Specify the agent kind to use for this task (e.g., kind=reasoner)
 
 {{#done "task" 0}}
 
@@ -286,12 +288,19 @@ Create a subtask to perform a specific goal
 {{/done}}
 
 Examples:
-{{#tool "task"}}
+{{#tool "task"}}kind=code_implementer
+Implement a login form validation script
+Create a JavaScript function that validates:
+- Email format
+- Password strength (8+ chars, mixed case, numbers)
+- Matching password confirmation field
+{{/tool}}
 
-Analyze log files to find error patterns
-Examine all log files in ./logs directory
-Identify recurring error patterns
-Summarize findings with error frequencies and potential causes
+{{#tool "task"}}kind=troubleshooter
+Debug the memory leak in user session handling
+The application shows increasing memory usage over time
+Memory grows with each user login/logout cycle
+Focus on the session cleanup in auth module
 {{/tool}}
 
 When to use:
@@ -312,7 +321,7 @@ Best practices for effective task usage:
 {{#iftool "agent"}}
 ### Agent
 Create and communicate with other agents:
-{{#tool "agent"}}[subcommand] [arguments]
+{{#tool "agent"}}[subcommand] [parameters] [name]
 
 [content on multiple lines]
 {{/tool}}
@@ -323,12 +332,13 @@ Create and communicate with other agents:
 {{/done}}
 
 Subcommands:
-- `create`: Create a new agent
-- `send`: Send a message to another agent
+- `create`: Create a new agent with optional parameters:
+  - `kind=TYPE`: Specify the agent kind (e.g., kind=orchestrator)
+- `send`: Send a message to another agent (by name or ID)
 
 Examples:
 
-1. Creating a new agent:
+1. Creating a new agent with default kind:
 {{#tool "agent" }}create research_agent
 Research the latest JavaScript frameworks and provide a summary
 of their key features, performance characteristics, and use cases.
@@ -337,6 +347,20 @@ of their key features, performance characteristics, and use cases.
 {{#done "agent" 0}}
 
 Agent 'research_agent' created with ID: 2
+Initial instructions sent to the agent.
+{{/done}}
+
+2. Creating a specialized agent with specific kind:
+{{#tool "agent" }}create kind=codebase_explorer code_explorer
+Explore the src/ directory and create a comprehensive map of:
+1. Main components and their responsibilities
+2. Key data structures and their relationships
+3. Control flow for the main application paths
+{{/tool}}
+
+{{#done "agent" 0}}
+
+Agent 'code_explorer' created with ID: 3
 Initial instructions sent to the agent.
 {{/done}}
 

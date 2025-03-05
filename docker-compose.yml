@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  # Database service
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: autoswe
+      POSTGRES_PASSWORD: development
+      POSTGRES_DB: autoswe
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoswe"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Server service
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://autoswe:development@db:5432/autoswe
+      - JWT_SECRET=developmentSecret123
+      - GOOGLE_CLIENT_ID=your_google_client_id
+      - GOOGLE_CLIENT_SECRET=your_google_client_secret
+      - REDIRECT_URL=http://localhost:3000/auth/google/callback
+      - PORT=3000
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

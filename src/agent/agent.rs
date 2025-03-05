@@ -15,7 +15,7 @@ use crate::ansi_converter::strip_ansi_sequences;
 use crate::config::Config;
 use crate::conversation::{sanitize_conversation, truncate_conversation, TruncationConfig};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
-use crate::prompts::{select_grammar_for_model, Grammar};
+use crate::prompts::Grammar;
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
@@ -61,9 +61,6 @@ pub struct Agent {
     /// Conversation history
     pub conversation: Vec<Message>,
 
-    /// Whether tools are restricted to read-only operations
-    pub readonly_mode: bool,
-
     /// Stop sequences for LLM generation
     pub stop_sequences: Option<Vec<String>>,
 
@@ -91,8 +88,11 @@ impl Agent {
         mut config: Config,
         sender: StateSender,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Select grammar based on configuration's grammar_type
-        let grammar: Arc<dyn Grammar> = crate::prompts::select_grammar_by_type(config.grammar_type);
+        // Select grammar based on explicit grammar_type or model if not specified
+        let grammar: Arc<dyn Grammar> = match config.grammar_type {
+            Some(grammar_type) => crate::prompts::select_grammar_by_type(Some(grammar_type)),
+            None => crate::prompts::select_grammar_for_model(&config.model),
+        };
         // Initialize system prompt if not already set
         if config.system_prompt.is_none() {
             // Convert enabled_tools setting to the appropriate list of tool names
@@ -102,19 +102,28 @@ impl Agent {
                 crate::prompts::READONLY_TOOLS.to_vec()
             };
 
-            // Use the grammar specified in the config instead of inferring from model
+            // Use the grammar specified in the config (or the default if None)
             let grammar = crate::prompts::select_grammar_by_type(config.grammar_type);
 
-            // Generate the system prompt based on template_name or minimal flag
-            let prompt = crate::prompts::generate_system_prompt(
+            // Generate the system prompt based on kind or minimal flag
+            match crate::prompts::generate_system_prompt(
                 &enabled_tools,
                 config.use_minimal_prompt,
-                config.template_name.as_deref(),
+                config.kind.as_deref(),
                 grammar,
-            );
-
-            // Set the system prompt in the config's system_prompt field for compatibility
-            config.system_prompt = Some(prompt);
+            ) {
+                Ok(prompt) => {
+                    // Set the system prompt in the config's system_prompt field 
+                    config.system_prompt = Some(prompt);
+                },
+                Err(e) => {
+                    // Return the error with additional context about the agent
+                    return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                        "Failed to generate system prompt for agent '{}': {}",
+                        name, e
+                    )));
+                }
+            }
         }
 
         // Create LLM backend using factory
@@ -136,7 +145,6 @@ impl Agent {
             llm,
             tool_executor,
             conversation: Vec::new(),
-            readonly_mode: false,
             stop_sequences: Some(vec![
                 grammar.stop_sequences().done_stop_sequence.to_string(),
                 grammar.stop_sequences().error_stop_sequence.to_string(),
@@ -160,8 +168,6 @@ impl Agent {
         mut agent_receiver: AgentReceiver,
         interrupt_receiver: InterruptReceiver,
     ) {
-        use crate::GLOBAL_AGENT_MANAGER;
-
         crate::bprintln!(
             "🤖 {}Agent{} '{}' started",
             crate::constants::FORMAT_BOLD,
@@ -527,7 +533,7 @@ impl Agent {
                                 );
 
                                 // Add partial result to conversation and update tool mapper
-                                let msg_index = self.conversation.len();
+                                let _msg_index = self.conversation.len();
                                 self.conversation.push(partial_message);
 
 
@@ -650,16 +656,56 @@ impl Agent {
             self.conversation.pop();
         }
 
-        // Add a completion message to the result
-        if interrupting {
+        // Prepare result message with completion status
+        let completion_message = if interrupting {
             let reason = interruption_reason_str
                 .as_ref()
                 .map_or("Sufficient information gathered".to_string(), |r| r.clone());
-            result_message = format!("{}\n\n[COMMAND INTERRUPTED: {}]", partial_output, reason);
+            format!("\n\n[COMMAND INTERRUPTED: {}]", reason)
             // When interrupted by LLM or user, this is NOT an error, it's a successful interruption
-            success = true;
+            // Set success to true for interruptions
         } else {
-            result_message = format!("{}\n\n[COMMAND COMPLETED SUCCESSFULLY]", partial_output);
+            "\n\n[COMMAND COMPLETED SUCCESSFULLY]".to_string()
+        };
+        
+        // Apply UTF-8 safe truncation to potentially large shell output
+        if partial_output.len() > crate::constants::MAX_TOOL_OUTPUT_LENGTH {
+            let original_length = partial_output.len();
+            
+            // Apply truncation using the shared function
+            let truncated_output = crate::tools::truncate_utf8_content(
+                &partial_output, 
+                None, // Use default max length
+                None, // Use default start preservation
+                None, // Use default end preservation
+                None  // Use default placeholder
+            );
+            
+            // Log truncation if not in silent mode
+            if !self.tool_executor.is_silent() {
+                let truncated_bytes = original_length - truncated_output.len();
+                let truncated_kb = truncated_bytes / 1024;
+                
+                crate::bprintln!(
+                    "{}🔍 Truncated shell output from {} KB to {} KB (saved {} KB){}",
+                    crate::constants::FORMAT_YELLOW,
+                    original_length / 1024,
+                    truncated_output.len() / 1024,
+                    truncated_kb,
+                    crate::constants::FORMAT_RESET
+                );
+            }
+            
+            // Set the result message with truncated content and completion message
+            result_message = truncated_output + &completion_message;
+        } else {
+            // No truncation needed
+            result_message = partial_output + &completion_message;
+        }
+        
+        // When interrupted by LLM or user, this is NOT an error, it's a successful interruption
+        if interrupting {
+            success = true;
         }
 
         // Format the shell output with appropriate delimiters
@@ -690,7 +736,7 @@ impl Agent {
         let message = Message::text("user", agent_response.clone(), message_info);
 
         // Add to conversation and update tool mapper
-        let msg_index = self.conversation.len();
+        let _msg_index = self.conversation.len();
         self.conversation.push(message);
 
         // Reset state to Processing since we're continuing processing
@@ -1079,7 +1125,6 @@ impl Agent {
 
         // At this point, we know we have a tool invocation
         let tool = parsed.tool.unwrap();
-        bprintln!("Parsed tool: {:#?}\n{:#?}", tool, assistant_message);
         let tool_name = tool.name;
         let tool_body = tool.body;
 
@@ -1180,7 +1225,7 @@ impl Agent {
         let message = Message::text("user", agent_response.clone(), message_info);
 
         // Add to conversation and update tool mapper
-        let msg_index = self.conversation.len();
+        let _msg_index = self.conversation.len();
         self.conversation.push(message);
 
         if response_message_len > 500

@@ -5,8 +5,7 @@ pub mod tools;
 
 // Re-export common types for easier imports
 pub use messages::{
-    JsonRpcMessage, MessageContent, Request, Response, 
-    Notification, ErrorResponse, JsonRpcError,
+    JsonRpcMessage, MessageContent, Request, JsonRpcError,
     ClientInfo, ClientCapabilities, RootsCapabilities,
     InitializeParams, InitializeResult, ServerInfo
 };

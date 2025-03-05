@@ -8,5 +8,14 @@
 - Whenever user is working in the directory save the session periodically or after every model output to a file
 - This file should be called .session.
 
-# small things.
-- Remove serde_element_array file because there is a copy of it now in serde_utils.
+# Name change
+- If we're going public, we have to come up with a name: what about TAOr - Terminal Agent Orchestrator
+- Invoked by `taor --model=claude-3.7`
+- https://www.namecheap.com/domains/registration/results/?domain=taor
+
+# Generate the kind list during compiletime
+- Generate rust file containing obfstr constant of the bundled prompts
+
+# Bugs:
+- Wrapping logic is not correct in the input box, multiline text the cursor is one character behind per line
+- Tools template needs to specify that write will overwrite entire file contents

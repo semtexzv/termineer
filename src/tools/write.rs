@@ -18,11 +18,29 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
         return ToolResult::error(error_msg);
     }
 
+    // Validate path to prevent path traversal attacks
+    let validated_path = match crate::tools::path_utils::validate_path(filename) {
+        Ok(path) => path,
+        Err(e) => {
+            let error_msg = format!("Security error for file '{}': {}", filename, e);
+
+            if !silent_mode {
+                // Use buffer-based printing
+                crate::berror_println!("{}", error_msg);
+            }
+
+            return ToolResult::error(error_msg);
+        }
+    };
+
     // Use the entire body as content
     let content = body;
+    
+    // Get a safe display path for output messages
+    let safe_display_path = validated_path.to_string_lossy();
 
-    // Write the file using async I/O
-    match fs::write(filename, content).await {
+    // Write the file using async I/O with validated path
+    match fs::write(&validated_path, content).await {
         Ok(_) => {
             // Get content details
             let line_count = content.lines().count();
@@ -38,7 +56,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
                         "write",
                         "{}✍️ Write: {} ({} lines){}\n{}{}{}",
                         FORMAT_BOLD,
-                        filename,
+                        safe_display_path,
                         line_count,
                         FORMAT_RESET,
                         FORMAT_GRAY,
@@ -50,7 +68,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
                         "write",
                         "{}✍️ Write: {} ({} lines){}",
                         FORMAT_BOLD,
-                        filename,
+                        safe_display_path,
                         line_count,
                         FORMAT_RESET
                     );
@@ -60,7 +78,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
             // More detailed output for the agent including line count
             let agent_output = format!(
                 "Successfully wrote to file '{}' ({} lines, line range: 1-{})",
-                filename, line_count, line_count
+                safe_display_path, line_count, line_count
             );
 
             ToolResult::success(agent_output)
@@ -68,10 +86,10 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Err(e) => {
             if !silent_mode {
                 // Use buffer-based printing with direct error message
-                crate::berror_println!("Error writing to file '{}': {}", filename, e);
+                crate::berror_println!("Error writing to file '{}': {}", safe_display_path, e);
             }
 
-            let error_msg = format!("Error writing to file '{}': {}", filename, e);
+            let error_msg = format!("Error writing to file '{}': {}", safe_display_path, e);
 
             ToolResult::error(error_msg)
         }

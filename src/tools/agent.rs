@@ -54,8 +54,28 @@ async fn execute_create_subcommand(
     silent_mode: bool,
     agent_manager: Arc<Mutex<AgentManager>>,
 ) -> ToolResult {
-    // Parse the agent name (no model parameter allowed)
-    let agent_name = args.trim().to_string();
+    // Parse the agent name and check for parameters using key=value syntax
+    let args_string = args.trim().to_string();
+    let mut kind_name = None;
+
+    // Split the args by spaces to check for parameters with key=value syntax
+    let parts: Vec<&str> = args_string.split_whitespace().collect();
+    let mut agent_name_parts = Vec::new();
+    
+    for part in parts {
+        if part.starts_with("kind=") {
+            // Extract kind parameter
+            if let Some(value) = part.strip_prefix("kind=") {
+                kind_name = Some(value.to_string());
+            }
+        } else {
+            // This is part of the agent name
+            agent_name_parts.push(part);
+        }
+    }
+    
+    // Reconstruct the agent name from non-parameter parts
+    let agent_name = agent_name_parts.join(" ");
 
     // Ensure we have a valid agent name
     if agent_name.is_empty() {
@@ -77,15 +97,27 @@ async fn execute_create_subcommand(
     }
 
     // Create a configuration for the new agent
-    let config = Config::new();
+    let mut config = Config::new();
+    
+    // Set the kind parameter if provided
+    config.kind = kind_name.clone();
     
     // Log the agent creation
     if !silent_mode {
-        crate::btool_println!(
-            "agent",
-            "Creating agent '{}'",
-            agent_name
-        );
+        if let Some(kind) = &kind_name {
+            crate::btool_println!(
+                "agent",
+                "Creating agent '{}' with kind '{}'",
+                agent_name,
+                kind
+            );
+        } else {
+            crate::btool_println!(
+                "agent",
+                "Creating agent '{}'",
+                agent_name
+            );
+        }
     }
 
     // Create the new agent

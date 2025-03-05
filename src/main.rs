@@ -145,24 +145,9 @@ fn print_help() {
 
 /// List all available agent kinds
 fn list_available_kinds() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("Available agent kinds:");
-    println!();
     
-    // Standard templates
-    println!("Standard templates:");
-    println!("  general          - General purpose assistant with tools");
-    println!("  minimal          - Minimal prompt for maximum flexibility");
-    
-    // Advanced templates
-    println!("\nAdvanced templates (plus/):");
-    println!("  reasoner         - Advanced reasoning capabilities");
-    println!("  system_architect - Specialized for system design");
-    println!("  implementer      - Focused on code implementation");
-    println!("  explorer         - For exploring and understanding complex codebases");
-    println!("  researcher       - Specialized for deep research tasks");
-    println!("  data_analyst     - Specialized for data processing and analysis");
-    println!("  documentor       - Focused on documentation generation");
-    println!("  orchestrator     - Coordinates multiple agents for complex tasks");
+    // Print the list of available kinds
+    println!("{}", prompts::get_available_kinds());
     
     println!();
     println!("Use with: --kind KIND_NAME");

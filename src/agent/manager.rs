@@ -36,7 +36,7 @@ pub struct AgentHandle {
     pub state: StateReceiver,
 }
 
-use std::sync::{Mutex, Weak};
+// No external synchronization primitives needed
 
 /// Manager for multiple agent instances
 ///
