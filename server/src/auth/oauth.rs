@@ -22,6 +22,7 @@ use crate::config::Config;
 use crate::db::models::User;
 use crate::db::operations::UserOps;
 use crate::auth::jwt::create_token;
+use std::sync::Arc;
 use crate::AppState;
 
 // Session key for storing PKCE code verifier
@@ -66,8 +67,9 @@ impl From<User> for UserResponse {
 }
 
 /// Initiates the OAuth 2.0 flow with Google
+#[axum::debug_handler]
 pub async fn google_login(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Result<impl IntoResponse, ServerError> {
     // Create OAuth2 client for Google
@@ -104,9 +106,10 @@ pub async fn google_login(
 }
 
 /// Handles the callback from Google after user authentication
+#[axum::debug_handler]
 pub async fn google_callback(
     Query(params): Query<HashMap<String, String>>,
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Result<impl IntoResponse, ServerError> {
     // Extract code and state from query parameters

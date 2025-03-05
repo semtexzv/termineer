@@ -1,0 +1,7 @@
+  Username:    postgres
+  Password:    QjwNGwrDEgpUeYc
+  Hostname:    autoswe-database.internal
+  Flycast:     fdaa:11:fe00:0:1::2
+  Proxy port:  5432
+  Postgres port:  5433
+  Connection string: postgres://postgres:QjwNGwrDEgpUeYc@autoswe-database.flycast:5432

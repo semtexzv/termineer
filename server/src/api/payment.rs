@@ -9,6 +9,7 @@ use uuid::Uuid;
 use log::{info, error};
 
 use crate::auth::jwt::AuthenticatedUser;
+use std::sync::Arc;
 use crate::AppState;
 use crate::db::models::SubscriptionPlan;
 use crate::db::operations::{SubscriptionOps, LicenseOps};
@@ -39,9 +40,10 @@ struct SubscriptionResponse {
 }
 
 /// Get the current user's subscription
+#[axum::debug_handler]
 pub async fn get_subscription(
     auth_user: AuthenticatedUser,
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, ServerError> {
     // Check if user has a subscription
     if !auth_user.has_subscription {

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, Duration};
 use log::{info, error};
 
+use std::sync::Arc;
 use crate::AppState;
 use crate::errors::ServerError;
 
@@ -42,9 +43,10 @@ const TEST_LICENSES: [(&str, &str, &str, bool); 3] = [
 ];
 
 /// Verify a license key (mock implementation for testing)
+#[axum::debug_handler]
 pub async fn verify_license(
+    State(_state): State<Arc<AppState>>,
     Json(req): Json<VerifyLicenseRequest>,
-    State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ServerError> {
     info!("Verifying license key: {}", req.license_key);
     

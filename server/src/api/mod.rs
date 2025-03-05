@@ -3,12 +3,12 @@ pub mod payment;
 pub mod license;
 pub mod mock_license;
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use crate::config::Config;
 
 /// Application state shared across handlers
 pub struct AppState {
-    pub db_pool: SqlitePool,
+    pub db_pool: PgPool,
     pub config: Config,
 }
 

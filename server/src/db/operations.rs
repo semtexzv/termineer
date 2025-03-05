@@ -102,6 +102,21 @@ impl UserOps {
         Self::create(pool, email, name, auth_provider, None).await
     }
     
+    /// Find or create a user from email only (for payment processing)
+    pub async fn find_or_create_from_email(
+        pool: &PgPool,
+        email: &str,
+        name: Option<String>,
+    ) -> Result<User, ServerError> {
+        // Try to find an existing user
+        if let Some(user) = Self::find_by_email(pool, email).await? {
+            return Ok(user);
+        }
+        
+        // Create a new user if not found - use "stripe" as auth provider
+        Self::create(pool, email, name, "stripe".to_string(), None).await
+    }
+    
     /// Update a user's authentication provider
     pub async fn update_auth_provider(
         pool: &PgPool,
@@ -206,8 +221,8 @@ impl SubscriptionOps {
     pub async fn create(
         pool: &PgPool,
         user_id: Uuid,
-        stripe_customer_id: &str,
-        stripe_subscription_id: &str,
+        stripe_customer_id: String,
+        stripe_subscription_id: String,
         plan_id: &str,
         status: SubscriptionStatus,
         current_period_start: chrono::DateTime<Utc>,
@@ -285,7 +300,7 @@ impl SubscriptionOps {
         subscription_id: Uuid,
         status: SubscriptionStatus,
         current_period_end: Option<chrono::DateTime<Utc>>,
-        cancel_at_period_end: Option<bool>,
+        cancel_at_period_end: bool,
     ) -> Result<Subscription, ServerError> {
         let now = Utc::now();
         
@@ -304,10 +319,8 @@ impl SubscriptionOps {
             param_index += 1;
         }
         
-        if let Some(_) = cancel_at_period_end {
-            query.push_str(&format!(", cancel_at_period_end = ${}", param_index));
-            param_index += 1;
-        }
+        query.push_str(&format!(", cancel_at_period_end = ${}", param_index));
+        param_index += 1;
         
         query.push_str(&format!(" WHERE id = ${} RETURNING *", param_index));
         
@@ -319,10 +332,7 @@ impl SubscriptionOps {
             query_builder = query_builder.bind(end);
         }
         
-        if let Some(cancel) = cancel_at_period_end {
-            query_builder = query_builder.bind(cancel);
-        }
-        
+        query_builder = query_builder.bind(cancel_at_period_end);
         query_builder = query_builder.bind(subscription_id);
         
         let subscription = query_builder

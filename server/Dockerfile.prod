@@ -13,6 +13,11 @@ COPY --from=planner /app/recipe.json recipe.json
 # Build dependencies - this will be cached as long as dependencies don't change
 RUN cargo chef cook --release --recipe-path recipe.json
 
+# Download HTMX for the static directory
+RUN apt-get update && apt-get install -y curl
+RUN mkdir -p static/js
+RUN curl -s https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js -o static/js/htmx.min.js
+
 # Build the application
 COPY . .
 RUN cargo build --release
@@ -20,9 +25,9 @@ RUN cargo build --release
 # Create a minimal runtime image with newer GLIBC (Debian Bookworm)
 FROM debian:bookworm-slim as runtime
 
-# Install necessary runtime dependencies including SQLite
+# Install necessary runtime dependencies including PostgreSQL client
 RUN apt-get update && \
-    apt-get install -y libssl-dev ca-certificates curl sqlite3 libsqlite3-dev && \
+    apt-get install -y libssl-dev ca-certificates curl libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
@@ -31,8 +36,18 @@ RUN useradd -ms /bin/bash appuser
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/autoswe-server /usr/local/bin/autoswe-server
 
+# Ensure only PostgreSQL migrations are available
+RUN mkdir -p /etc/autoswe/migrations
+COPY --from=builder /app/migrations/*.sql /etc/autoswe/migrations/
+
+# Copy frontend templates and static files
+RUN mkdir -p /etc/autoswe/templates
+COPY --from=builder /app/templates /etc/autoswe/templates
+RUN mkdir -p /etc/autoswe/static
+COPY --from=builder /app/static /etc/autoswe/static
+
 # Set ownership to the non-root user
-RUN chown appuser:appuser /usr/local/bin/autoswe-server
+RUN chown -R appuser:appuser /usr/local/bin/autoswe-server /etc/autoswe
 
 # Switch to the non-root user
 USER appuser
@@ -40,19 +55,17 @@ USER appuser
 # Set the working directory
 WORKDIR /home/appuser
 
-# Create data directory for the SQLite database
-RUN mkdir -p /home/appuser/data && \
-    chown -R appuser:appuser /home/appuser/data
-
 # Add a health check endpoint
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
 
 # Expose the application port
-EXPOSE 3000
+EXPOSE ${PORT:-3000}
 
 # Set environment variables
 ENV RUST_LOG=info
+ENV TEMPLATES_DIR=/etc/autoswe/templates
+ENV STATIC_DIR=/etc/autoswe/static
 
 # Run the server
 CMD ["autoswe-server"]

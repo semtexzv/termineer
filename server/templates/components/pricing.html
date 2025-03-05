@@ -1,0 +1,156 @@
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+    <!-- Free Tier -->
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden pricing-card animate-on-scroll opacity-0">
+        <div class="px-6 py-8">
+            <h3 class="text-2xl font-semibold text-gray-900 mb-2">Free</h3>
+            <p class="text-gray-600 mb-6">Basic features for personal use</p>
+            <p class="text-5xl font-bold text-gray-900 mb-6">$0<span class="text-lg font-normal text-gray-600">/month</span></p>
+            <ul class="space-y-3 mb-6">
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Limited API requests</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Basic AI models</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Console access</span>
+                </li>
+                <li class="flex items-center text-gray-400">
+                    <svg class="h-5 w-5 text-gray-300 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <span>Advanced tools</span>
+                </li>
+                <li class="flex items-center text-gray-400">
+                    <svg class="h-5 w-5 text-gray-300 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <span>Priority support</span>
+                </li>
+            </ul>
+        </div>
+        <div class="bg-gray-50 px-6 py-4">
+            <button
+                hx-post="/payment/checkout"
+                hx-vals='{"plan": "free"}'
+                hx-target="#checkout-container"
+                class="w-full bg-indigo-50 text-indigo-700 py-3 px-4 rounded-lg font-medium hover:bg-indigo-100 transition-colors">
+                Sign Up for Free
+            </button>
+        </div>
+    </div>
+    
+    <!-- Plus Tier -->
+    <div class="bg-white rounded-xl shadow-xl overflow-hidden pricing-card relative transform scale-105 border-2 border-indigo-500 z-10 animate-on-scroll opacity-0">
+        <div class="absolute top-0 right-0 bg-indigo-500 text-white px-4 py-1 transform translate-x-5 -translate-y-0 rotate-45 font-semibold text-sm">
+            POPULAR
+        </div>
+        <div class="px-6 py-8">
+            <h3 class="text-2xl font-semibold text-gray-900 mb-2">Plus</h3>
+            <p class="text-gray-600 mb-6">Advanced features for professionals</p>
+            <p class="text-5xl font-bold text-gray-900 mb-6">$12<span class="text-lg font-normal text-gray-600">/month</span></p>
+            <ul class="space-y-3 mb-6">
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Unlimited API requests</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Access to Claude and Gemini models</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Full tool support</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Advanced tools</span>
+                </li>
+                <li class="flex items-center text-gray-400">
+                    <svg class="h-5 w-5 text-gray-300 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <span>Priority support</span>
+                </li>
+            </ul>
+        </div>
+        <div class="bg-gray-50 px-6 py-4">
+            <button
+                hx-post="/payment/checkout"
+                hx-vals='{"plan": "plus"}'
+                hx-target="#checkout-container"
+                class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                Subscribe to Plus
+            </button>
+        </div>
+    </div>
+    
+    <!-- Pro Tier -->
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden pricing-card animate-on-scroll opacity-0">
+        <div class="px-6 py-8">
+            <h3 class="text-2xl font-semibold text-gray-900 mb-2">Pro</h3>
+            <p class="text-gray-600 mb-6">Premium features for teams</p>
+            <p class="text-5xl font-bold text-gray-900 mb-6">$29<span class="text-lg font-normal text-gray-600">/month</span></p>
+            <ul class="space-y-3 mb-6">
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Everything in Plus</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Priority access to newest models</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Team collaboration features</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Advanced tools</span>
+                </li>
+                <li class="flex items-center">
+                    <svg class="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span>Priority support</span>
+                </li>
+            </ul>
+        </div>
+        <div class="bg-gray-50 px-6 py-4">
+            <button
+                hx-post="/payment/checkout"
+                hx-vals='{"plan": "pro"}'
+                hx-target="#checkout-container"
+                class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                Subscribe to Pro
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="checkout-container" class="mt-16 max-w-md mx-auto"></div>

@@ -1,0 +1,58 @@
+<div class="bg-white rounded-xl shadow-xl p-8 animate__animated animate__fadeIn">
+  <h2 class="text-2xl font-bold mb-6 gradient-text">Checkout for {{ plan_name }}</h2>
+  
+  <form action="{{ checkout_url }}" method="POST" class="space-y-6">
+    <div>
+      <label class="block text-gray-700 font-medium mb-2" for="email">Email Address</label>
+      <input 
+        type="email" 
+        id="email" 
+        name="email" 
+        value="{{ email }}" 
+        required 
+        class="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+        placeholder="your@email.com"
+      >
+    </div>
+    
+    <!-- Hidden field for plan type -->
+    <input type="hidden" name="plan" value="{{ plan_name }}">
+    
+    <div class="bg-gray-50 p-4 rounded-lg mb-2">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <svg class="h-6 w-6 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-indigo-800">Secure Checkout</h3>
+          <p class="text-xs text-gray-500">Your information is encrypted and secure</p>
+        </div>
+      </div>
+    </div>
+    
+    <div>
+      <button 
+        type="submit" 
+        class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        Proceed to Payment
+      </button>
+    </div>
+  </form>
+  
+  <div class="mt-6 text-center">
+    <button 
+      class="text-gray-500 hover:text-indigo-600 transition-colors text-sm font-medium"
+      hx-get="/cancel-checkout"
+      hx-target="#checkout-container"
+      hx-swap="innerHTML"
+    >
+      Cancel and return to plans
+    </button>
+  </div>
+</div>

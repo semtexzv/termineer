@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
@@ -84,6 +83,7 @@ pub struct SubscriptionPlan {
     pub price_yearly: i64,   // Price in cents
     pub features: Vec<String>,
     pub is_active: bool,
+    pub stripe_price_id: Option<String>, // Stripe price ID for the plan
 }
 
 impl SubscriptionPlan {
@@ -91,49 +91,46 @@ impl SubscriptionPlan {
     pub fn all() -> Vec<Self> {
         vec![
             SubscriptionPlan {
-                id: "basic".to_string(),
-                name: "Basic Plan".to_string(),
-                description: "Essential features for individual developers".to_string(),
-                price_monthly: 1499, // $14.99
-                price_yearly: 14990, // $149.90 (2 months free)
+                id: "free".to_string(),
+                name: "Free".to_string(),
+                description: "Basic features for personal use".to_string(),
+                price_monthly: 0, // $0
+                price_yearly: 0,  // $0
                 features: vec![
-                    "Full access to AutoSWE CLI".to_string(),
-                    "Basic model support".to_string(),
-                    "Standard tools".to_string(),
-                    "Community support".to_string(),
+                    "Limited API requests".to_string(),
+                    "Basic AI models".to_string(),
+                    "Console access".to_string(),
                 ],
                 is_active: true,
+                stripe_price_id: None, // Free plan doesn't have a Stripe price
             },
             SubscriptionPlan {
-                id: "professional".to_string(),
-                name: "Professional Plan".to_string(),
-                description: "Advanced features for professional developers".to_string(),
-                price_monthly: 2999, // $29.99
-                price_yearly: 29990, // $299.90 (2 months free)
+                id: "plus".to_string(),
+                name: "Plus".to_string(),
+                description: "Advanced features for professionals".to_string(),
+                price_monthly: 1200, // $12.00
+                price_yearly: 12000, // $120.00 (2 months free)
                 features: vec![
-                    "Everything in Basic".to_string(),
-                    "Premium model support".to_string(),
-                    "Advanced tools".to_string(),
-                    "Email support".to_string(),
-                    "Higher rate limits".to_string(),
+                    "Unlimited API requests".to_string(),
+                    "Access to Claude and Gemini models".to_string(),
+                    "Full tool support".to_string(),
                 ],
                 is_active: true,
+                stripe_price_id: Some(std::env::var("STRIPE_PRICE_ID_PLUS_MONTHLY").unwrap_or_else(|_| "price_plus_monthly".to_string())),
             },
             SubscriptionPlan {
-                id: "enterprise".to_string(),
-                name: "Enterprise Plan".to_string(),
-                description: "Comprehensive solution for teams and organizations".to_string(),
-                price_monthly: 9999, // $99.99
-                price_yearly: 99990, // $999.90 (2 months free)
+                id: "pro".to_string(),
+                name: "Pro".to_string(),
+                description: "Premium features for teams".to_string(),
+                price_monthly: 2900, // $29.00
+                price_yearly: 29000, // $290.00 (2 months free)
                 features: vec![
-                    "Everything in Professional".to_string(),
-                    "Team management".to_string(),
-                    "Custom model fine-tuning".to_string(),
-                    "Priority support".to_string(),
-                    "Custom integrations".to_string(),
-                    "Usage analytics".to_string(),
+                    "Everything in Plus".to_string(),
+                    "Priority access to newest models".to_string(),
+                    "Team collaboration features".to_string(),
                 ],
                 is_active: true,
+                stripe_price_id: Some(std::env::var("STRIPE_PRICE_ID_PRO_MONTHLY").unwrap_or_else(|_| "price_pro_monthly".to_string())),
             },
         ]
     }

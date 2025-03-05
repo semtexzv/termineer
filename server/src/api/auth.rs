@@ -9,6 +9,7 @@ use uuid::Uuid;
 use log::{info, error};
 
 use crate::auth::jwt::{AuthenticatedUser, create_token, verify_token as jwt_verify_token};
+use std::sync::Arc;
 use crate::AppState;
 use crate::config::Config;
 use crate::db::operations::UserOps;
@@ -24,9 +25,10 @@ pub struct UserResponse {
 }
 
 /// Get information about the current authenticated user
+#[axum::debug_handler]
 pub async fn get_current_user(
     auth_user: AuthenticatedUser,
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, ServerError> {
     // Look up the latest user information from the database
     let db_user = UserOps::find_by_id(&state.db_pool, auth_user.user_id).await?
