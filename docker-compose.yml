@@ -28,10 +28,12 @@ services:
     environment:
       - DATABASE_URL=postgres://autoswe:development@db:5432/autoswe
       - JWT_SECRET=developmentSecret123
-      - GOOGLE_CLIENT_ID=your_google_client_id
-      - GOOGLE_CLIENT_SECRET=your_google_client_secret
+      - GOOGLE_CLIENT_ID=mock_client_id_for_testing
+      - GOOGLE_CLIENT_SECRET=mock_client_secret_for_testing
       - REDIRECT_URL=http://localhost:3000/auth/google/callback
+      - FRONTEND_URL=http://localhost:8732
       - PORT=3000
+      - ENVIRONMENT=development
     depends_on:
       db:
         condition: service_healthy

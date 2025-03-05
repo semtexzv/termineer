@@ -206,6 +206,12 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
 /// using an OAuth flow that opens the browser for authentication.
 async fn authenticate_user(config: &mut Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use server_auth::{AuthClient, is_subscription_expired};
+    use crossterm::{
+        style::{Color, SetForegroundColor, ResetColor},
+        execute,
+        cursor::MoveToNextLine,
+    };
+    use std::io::stdout;
     
     // Ensure we have a server URL
     let server_url = match &config.server_url {
@@ -227,30 +233,55 @@ async fn authenticate_user(config: &mut Config) -> Result<(), Box<dyn std::error
     let user_info = match auth_client.authenticate().await {
         Ok(info) => info,
         Err(e) => {
+            // Print error in red
+            execute!(
+                stdout(),
+                SetForegroundColor(Color::Red),
+                MoveToNextLine(1),
+            ).ok();
+            println!("❌ Authentication failed: {}", e);
+            execute!(stdout(), ResetColor).ok();
+            
             return Err(format!("Authentication error: {}", e).into());
         }
     };
     
     // Check if subscription is expired
     if is_subscription_expired(&user_info) {
+        // Print error in yellow
+        execute!(
+            stdout(),
+            SetForegroundColor(Color::Yellow),
+            MoveToNextLine(1),
+        ).ok();
+        println!("⚠️ Your subscription has expired. Please renew your subscription.");
+        execute!(stdout(), ResetColor).ok();
+        
         return Err("Your subscription has expired. Please renew your subscription.".into());
     }
     
-    // Log successful authentication
-    println!("Authentication successful for: {}", user_info.email);
+    // Log successful authentication with green text
+    execute!(
+        stdout(),
+        SetForegroundColor(Color::Green),
+        MoveToNextLine(1),
+    ).ok();
+    println!("✅ Authentication successful for: {}", user_info.email);
     
     if let Some(subscription) = &user_info.subscription_type {
-        println!("Subscription: {}", subscription);
+        println!("📋 Subscription: {}", subscription);
     }
     
+    execute!(stdout(), ResetColor).ok();
+    
     // Save user information for future use
-    config.user_email = Some(user_info.email);
-    if let Some(subscription) = user_info.subscription_type {
+    config.user_email = Some(user_info.email.clone());
+    if let Some(subscription) = user_info.subscription_type.clone() {
         config.subscription_type = Some(subscription);
     }
     
     // Optional: Add a small delay to ensure the user sees the verification message
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
     
     Ok(())
 }
