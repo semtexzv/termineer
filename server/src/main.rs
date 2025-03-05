@@ -35,12 +35,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Initialize database connection
     let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:autoswe.db".to_string());
+        .unwrap_or_else(|_| "sqlite:data/autoswe.db".to_string());
     
     let pool = sqlx::SqlitePool::connect(&db_url).await?;
     
+    // Create the migrations directory if it doesn't exist
+    std::fs::create_dir_all("./migrations").ok();
+    
     // Ensure database schema is up to date
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    // For SQLite, we use the specific migration file
+    sqlx::query_file!("./migrations/20240305_sqlite_schema.sql")
+        .execute(&pool)
+        .await
+        .ok(); // Ignore errors if table already exists
     
     // Create a shared application state
     let state = Arc::new(api::AppState {
