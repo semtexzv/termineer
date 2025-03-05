@@ -77,10 +77,10 @@ pub struct Config {
 impl Config {
     /// Create a new configuration with default values
     pub fn new() -> Self {
-        // Load server URL from environment variable or use default for local development
+        // Load server URL from environment variable or use fly.io server by default
         let server_url = std::env::var("AUTOSWE_SERVER_URL")
             .ok()
-            .or_else(|| Some("http://localhost:3000".to_string()));
+            .or_else(|| Some("https://autoswe-server.fly.dev".to_string()));
             
         // Check if we should skip authentication (development mode)
         let skip_auth = std::env::var("AUTOSWE_SKIP_AUTH")

@@ -80,7 +80,7 @@ impl AuthClient {
     
     /// Authenticate user via OAuth flow
     pub async fn authenticate(&self) -> Result<UserInfo> {
-        // Connect to the server running in Docker
+        // Connect to the fly.io server for OAuth authentication
         let auth_url = format!("{}/auth/google/login", self.server_url);
         
         // Start callback server to receive the token
@@ -169,35 +169,58 @@ impl AuthClient {
             return Err(anyhow::anyhow!("Authentication failed: No token received"));
         }
         
-        // Get user info with the token
+        println!("Received token: {}. Fetching user information...", token);
+        
+        // Get user info with the token from the server
         let user_info_response = self.http_client.get(format!("{}/auth/user", self.server_url))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
             .context("Failed to get user information")?;
             
+        println!("User info response status: {}", user_info_response.status());
+            
         // Handle error status codes
         if !user_info_response.status().is_success() {
             let status = user_info_response.status();
             let error_text = user_info_response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            println!("Error response: {}", error_text);
             return Err(anyhow::anyhow!("Failed to get user information: HTTP {}: {}", status, error_text));
         }
         
-        // Try to parse the user info response
-        let user_info = match user_info_response.json::<UserInfo>().await {
-            Ok(info) => info,
-            Err(e) => {
-                // If parsing fails, create a mock user info for testing
-                println!("Warning: Could not parse user info response, using mock data: {}", e);
-                UserInfo {
-                    email: "test@example.com".to_string(),
-                    display_name: Some("Test User".to_string()),
-                    subscription_type: Some("pro".to_string()),
-                    subscription_status: Some("active".to_string()),
-                    expires_at: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 + 30 * 86400),
-                    features: vec!["all".to_string()],
-                }
-            }
+        // Debug: Print the response body
+        let response_text = user_info_response.text().await
+            .context("Failed to read response body")?;
+        println!("User info response body: {}", response_text);
+        
+        // Parse the JSON manually
+        let user_info_json: serde_json::Value = serde_json::from_str(&response_text)
+            .context("Failed to parse user info JSON")?;
+        
+        // Create UserInfo from the parsed JSON
+        let user_info = UserInfo {
+            email: user_info_json.get("email")
+                .and_then(|v| v.as_str())
+                .unwrap_or("test@example.com")
+                .to_string(),
+            display_name: user_info_json.get("display_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            subscription_type: user_info_json.get("subscription_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            subscription_status: user_info_json.get("subscription_status")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            expires_at: user_info_json.get("expires_at")
+                .and_then(|v| v.as_i64()),
+            features: user_info_json.get("features")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect())
+                .unwrap_or_else(|| vec!["all".to_string()])
         };
         
         // Return user info

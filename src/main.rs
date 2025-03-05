@@ -16,6 +16,7 @@ mod output;
 mod prompts;
 pub mod serde_utils;
 mod server_auth;
+mod server_auth_mock; // Mock authentication for testing
 // Session module temporarily disabled until needed
 // mod session;
 mod tools;
@@ -205,6 +206,7 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
 /// This function connects to the AutoSWE server to authenticate the user
 /// using an OAuth flow that opens the browser for authentication.
 async fn authenticate_user(config: &mut Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Use the real implementation for OAuth authentication
     use server_auth::{AuthClient, is_subscription_expired};
     use crossterm::{
         style::{Color, SetForegroundColor, ResetColor},
