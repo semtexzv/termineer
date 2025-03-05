@@ -15,6 +15,7 @@ mod mcp;
 mod output;
 mod prompts;
 pub mod serde_utils;
+mod server_auth;
 // Session module temporarily disabled until needed
 // mod session;
 mod tools;
@@ -34,7 +35,6 @@ use crossterm::{
 };
 use tokio::time::sleep;
 use ui_interface::TuiInterface;
-use crate::prompts::XmlGrammar;
 
 // Global agent manager available to all components
 lazy_static! {
@@ -57,22 +57,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let agent_manager = GLOBAL_AGENT_MANAGER.clone();
 
     // Initialize configuration
-    let mut config = match Config::from_env() {
-        Ok(config) => config,
-        Err(e) => {
-            execute!(
-                io::stderr(),
-                SetForegroundColor(Color::Red),
-                Print(format!("Error loading configuration: {}", e)),
-                ResetColor,
-                cursor::MoveToNextLine(1),
-            )?;
-            Config::new()
-        }
-    };
+    let mut config = Config::new();
     
     // Process command line arguments
     let arg_result = config.apply_args(&args)?;
+    
+    // Skip license verification for specific commands
+    let skip_verification = matches!(arg_result, 
+        ArgResult::ShowHelp | ArgResult::DumpPrompts | ArgResult::ListKinds);
+        
+    // Verify license if needed
+    if !skip_verification && !config.skip_license_check {
+        if let Err(e) = verify_license(&mut config).await {
+            execute!(
+                io::stderr(),
+                SetForegroundColor(Color::Red),
+                Print(format!("License verification failed: {}", e)),
+                ResetColor,
+                cursor::MoveToNextLine(1),
+            )?;
+            return Err(e);
+        }
+    }
     
     match arg_result {
         ArgResult::ShowHelp => {
@@ -83,6 +89,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ArgResult::DumpPrompts => {
             // Dump prompt templates and exit
             dump_prompt_templates(&config)?;
+            return Ok(());
+        },
+        ArgResult::ListKinds => {
+            // List available agent kinds and exit
+            list_available_kinds()?;
             return Ok(());
         },
         ArgResult::Query(query) => {
@@ -118,6 +129,9 @@ fn print_help() {
     println!("  --no-tools             Disable tools");
     println!("  --thinking-budget N    Set the thinking budget in tokens");
     println!("  --minimal-prompt       Use a minimal system prompt");
+    println!("  --server-url URL       Specify the server URL for license verification");
+    println!("  --license-key KEY      Provide a license key");
+    println!("  --skip-license-check   Skip license verification (for development)");
     println!("  --help                 Display this help message");
     println!();
     println!("Environment Variables:");
@@ -127,6 +141,35 @@ fn print_help() {
     println!("Example:");
     println!("  AutoSWE --model claude-3-haiku-20240307 \"What is the capital of France?\"");
     println!("  AutoSWE --model google/gemini-1.5-flash \"Explain quantum computing.\"");
+}
+
+/// List all available agent kinds
+fn list_available_kinds() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    println!("Available agent kinds:");
+    println!();
+    
+    // Standard templates
+    println!("Standard templates:");
+    println!("  general          - General purpose assistant with tools");
+    println!("  minimal          - Minimal prompt for maximum flexibility");
+    
+    // Advanced templates
+    println!("\nAdvanced templates (plus/):");
+    println!("  reasoner         - Advanced reasoning capabilities");
+    println!("  system_architect - Specialized for system design");
+    println!("  implementer      - Focused on code implementation");
+    println!("  explorer         - For exploring and understanding complex codebases");
+    println!("  researcher       - Specialized for deep research tasks");
+    println!("  data_analyst     - Specialized for data processing and analysis");
+    println!("  documentor       - Focused on documentation generation");
+    println!("  orchestrator     - Coordinates multiple agents for complex tasks");
+    
+    println!();
+    println!("Use with: --kind KIND_NAME");
+    println!("Example: --kind researcher");
+    println!("For advanced templates: --kind plus/researcher");
+    
+    Ok(())
 }
 
 /// Dump prompt templates to stdout
@@ -155,7 +198,7 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
     let grammar = prompts::select_grammar_by_type(config.grammar_type);
     
     // Render the template
-    let prompt = match template_name.as_str() {
+    let prompt_result = match template_name.as_str() {
         "basic" => prompts::render_template("basic", enabled_tools, grammar),
         "minimal" => prompts::render_template("minimal", enabled_tools, grammar),
         "researcher" => prompts::render_template("researcher", enabled_tools, grammar),
@@ -165,7 +208,83 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
     };
     
     // Output the rendered template
-    println!("{}", prompt);
+    match prompt_result {
+        Ok(prompt) => println!("{}", prompt),
+        Err(e) => return Err(format!("Error rendering template: {}", e).into()),
+    }
+    
+    Ok(())
+}
+
+/// Verify license with the server
+///
+/// This function connects to the AutoSWE server to verify the license key
+/// and check if the user is authorized to use the application.
+async fn verify_license(config: &mut Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use std::io::{self, Write};
+    use server_auth::{LicenseClient, is_license_expired};
+    
+    // Ensure we have a server URL
+    let server_url = match &config.server_url {
+        Some(url) => url.clone(),
+        None => {
+            return Err("Error: Server URL not configured. Please set AUTOSWE_SERVER_URL environment variable.".into());
+        }
+    };
+    
+    // If license key is not provided, prompt the user
+    let license_key = if let Some(key) = &config.license_key {
+        key.clone()
+    } else {
+        print!("Please enter your license key: ");
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        
+        let key = input.trim().to_string();
+        // Store the key in config for future use
+        config.license_key = Some(key.clone());
+        
+        key
+    };
+    
+    // Initialize license client
+    let license_client = LicenseClient::new(server_url);
+    
+    // Send verification request
+    println!("Verifying license...");
+    let license_info = match license_client.verify_license(&license_key).await {
+        Ok(info) => info,
+        Err(e) => {
+            return Err(format!("License verification error: {}", e).into());
+        }
+    };
+    
+    // Check if license is valid
+    if !license_info.valid {
+        let message = license_info.message.unwrap_or_else(|| "Invalid license key".to_string());
+        return Err(format!("License verification failed: {}", message).into());
+    }
+    
+    // Check if license is expired
+    if is_license_expired(&license_info) {
+        return Err("License has expired. Please renew your subscription.".into());
+    }
+    
+    // Log successful verification
+    if let Some(email) = &license_info.user_email {
+        println!("License verified for: {}", email);
+    } else {
+        println!("License verified successfully.");
+    }
+    
+    if let Some(subscription) = &license_info.subscription_type {
+        println!("Subscription: {}", subscription);
+    }
+    
+    // Optional: Add a small delay to ensure the user sees the verification message
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
     Ok(())
 }
