@@ -61,14 +61,17 @@ pub struct Config {
     /// If None, will be automatically resolved based on model name
     pub grammar_type: Option<GrammarType>,
 
-    /// Server URL for authentication and license verification
+    /// Server URL for authentication
     pub server_url: Option<String>,
     
-    /// License key for verification with the server
-    pub license_key: Option<String>,
+    /// User email after authentication
+    pub user_email: Option<String>,
     
-    /// Skip license verification (for development)
-    pub skip_license_check: bool,
+    /// User subscription type
+    pub subscription_type: Option<String>,
+    
+    /// Skip authentication (for development)
+    pub skip_auth: bool,
 }
 
 impl Config {
@@ -79,11 +82,8 @@ impl Config {
             .ok()
             .or_else(|| Some("http://localhost:3000".to_string()));
             
-        // Load license key from environment
-        let license_key = std::env::var("AUTOSWE_LICENSE_KEY").ok();
-        
-        // Check if we should skip license verification (development mode)
-        let skip_license_check = std::env::var("AUTOSWE_SKIP_LICENSE")
+        // Check if we should skip authentication (development mode)
+        let skip_auth = std::env::var("AUTOSWE_SKIP_AUTH")
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false);
             
@@ -99,8 +99,9 @@ impl Config {
             dump_prompts: None,
             grammar_type: None, // Will be resolved based on model
             server_url,
-            license_key,
-            skip_license_check,
+            user_email: None,
+            subscription_type: None,
+            skip_auth,
         };
         
         // Initialize a config with default values
@@ -234,20 +235,9 @@ impl Config {
                 continue;
             }
             
-            // License key option
-            if current_arg == obfstr!("--license-key") {
-                if i + 1 < total_args {
-                    self.license_key = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    return Err(obfstr!("Error: License key parameter requires a value").into());
-                }
-                continue;
-            }
-            
-            // Skip license check option
-            if current_arg == obfstr!("--skip-license-check") {
-                self.skip_license_check = true;
+            // Skip authentication check option
+            if current_arg == obfstr!("--skip-auth") || current_arg == obfstr!("--skip-license-check") {
+                self.skip_auth = true;
                 i += 1;
                 continue;
             }

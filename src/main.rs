@@ -62,17 +62,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Process command line arguments
     let arg_result = config.apply_args(&args)?;
     
-    // Skip license verification for specific commands
+    // Skip authentication for specific commands
     let skip_verification = matches!(arg_result, 
         ArgResult::ShowHelp | ArgResult::DumpPrompts | ArgResult::ListKinds);
         
-    // Verify license if needed
-    if !skip_verification && !config.skip_license_check {
-        if let Err(e) = verify_license(&mut config).await {
+    // Authenticate user if needed
+    if !skip_verification && !config.skip_auth {
+        if let Err(e) = authenticate_user(&mut config).await {
             execute!(
                 io::stderr(),
                 SetForegroundColor(Color::Red),
-                Print(format!("License verification failed: {}", e)),
+                Print(format!("Authentication failed: {}", e)),
                 ResetColor,
                 cursor::MoveToNextLine(1),
             )?;
@@ -129,9 +129,8 @@ fn print_help() {
     println!("  --no-tools             Disable tools");
     println!("  --thinking-budget N    Set the thinking budget in tokens");
     println!("  --minimal-prompt       Use a minimal system prompt");
-    println!("  --server-url URL       Specify the server URL for license verification");
-    println!("  --license-key KEY      Provide a license key");
-    println!("  --skip-license-check   Skip license verification (for development)");
+    println!("  --server-url URL       Specify the server URL for authentication");
+    println!("  --skip-auth            Skip authentication (for development)");
     println!("  --help                 Display this help message");
     println!();
     println!("Environment Variables:");
@@ -201,13 +200,12 @@ fn dump_prompt_templates(config: &Config) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-/// Verify license with the server
+/// Authenticate user with the server using OAuth
 ///
-/// This function connects to the AutoSWE server to verify the license key
-/// and check if the user is authorized to use the application.
-async fn verify_license(config: &mut Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use std::io::{self, Write};
-    use server_auth::{LicenseClient, is_license_expired};
+/// This function connects to the AutoSWE server to authenticate the user
+/// using an OAuth flow that opens the browser for authentication.
+async fn authenticate_user(config: &mut Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use server_auth::{AuthClient, is_subscription_expired};
     
     // Ensure we have a server URL
     let server_url = match &config.server_url {
@@ -217,55 +215,38 @@ async fn verify_license(config: &mut Config) -> Result<(), Box<dyn std::error::E
         }
     };
     
-    // If license key is not provided, prompt the user
-    let license_key = if let Some(key) = &config.license_key {
-        key.clone()
-    } else {
-        print!("Please enter your license key: ");
-        io::stdout().flush()?;
-        
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        
-        let key = input.trim().to_string();
-        // Store the key in config for future use
-        config.license_key = Some(key.clone());
-        
-        key
-    };
+    // Initialize auth client
+    let auth_client = AuthClient::new(server_url);
     
-    // Initialize license client
-    let license_client = LicenseClient::new(server_url);
+    // Start OAuth flow
+    println!("Starting authentication flow...");
+    println!("This will open your browser to authenticate with your account.");
+    println!("If you don't have an account, you can create one during this process.");
     
-    // Send verification request
-    println!("Verifying license...");
-    let license_info = match license_client.verify_license(&license_key).await {
+    // Perform OAuth authentication
+    let user_info = match auth_client.authenticate().await {
         Ok(info) => info,
         Err(e) => {
-            return Err(format!("License verification error: {}", e).into());
+            return Err(format!("Authentication error: {}", e).into());
         }
     };
     
-    // Check if license is valid
-    if !license_info.valid {
-        let message = license_info.message.unwrap_or_else(|| "Invalid license key".to_string());
-        return Err(format!("License verification failed: {}", message).into());
+    // Check if subscription is expired
+    if is_subscription_expired(&user_info) {
+        return Err("Your subscription has expired. Please renew your subscription.".into());
     }
     
-    // Check if license is expired
-    if is_license_expired(&license_info) {
-        return Err("License has expired. Please renew your subscription.".into());
-    }
+    // Log successful authentication
+    println!("Authentication successful for: {}", user_info.email);
     
-    // Log successful verification
-    if let Some(email) = &license_info.user_email {
-        println!("License verified for: {}", email);
-    } else {
-        println!("License verified successfully.");
-    }
-    
-    if let Some(subscription) = &license_info.subscription_type {
+    if let Some(subscription) = &user_info.subscription_type {
         println!("Subscription: {}", subscription);
+    }
+    
+    // Save user information for future use
+    config.user_email = Some(user_info.email);
+    if let Some(subscription) = user_info.subscription_type {
+        config.subscription_type = Some(subscription);
     }
     
     // Optional: Add a small delay to ensure the user sees the verification message
