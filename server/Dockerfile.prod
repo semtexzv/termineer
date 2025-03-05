@@ -20,9 +20,9 @@ RUN cargo build --release
 # Create a minimal runtime image with newer GLIBC (Debian Bookworm)
 FROM debian:bookworm-slim as runtime
 
-# Install necessary runtime dependencies
+# Install necessary runtime dependencies including SQLite
 RUN apt-get update && \
-    apt-get install -y libssl-dev ca-certificates curl && \
+    apt-get install -y libssl-dev ca-certificates curl sqlite3 libsqlite3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
@@ -39,6 +39,10 @@ USER appuser
 
 # Set the working directory
 WORKDIR /home/appuser
+
+# Create data directory for the SQLite database
+RUN mkdir -p /home/appuser/data && \
+    chown -R appuser:appuser /home/appuser/data
 
 # Add a health check endpoint
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
