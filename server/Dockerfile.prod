@@ -1,0 +1,54 @@
+# Use cargo-chef to optimize build times
+FROM lukemathwalker/cargo-chef:latest AS chef
+WORKDIR /app
+
+# First prepare a recipe (dependency list)
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Build dependencies using the recipe
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+# Build dependencies - this will be cached as long as dependencies don't change
+RUN cargo chef cook --release --recipe-path recipe.json
+
+# Build the application
+COPY . .
+RUN cargo build --release
+
+# Create a minimal runtime image with newer GLIBC (Debian Bookworm)
+FROM debian:bookworm-slim as runtime
+
+# Install necessary runtime dependencies
+RUN apt-get update && \
+    apt-get install -y libssl-dev ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user to run the application
+RUN useradd -ms /bin/bash appuser
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/target/release/autoswe-server /usr/local/bin/autoswe-server
+
+# Set ownership to the non-root user
+RUN chown appuser:appuser /usr/local/bin/autoswe-server
+
+# Switch to the non-root user
+USER appuser
+
+# Set the working directory
+WORKDIR /home/appuser
+
+# Add a health check endpoint
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Expose the application port
+EXPOSE 3000
+
+# Set environment variables
+ENV RUST_LOG=info
+
+# Run the server
+CMD ["autoswe-server"]
