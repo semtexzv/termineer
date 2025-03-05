@@ -7,12 +7,48 @@ use aes_gcm::{
 };
 use std::env;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{Read, Write, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use quote::quote;
 use proc_macro2::{TokenStream, Literal};
+
+/// Extract the description from a template file
+fn extract_template_description(file_path: &Path) -> Option<String> {
+    // Open the file
+    let file = match File::open(file_path) {
+        Ok(file) => file,
+        Err(_) => return None,
+    };
+    
+    let reader = BufReader::new(file);
+    
+    // Look for the first line that starts with "{{!"
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            let trimmed = line.trim();
+            if trimmed.starts_with("{{!") {
+                // Extract the description part (after the dash)
+                if let Some(dash_pos) = trimmed.find('-') {
+                    // Get text between the dash and the closing comment
+                    let mut description = trimmed[(dash_pos + 1)..].trim();
+                    
+                    // Remove closing Handlebars comment tag if it exists
+                    if let Some(end_pos) = description.find("}}") {
+                        description = description[..end_pos].trim();
+                    }
+                    
+                    if !description.is_empty() {
+                        return Some(description.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    None
+}
 
 fn main() {
     println!("cargo:rerun-if-changed=prompts");
@@ -40,6 +76,8 @@ fn main() {
     
     // Collect all agent kinds (templates)
     let mut kinds = HashSet::new();
+    // Map to store descriptions for each template
+    let mut descriptions = HashMap::new();
 
     for entry in WalkDir::new(prompts_dir) {
         let entry = entry.unwrap();
@@ -55,17 +93,15 @@ fn main() {
                 let template_path = rel_path.with_extension("");
                 let kind_id = template_path.to_string_lossy().replace('\\', "/");
 
-                // Normalize kind IDs to match expected format in the code
-                // If the path starts with "kind/", use it as is
-                // If it's in a subdirectory of "kind/", use it as is
-                // Otherwise, prepend "kind/" to ensure it matches the expected format
-                let normalized_kind_id = if kind_id.starts_with("kind/") {
-                    kind_id.to_string()
-                } else {
-                    format!("kind/{}", kind_id)
-                };
-
-                kinds.insert(normalized_kind_id);
+                // Only collect templates from the kind directory
+                if kind_id.starts_with("kind/") {
+                    // Extract the description if available
+                    if let Some(description) = extract_template_description(entry.path()) {
+                        descriptions.insert(kind_id.clone(), description);
+                    }
+                    
+                    kinds.insert(kind_id.to_string());
+                }
             }
 
             // Read source file
@@ -107,11 +143,11 @@ fn main() {
     }
     
     // Generate a Rust file with the encrypted prompts data and kinds list
-    generate_encrypted_prompts_module(&out_dir, &encrypted_files, &kinds);
+    generate_encrypted_prompts_module(&out_dir, &encrypted_files, &kinds, &descriptions);
 }
 
 /// Generate a Rust file containing the encrypted prompts data and kinds list
-fn generate_encrypted_prompts_module(out_dir: &Path, encrypted_files: &[(String, PathBuf)], kinds: &HashSet<String>) {
+fn generate_encrypted_prompts_module(out_dir: &Path, encrypted_files: &[(String, PathBuf)], kinds: &HashSet<String>, descriptions: &HashMap<String, String>) {
     // Create the output file
     let output_path = Path::new(out_dir).join("encrypted_prompts.rs");
     
@@ -122,32 +158,56 @@ fn generate_encrypted_prompts_module(out_dir: &Path, encrypted_files: &[(String,
     // Create the content for the available kinds string
     let mut kinds_content = String::new();
     
-    // Separate standard templates from plus templates
+    // Separate templates into different categories
     let mut standard_templates = Vec::new();
     let mut plus_templates = Vec::new();
+    let mut other_templates = Vec::new();
     
     for kind in &sorted_kinds {
         if kind.starts_with("kind/plus/") {
             plus_templates.push(kind.replace("kind/plus/", ""));
-        } else if kind.starts_with("kind/") && !kind.contains("plus") {
+        } else if kind.starts_with("kind/") {
             standard_templates.push(kind.replace("kind/", ""));
+        } else {
+            // Templates not in the kind directory go to other_templates
+            other_templates.push(kind.clone());
         }
     }
     
     // Sort templates for consistent output
     standard_templates.sort();
     plus_templates.sort();
+    other_templates.sort();
     
-    // Add standard templates
+    // Find the longest template name to determine proper alignment
+    let longest_standard = standard_templates.iter().map(|s| s.len()).max().unwrap_or(0);
+    let longest_plus = plus_templates.iter().map(|s| s.len()).max().unwrap_or(0);
+    let column_width = std::cmp::max(longest_standard, longest_plus) + 4; // Add some padding
+    
+    // Add standard templates with aligned descriptions
     kinds_content.push_str("Standard templates:\n");
     for template in &standard_templates {
-        kinds_content.push_str(&format!("- {}\n", template));
+        let full_path = format!("kind/{}", template);
+        let description = descriptions.get(&full_path)
+            .map(|desc| format!("{}", desc))
+            .unwrap_or_else(|| "".to_string());
+        
+        // Calculate spaces needed for alignment
+        let spaces = " ".repeat(column_width - template.len());
+        kinds_content.push_str(&format!("- {}{}  │  {}\n", template, spaces, description));
     }
     
-    // Add plus templates
+    // Add plus templates with aligned descriptions
     kinds_content.push_str("\nPlus templates:\n");
     for template in &plus_templates {
-        kinds_content.push_str(&format!("- {}\n", template));
+        let full_path = format!("kind/plus/{}", template);
+        let description = descriptions.get(&full_path)
+            .map(|desc| format!("{}", desc))
+            .unwrap_or_else(|| "".to_string());
+        
+        // Calculate spaces needed for alignment
+        let spaces = " ".repeat(column_width - template.len());
+        kinds_content.push_str(&format!("- {}{}  │  {}\n", template, spaces, description));
     }
     
     // Create a TokenStream for encrypted files array entries
