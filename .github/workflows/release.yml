@@ -1,0 +1,420 @@
+name: Release
+
+# This workflow handles releases for NPM and Homebrew
+# Triggered by version tags with optional suffixes to control release targets
+
+on:
+  push:
+    tags:
+      - 'v*'  # All version tags
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.1.0)'
+        required: true
+        default: ''
+      target:
+        description: 'Release target (npm, brew, both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - npm
+          - brew
+          - both
+
+jobs:
+  prepare-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
+      publish_npm: ${{ steps.set-targets.outputs.publish_npm }}
+      publish_brew: ${{ steps.set-targets.outputs.publish_brew }}
+    steps:
+      - name: Set version from tag or input
+        id: set-version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # From tag - remove v prefix and any release targets
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            VERSION="${VERSION%-npm}"
+            VERSION="${VERSION%-brew}"
+            VERSION="${VERSION%-publish}"
+          else
+            # From workflow dispatch
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+          
+      - name: Determine release targets
+        id: set-targets
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Determine from tag suffix
+            TAG="${GITHUB_REF#refs/tags/}"
+            
+            if [[ "$TAG" == *"-npm"* || "$TAG" == *"-publish"* ]]; then
+              PUBLISH_NPM="true"
+            else
+              PUBLISH_NPM="false"
+            fi
+            
+            if [[ "$TAG" == *"-brew"* ]]; then
+              PUBLISH_BREW="true"
+            else
+              PUBLISH_BREW="false"
+            fi
+            
+            # Special case: no suffix means build artifacts only
+            if [[ "$TAG" == v* && "$TAG" != *"-"* ]]; then
+              PUBLISH_NPM="false"
+              PUBLISH_BREW="false"
+            fi
+          else
+            # From workflow dispatch input
+            TARGET="${{ github.event.inputs.target }}"
+            
+            if [[ "$TARGET" == "npm" || "$TARGET" == "both" ]]; then
+              PUBLISH_NPM="true"
+            else
+              PUBLISH_NPM="false"
+            fi
+            
+            if [[ "$TARGET" == "brew" || "$TARGET" == "both" ]]; then
+              PUBLISH_BREW="true"
+            else
+              PUBLISH_BREW="false"
+            fi
+          fi
+          
+          echo "publish_npm=$PUBLISH_NPM" >> $GITHUB_OUTPUT
+          echo "publish_brew=$PUBLISH_BREW" >> $GITHUB_OUTPUT
+          echo "NPM: $PUBLISH_NPM, Brew: $PUBLISH_BREW"
+
+  # Call the build workflow to build all binaries
+  build:
+    needs: prepare-version
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.prepare-version.outputs.version }}
+
+  # Create GitHub release with all artifacts
+  github-release:
+    needs: [prepare-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Download all binary artifacts
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        
+      # Create GitHub release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Termineer v${{ needs.prepare-version.outputs.version }}
+          draft: false
+          prerelease: false
+          tag_name: v${{ needs.prepare-version.outputs.version }}
+          body: |
+            # Termineer v${{ needs.prepare-version.outputs.version }}
+            
+            AI Agent Console Interface for your terminal
+            
+            ## Installation
+            
+            ### Homebrew
+            ```
+            brew install semtexzv/tap/termineer
+            ```
+            
+            ### NPM
+            ```
+            npm install -g termineer
+            ```
+            
+            ### Manual
+            Download the appropriate binary for your platform below.
+          files: |
+            **/termineer-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build and publish NPM package
+  npm-package:
+    needs: [prepare-version, build]
+    if: needs.prepare-version.outputs.publish_npm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Download all binary artifacts to prebuilds directory
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: prebuilds
+      
+      # Create NPM package structure
+      - name: Create NPM package
+        run: |
+          # Create required directories
+          mkdir -p npm-package/{bin,scripts,prebuilds/{linux-x64,darwin-x64,darwin-arm64,win32-x64}}
+          
+          # Copy binaries to appropriate directories
+          cp prebuilds/termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu npm-package/prebuilds/linux-x64/termineer
+          cp prebuilds/termineer-x86_64-apple-darwin/termineer-x86_64-apple-darwin npm-package/prebuilds/darwin-x64/termineer
+          cp prebuilds/termineer-aarch64-apple-darwin/termineer-aarch64-apple-darwin npm-package/prebuilds/darwin-arm64/termineer
+          cp prebuilds/termineer-x86_64-windows-msvc/termineer-x86_64-windows-msvc npm-package/prebuilds/win32-x64/termineer.exe
+          
+          # Create package.json
+          cat > npm-package/package.json << EOF
+          {
+            "name": "termineer",
+            "version": "${{ needs.prepare-version.outputs.version }}",
+            "description": "AI Agent Console Interface",
+            "homepage": "https://termineer.io",
+            "bin": {
+              "termineer": "bin/termineer.js"
+            },
+            "scripts": {
+              "install": "node scripts/install.js"
+            },
+            "dependencies": {
+              "binary-install": "^1.0.1"
+            },
+            "engines": {
+              "node": ">=14.0.0"
+            },
+            "os": ["darwin", "linux", "win32"],
+            "cpu": ["x64", "arm64"]
+          }
+          EOF
+          
+          # Create install.js
+          cat > npm-package/scripts/install.js << 'EOF'
+          const { Binary } = require('binary-install');
+          const os = require('os');
+          const path = require('path');
+
+          // Detect platform and architecture
+          const platform = os.platform();
+          const arch = os.arch();
+
+          // Map to directory name format
+          const platformMap = {
+            darwin: 'darwin',
+            linux: 'linux',
+            win32: 'win32'
+          };
+
+          const archMap = {
+            x64: 'x64',
+            arm64: 'arm64'
+          };
+
+          // Get binary path
+          const platformDir = platformMap[platform] || 'unknown';
+          const archDir = archMap[arch] || 'unknown';
+          const binaryDir = `${platformDir}-${archDir}`;
+
+          // Path to binary in the package
+          const binaryPath = path.join(
+            __dirname, 
+            '..', 
+            'prebuilds', 
+            binaryDir, 
+            platform === 'win32' ? 'termineer.exe' : 'termineer'
+          );
+
+          // Install the binary
+          try {
+            const binary = new Binary(binaryPath);
+            binary.install();
+            console.log('Termineer installed successfully!');
+          } catch (err) {
+            console.error('Failed to install Termineer:', err);
+            process.exit(1);
+          }
+          EOF
+          
+          # Create termineer.js
+          cat > npm-package/bin/termineer.js << 'EOF'
+          #!/usr/bin/env node
+          const { Binary } = require('binary-install');
+          const path = require('path');
+          const os = require('os');
+
+          // Detect platform and architecture
+          const platform = os.platform();
+          const arch = os.arch();
+
+          // Map to directory name format
+          const platformMap = {
+            darwin: 'darwin',
+            linux: 'linux',
+            win32: 'win32'
+          };
+
+          const archMap = {
+            x64: 'x64',
+            arm64: 'arm64'
+          };
+
+          // Get binary path
+          const platformDir = platformMap[platform] || 'unknown';
+          const archDir = archMap[arch] || 'unknown';
+          const binaryDir = `${platformDir}-${archDir}`;
+
+          // Path to binary in the package
+          const binaryPath = path.join(
+            __dirname, 
+            '..', 
+            'prebuilds', 
+            binaryDir, 
+            platform === 'win32' ? 'termineer.exe' : 'termineer'
+          );
+
+          // Execute the binary with all arguments passed through
+          const binary = new Binary(binaryPath);
+          binary.run();
+          EOF
+          chmod +x npm-package/bin/termineer.js
+          
+          # Create README.md
+          cat > npm-package/README.md << 'EOF'
+          # Termineer
+          
+          AI Agent Console Interface
+          
+          ## Installation
+          
+          ```
+          npm install -g termineer
+          ```
+          
+          ## Usage
+          
+          ```
+          termineer
+          ```
+          
+          For more information, run:
+          
+          ```
+          termineer --help
+          ```
+          
+          ## Website
+          
+          Visit [termineer.io](https://termineer.io) for more information.
+          EOF
+          
+      # Package everything up
+      - name: Create NPM package
+        run: |
+          cd npm-package
+          npm pack
+          mv termineer-${{ needs.prepare-version.outputs.version }}.tgz ../termineer-npm-package.tgz
+      
+      # Upload the package as an artifact
+      - name: Upload NPM package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: termineer-npm-package.tgz
+      
+      # Publish to NPM if requested
+      - name: Publish to NPM
+        if: needs.prepare-version.outputs.publish_npm == 'true'
+        uses: JS-DevTools/npm-publish@v2
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          package: ./termineer-npm-package.tgz
+
+  # Create and update Homebrew formula
+  homebrew-formula:
+    needs: [prepare-version, build, github-release]
+    if: needs.prepare-version.outputs.publish_brew == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Download artifacts to get checksums
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+      
+      # Calculate SHA256 checksums
+      - name: Get SHA256 checksums
+        id: checksums
+        run: |
+          MACOS_INTEL_SHA=$(cat termineer-x86_64-apple-darwin/termineer-x86_64-apple-darwin.sha256)
+          MACOS_ARM_SHA=$(cat termineer-aarch64-apple-darwin/termineer-aarch64-apple-darwin.sha256)
+          LINUX_SHA=$(cat termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu.sha256)
+          
+          echo "MACOS_INTEL_SHA=$MACOS_INTEL_SHA" >> $GITHUB_ENV
+          echo "MACOS_ARM_SHA=$MACOS_ARM_SHA" >> $GITHUB_ENV
+          echo "LINUX_SHA=$LINUX_SHA" >> $GITHUB_ENV
+          
+          REPO_OWNER="semtexzv"
+          REPO_NAME="termineer"
+          echo "DOWNLOAD_URL=https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/v${{ needs.prepare-version.outputs.version }}" >> $GITHUB_ENV
+      
+      # Generate Homebrew formula
+      - name: Generate Formula
+        run: |
+          cat > termineer.rb << EOL
+          class Termineer < Formula
+            desc "AI Agent Console Interface for your terminal"
+            homepage "https://termineer.io"
+            version "${{ needs.prepare-version.outputs.version }}"
+            license "MIT"
+            
+            on_macos do
+              on_arm do
+                url "${{ env.DOWNLOAD_URL }}/termineer-aarch64-apple-darwin"
+                sha256 "${{ env.MACOS_ARM_SHA }}"
+              end
+              
+              on_intel do
+                url "${{ env.DOWNLOAD_URL }}/termineer-x86_64-apple-darwin"
+                sha256 "${{ env.MACOS_INTEL_SHA }}"
+              end
+            end
+            
+            on_linux do
+              url "${{ env.DOWNLOAD_URL }}/termineer-x86_64-linux-gnu"
+              sha256 "${{ env.LINUX_SHA }}"
+            end
+            
+            def install
+              bin.install Dir["*"].first => "termineer"
+            end
+            
+            test do
+              system "#{bin}/termineer", "--help"
+            end
+          end
+          EOL
+      
+      # Setup Git for Homebrew tap updates
+      - name: Setup Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+      
+      # Clone the tap repository
+      - name: Clone tap repository
+        run: |
+          git clone https://x-access-token:${{ secrets.TAP_REPO_TOKEN }}@github.com/semtexzv/homebrew-tap.git
+      
+      # Update the formula
+      - name: Update formula
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cp termineer.rb homebrew-tap/Formula/
+          cd homebrew-tap
+          git add Formula/termineer.rb
+          git commit -m "Update termineer to v${{ needs.prepare-version.outputs.version }}"
+          git push

@@ -1,0 +1,103 @@
+name: Build Binaries
+
+# This workflow builds cross-platform binaries
+# It's intended to be called from other workflows using `workflow_call`
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version number without v prefix (e.g., 0.1.0)'
+        required: true
+        type: string
+    outputs:
+      version:
+        description: 'Version number that was built'
+        value: ${{ jobs.build-binaries.outputs.version }}
+
+jobs:
+  build-binaries:
+    name: Build for ${{ matrix.target.name }}
+    runs-on: ${{ matrix.target.os }}
+    outputs:
+      version: ${{ inputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: linux-x64
+            os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            binary_name: termineer
+            asset_name: termineer-x86_64-linux-gnu
+            
+          - name: windows-x64
+            os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            binary_name: termineer.exe
+            asset_name: termineer-x86_64-windows-msvc
+            
+          - name: macos-x64
+            os: macos-latest
+            rust_target: x86_64-apple-darwin
+            binary_name: termineer
+            asset_name: termineer-x86_64-apple-darwin
+            
+          - name: macos-arm64
+            os: macos-latest
+            rust_target: aarch64-apple-darwin
+            binary_name: termineer
+            asset_name: termineer-aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.rust_target }}
+      
+      # Run tests before building
+      - name: Run tests
+        if: matrix.target.name == 'linux-x64'  # Only run tests once
+        run: cargo test --all
+      
+      # Special case for macOS ARM
+      - name: Build for macOS ARM64
+        if: matrix.target.name == 'macos-arm64'
+        run: |
+          rustup target add aarch64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+      
+      # For all other targets
+      - name: Build binary
+        if: matrix.target.name != 'macos-arm64'
+        run: cargo build --release --target ${{ matrix.target.rust_target }}
+      
+      # Prepare the binary and its checksum
+      - name: Prepare binary
+        shell: bash
+        run: |
+          # Create target directory
+          mkdir -p artifacts
+          
+          # Copy binary to artifacts with proper name
+          if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
+            cp target/aarch64-apple-darwin/release/${{ matrix.target.binary_name }} artifacts/${{ matrix.target.asset_name }}
+          else
+            cp target/${{ matrix.target.rust_target }}/release/${{ matrix.target.binary_name }} artifacts/${{ matrix.target.asset_name }}
+          fi
+          
+          # Create checksum file
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            certutil -hashfile artifacts/${{ matrix.target.asset_name }} SHA256 | grep -v "^SHA256" | grep -v "^CertUtil" > artifacts/${{ matrix.target.asset_name }}.sha256
+          else
+            cd artifacts && shasum -a 256 ${{ matrix.target.asset_name }} | cut -d ' ' -f 1 > ${{ matrix.target.asset_name }}.sha256
+          fi
+      
+      # Upload binary and checksum as artifacts
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.asset_name }}
+          path: artifacts/${{ matrix.target.asset_name }}*
