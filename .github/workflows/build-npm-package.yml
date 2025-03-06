@@ -1,0 +1,294 @@
+name: Build NPM Package
+
+on:
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.1.0)'
+        required: true
+        default: ''
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags
+
+jobs:
+  build-binaries:
+    name: Build for ${{ matrix.target.name }}
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false  # Don't stop all builds if one fails
+      matrix:
+        target:
+          - name: linux-x64
+            os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            binary_name: termineer
+            asset_name: linux-x64
+            
+          - name: windows-x64
+            os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            binary_name: termineer.exe
+            asset_name: win32-x64
+            
+          - name: macos-x64
+            os: macos-latest
+            rust_target: x86_64-apple-darwin
+            binary_name: termineer
+            asset_name: darwin-x64
+            
+          - name: macos-arm64
+            os: macos-latest
+            rust_target: aarch64-apple-darwin
+            binary_name: termineer
+            asset_name: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target.rust_target }}
+          override: true
+      
+      # Special case for macOS ARM, we need to build on x64 macOS with a specific target
+      - name: Build for macOS ARM64
+        if: matrix.target.name == 'macos-arm64'
+        run: |
+          rustup target add aarch64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+      
+      # For all other targets, build normally
+      - name: Build binary
+        if: matrix.target.name != 'macos-arm64'
+        run: cargo build --release --target ${{ matrix.target.rust_target }}
+      
+      # Create directory structure for the NPM package
+      - name: Create prebuilds directory
+        run: |
+          mkdir -p npm-package/prebuilds/${{ matrix.target.asset_name }}
+          
+      # Copy binary to the right location, handling different binary paths
+      - name: Copy binary to prebuilds
+        if: matrix.target.name != 'macos-arm64'
+        run: |
+          cp target/${{ matrix.target.rust_target }}/release/${{ matrix.target.binary_name }} npm-package/prebuilds/${{ matrix.target.asset_name }}/
+        shell: bash
+        
+      # Special case for macOS ARM64 binary path
+      - name: Copy macOS ARM64 binary to prebuilds
+        if: matrix.target.name == 'macos-arm64'
+        run: |
+          cp target/aarch64-apple-darwin/release/${{ matrix.target.binary_name }} npm-package/prebuilds/${{ matrix.target.asset_name }}/
+      
+      # Upload as artifact for this specific platform
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: binary-${{ matrix.target.asset_name }}
+          path: npm-package/prebuilds/${{ matrix.target.asset_name }}
+
+  prepare-npm-package:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Get version from tag or input
+      - name: Set version from tag
+        if: github.event_name == 'push'
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      
+      - name: Set version from input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+      
+      # Verify we have a version
+      - name: Verify version
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "No version specified!"
+            exit 1
+          fi
+          echo "Building package for version $VERSION"
+      
+      - name: Create NPM package structure
+        run: |
+          mkdir -p npm-package/{bin,scripts,prebuilds}
+      
+      # Download all binary artifacts
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: npm-package/prebuilds
+      
+      # Flatten the download structure by moving binaries up one level
+      - name: Flatten directory structure
+        run: |
+          find npm-package/prebuilds -mindepth 2 -type f -exec bash -c 'mkdir -p "${1%/*}" && mv "$1" "${1%/*}/../"' _ {} \;
+          find npm-package/prebuilds -type d -empty -delete
+      
+      # Create package.json
+      - name: Create package.json
+        run: |
+          cat > npm-package/package.json << EOF
+          {
+            "name": "termineer",
+            "version": "$VERSION",
+            "description": "AI Agent Console Interface",
+            "bin": {
+              "termineer": "bin/termineer.js"
+            },
+            "scripts": {
+              "install": "node scripts/install.js"
+            },
+            "dependencies": {
+              "binary-install": "^1.0.1"
+            },
+            "engines": {
+              "node": ">=14.0.0"
+            },
+            "os": ["darwin", "linux", "win32"],
+            "cpu": ["x64", "arm64"]
+          }
+          EOF
+      
+      # Create install.js
+      - name: Create install.js
+        run: |
+          cat > npm-package/scripts/install.js << 'EOF'
+          const { Binary } = require('binary-install');
+          const os = require('os');
+          const path = require('path');
+
+          // Detect platform and architecture
+          const platform = os.platform();
+          const arch = os.arch();
+
+          // Map to directory name format
+          const platformMap = {
+            darwin: 'darwin',
+            linux: 'linux',
+            win32: 'win32'
+          };
+
+          const archMap = {
+            x64: 'x64',
+            arm64: 'arm64'
+          };
+
+          // Get binary path
+          const platformDir = platformMap[platform] || 'unknown';
+          const archDir = archMap[arch] || 'unknown';
+          const binaryDir = `${platformDir}-${archDir}`;
+
+          // Path to binary in the package
+          const binaryPath = path.join(
+            __dirname, 
+            '..', 
+            'prebuilds', 
+            binaryDir, 
+            platform === 'win32' ? 'termineer.exe' : 'termineer'
+          );
+
+          // Install the binary
+          try {
+            const binary = new Binary(binaryPath);
+            binary.install();
+            console.log('Termineer installed successfully!');
+          } catch (err) {
+            console.error('Failed to install Termineer:', err);
+            process.exit(1);
+          }
+          EOF
+      
+      # Create termineer.js
+      - name: Create termineer.js
+        run: |
+          cat > npm-package/bin/termineer.js << 'EOF'
+          #!/usr/bin/env node
+          const { Binary } = require('binary-install');
+          const path = require('path');
+          const os = require('os');
+
+          // Detect platform and architecture
+          const platform = os.platform();
+          const arch = os.arch();
+
+          // Map to directory name format
+          const platformMap = {
+            darwin: 'darwin',
+            linux: 'linux',
+            win32: 'win32'
+          };
+
+          const archMap = {
+            x64: 'x64',
+            arm64: 'arm64'
+          };
+
+          // Get binary path
+          const platformDir = platformMap[platform] || 'unknown';
+          const archDir = archMap[arch] || 'unknown';
+          const binaryDir = `${platformDir}-${archDir}`;
+
+          // Path to binary in the package
+          const binaryPath = path.join(
+            __dirname, 
+            '..', 
+            'prebuilds', 
+            binaryDir, 
+            platform === 'win32' ? 'termineer.exe' : 'termineer'
+          );
+
+          // Execute the binary with all arguments passed through
+          const binary = new Binary(binaryPath);
+          binary.run();
+          EOF
+      
+      # Create README.md for the NPM package
+      - name: Create README.md
+        run: |
+          cat > npm-package/README.md << 'EOF'
+          # Termineer
+          
+          AI Agent Console Interface
+          
+          ## Installation
+          
+          ```
+          npm install -g termineer
+          ```
+          
+          ## Usage
+          
+          ```
+          termineer
+          ```
+          
+          For more information, run:
+          
+          ```
+          termineer --help
+          ```
+          EOF
+      
+      # Package everything up
+      - name: Create tarball
+        run: |
+          cd npm-package
+          npm pack
+          mv termineer-$VERSION.tgz ../termineer-npm-package.tgz
+      
+      # Upload the complete package as an artifact
+      - name: Upload NPM package artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: npm-package
+          path: |
+            termineer-npm-package.tgz
+            npm-package/

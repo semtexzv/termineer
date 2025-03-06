@@ -34,20 +34,20 @@ RUN apt-get update && \
 RUN useradd -ms /bin/bash appuser
 
 # Copy the binary from the builder stage
-COPY --from=builder /app/target/release/autoswe-server /usr/local/bin/autoswe-server
+COPY --from=builder /app/target/release/termineer-server /usr/local/bin/termineer-server
 
 # Ensure only PostgreSQL migrations are available
-RUN mkdir -p /etc/autoswe/migrations
-COPY --from=builder /app/migrations/*.sql /etc/autoswe/migrations/
+RUN mkdir -p /etc/termineer/migrations
+COPY --from=builder /app/migrations/*.sql /etc/termineer/migrations/
 
 # Copy frontend templates and static files
-RUN mkdir -p /etc/autoswe/templates
-COPY --from=builder /app/templates /etc/autoswe/templates
-RUN mkdir -p /etc/autoswe/static
-COPY --from=builder /app/static /etc/autoswe/static
+RUN mkdir -p /etc/termineer/templates
+COPY --from=builder /app/templates /etc/termineer/templates
+RUN mkdir -p /etc/termineer/static
+COPY --from=builder /app/static /etc/termineer/static
 
 # Set ownership to the non-root user
-RUN chown -R appuser:appuser /usr/local/bin/autoswe-server /etc/autoswe
+RUN chown -R appuser:appuser /usr/local/bin/termineer-server /etc/termineer
 
 # Switch to the non-root user
 USER appuser
@@ -64,8 +64,8 @@ EXPOSE ${PORT:-3000}
 
 # Set environment variables
 ENV RUST_LOG=info
-ENV TEMPLATES_DIR=/etc/autoswe/templates
-ENV STATIC_DIR=/etc/autoswe/static
+ENV TEMPLATES_DIR=/etc/termineer/templates
+ENV STATIC_DIR=/etc/termineer/static
 
 # Run the server
-CMD ["autoswe-server"]
+CMD ["termineer-server"]

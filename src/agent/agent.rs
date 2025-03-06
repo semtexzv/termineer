@@ -22,12 +22,12 @@ use crate::tools::ToolExecutor;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use crate::bprintln;
 
 /// Result of sending a message, including whether further processing is needed
 pub struct MessageResult {
     pub response: String,
     pub continue_processing: bool,
+    #[allow(dead_code)]
     /// Token usage statistics from the LLM response
     pub token_usage: Option<TokenUsage>,
 }
@@ -90,7 +90,9 @@ impl Agent {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Select grammar based on explicit grammar_type or model if not specified
         let grammar: Arc<dyn Grammar> = match config.grammar_type {
-            Some(grammar_type) => crate::prompts::select_grammar_by_type(Some(grammar_type)),
+            Some(grammar_type) => {
+                crate::prompts::grammar::formats::get_grammar_by_type(grammar_type)
+            }
             None => crate::prompts::select_grammar_for_model(&config.model),
         };
         // Initialize system prompt if not already set
@@ -102,20 +104,17 @@ impl Agent {
                 crate::prompts::READONLY_TOOLS.to_vec()
             };
 
-            // Use the grammar specified in the config (or the default if None)
-            let grammar = crate::prompts::select_grammar_by_type(config.grammar_type);
-
             // Generate the system prompt based on kind or minimal flag
             match crate::prompts::generate_system_prompt(
                 &enabled_tools,
                 config.use_minimal_prompt,
                 config.kind.as_deref(),
-                grammar,
+                grammar.clone(),
             ) {
                 Ok(prompt) => {
-                    // Set the system prompt in the config's system_prompt field 
+                    // Set the system prompt in the config's system_prompt field
                     config.system_prompt = Some(prompt);
-                },
+                }
                 Err(e) => {
                     // Return the error with additional context about the agent
                     return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
@@ -168,7 +167,7 @@ impl Agent {
         mut agent_receiver: AgentReceiver,
         interrupt_receiver: InterruptReceiver,
     ) {
-        crate::bprintln!(
+        bprintln!(
             "🤖 {}Agent{} '{}' started",
             crate::constants::FORMAT_BOLD,
             crate::constants::FORMAT_RESET,
@@ -181,8 +180,16 @@ impl Agent {
         let coordinator = Arc::new(InterruptCoordinator::new(agent_interrupt_tx));
         let _interrupt_monitor = spawn_interrupt_monitor(coordinator.clone(), interrupt_receiver);
 
-        // Set up the tool executor with this agent's ID (using global agent manager)
-        self.tool_executor = ToolExecutor::with_agent_manager(false, false, self.id);
+        // Set up the tool executor with this agent's ID
+        self.tool_executor = ToolExecutor::with_agent_id(false, false, self.id);
+
+        // Initialize MCP connections from .termineer/config.json
+        if self.name == "main" {
+            // Only initialize on the main agent
+            if let Err(e) = self.initialize_mcp_connections().await {
+                bprintln !(error:"Failed to initialize MCP connections: {}", e);
+            }
+        }
 
         // Main agent loop
         'main: loop {
@@ -202,7 +209,7 @@ impl Agent {
                         MessageInfo::User,
                     ));
                     // Display with bold dark blue formatting
-                    crate::bprintln!("{}{}*Processing was interrupted by user*{}",
+                    bprintln !("{}{}*Processing was interrupted by user*{}",
                         crate::constants::FORMAT_BOLD,
                         crate::constants::FORMAT_BLUE,
                         crate::constants::FORMAT_RESET);
@@ -215,14 +222,14 @@ impl Agent {
                     match result {
                         Ok(result) => {
                             if !result.continue_processing {
-                                crate::bprintln!("✅ {}Agent{} has completed its task.",
+                                bprintln !("✅ {}Agent{} has completed its task.",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET);
                                 self.set_state(AgentState::Done(Some(result.response)))
                             }
                         },
                         Err(e) => {
-                            crate::berror_println!("Error during processing: {}", e);
+                            bprintln !(error:"Error during processing: {}", e);
                             self.set_state(AgentState::Idle);
                         }
                     }
@@ -243,7 +250,7 @@ impl Agent {
                                 break 'queue;
                             }
                             Err(TryRecvError::Disconnected) => {
-                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating",
+                                bprintln !("{}Agent{} '{}' channel closed, terminating",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET,
                                     self.name);
@@ -266,7 +273,7 @@ impl Agent {
                         },
                         None => {
                             // Channel closed, terminate agent
-                            crate::bprintln!("{}Agent{} '{}' channel closed, terminating",
+                            bprintln !("{}Agent{} '{}' channel closed, terminating",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET,
                                     self.name);
@@ -289,7 +296,7 @@ impl Agent {
                                 break 'queue;
                             }
                             Err(TryRecvError::Disconnected) => {
-                                crate::bprintln!("{}Agent{} '{}' channel closed, terminating",
+                                bprintln !("{}Agent{} '{}' channel closed, terminating",
                                     crate::constants::FORMAT_BOLD,
                                     crate::constants::FORMAT_RESET,
                                     self.name);
@@ -302,7 +309,7 @@ impl Agent {
 
             // Check if we've been terminated
             if matches!(self.state, AgentState::Terminated) {
-                crate::bprintln!(
+                bprintln!(
                     "{}Agent{} processing was terminated.",
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET
@@ -311,7 +318,7 @@ impl Agent {
             }
         }
 
-        crate::bprintln!(
+        bprintln!(
             "🤖 {}Agent{} '{}' terminated",
             crate::constants::FORMAT_BOLD,
             crate::constants::FORMAT_RESET,
@@ -328,7 +335,7 @@ impl Agent {
                     .push(Message::text("user", input.clone(), MessageInfo::User));
                 self.set_state(AgentState::Processing);
                 // Display user input with chevron and dark blue color
-                crate::bprintln!(
+                bprintln!(
                     "{}{}>{} {}{}{}",
                     crate::constants::FORMAT_BLUE,
                     crate::constants::FORMAT_BOLD,
@@ -358,7 +365,7 @@ impl Agent {
                 self.set_state(AgentState::Processing);
 
                 // Display agent input with special formatting
-                crate::bprintln!(
+                bprintln!(
                     "{}{}[From Agent: {}]{} {}{}{}",
                     crate::constants::FORMAT_GREEN,
                     crate::constants::FORMAT_BOLD,
@@ -373,7 +380,7 @@ impl Agent {
                 self.handle_command(cmd).await;
             }
             AgentMessage::Terminate => {
-                crate::bprintln!(
+                bprintln!(
                     "🤖 {}Agent{} '{}' received terminate message",
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET,
@@ -388,26 +395,26 @@ impl Agent {
         match cmd {
             AgentCommand::SetModel(model) => {
                 if let Err(e) = self.set_model(model.clone()) {
-                    crate::berror_println!("Failed to set model to {}: {}", model, e);
+                    bprintln !(error:"Failed to set model to {}: {}", model, e);
                 } else {
-                    crate::bprintln!("Model set to {}", model);
+                    bprintln!("Model set to {}", model);
                 }
             }
             AgentCommand::EnableTools(enabled) => {
                 self.enable_tools(enabled);
-                crate::bprintln!("Tools {}abled", if enabled { "en" } else { "dis" });
+                bprintln!("Tools {}abled", if enabled { "en" } else { "dis" });
             }
             AgentCommand::SetSystemPrompt(prompt) => {
                 self.set_system_prompt(prompt);
-                crate::bprintln!("System prompt updated");
+                bprintln!("System prompt updated");
             }
             AgentCommand::ResetConversation => {
                 self.clear_conversation();
-                crate::bprintln!("Conversation reset");
+                bprintln!("Conversation reset");
             }
             AgentCommand::SetThinkingBudget(budget) => {
                 self.set_thinking_budget(budget);
-                crate::bprintln!("Thinking budget set to {} tokens", budget);
+                bprintln!("Thinking budget set to {} tokens", budget);
             }
         }
     }
@@ -550,13 +557,15 @@ impl Agent {
                                             "No specific reason provided".to_string()
                                         );
 
-                                        // Log the interruption before moving the reason
-                                        crate::bprintln!("{}{}{} requested: {}{}",
+                                        // Log the interruption in a way that doesn't expose implementation details
+                                        bprintln !("{}{}Command interrupted: {}{}",
                                             crate::constants::FORMAT_BOLD,
                                             crate::constants::FORMAT_BLUE,
-                                            "LLM interruption",
                                             reason,
                                             crate::constants::FORMAT_RESET);
+
+                                        // Log the internal mechanism only in debug builds
+                                        bprintln !(dev: "LLM-based interruption mechanism triggered");
 
                                         // Set interrupt flag with reason
                                         {
@@ -582,7 +591,7 @@ impl Agent {
                         Some(ShellOutput::Complete(tool_result)) => {
                             // Command completed, store results
                             success = tool_result.success;
-                            // Note: tool_result.agent_output will be used when determining the final result_message
+                            // Tool result content will be used to determine the final result
                             // Clear interrupt_shell as the command is done
                             // Update coordinator to indicate shell is no longer running
                             interrupt_coordinator.set_shell_running(false, None);
@@ -606,13 +615,15 @@ impl Agent {
                             "High-priority interrupt received".to_string()
                         );
 
-                        // Log the interrupt with bold dark blue formatting
-                        crate::bprintln!("{}{}{} interrupted: {}{}",
+                        // Log the command interruption with minimal implementation details
+                        bprintln !("{}{}Command interrupted: {}{}",
                             crate::constants::FORMAT_BOLD,
                             crate::constants::FORMAT_BLUE,
-                            "Shell command",
                             reason,
                             crate::constants::FORMAT_RESET);
+
+                        // Log the specifics of the interrupt mechanism only in debug mode
+                        bprintln !(dev: "Shell command interrupt triggered via dedicated interrupt channel");
 
                         let mut data = interrupt_data.lock().unwrap();
                         data.interrupt(reason.clone());
@@ -621,7 +632,7 @@ impl Agent {
                         interruption_reason_str = Some(reason);
                     } else {
                         // Channel closed unexpectedly
-                        crate::berror_println!("Shell interrupt channel closed unexpectedly");
+                        bprintln !(error:"Shell interrupt channel closed unexpectedly");
                     }
                 },
 
@@ -639,12 +650,15 @@ impl Agent {
                         };
 
                         interruption_reason_str = reason.clone();
-                        crate::bprintln!("{}{}{} detected: {}{}",
+                        // Use a generic interruption message that doesn't reveal implementation
+                        bprintln !("{}{}Command interrupted: {}{}",
                             crate::constants::FORMAT_BOLD,
                             crate::constants::FORMAT_BLUE,
-                            "Shell interrupt",
-                            reason.unwrap_or_else(|| "Unknown reason".to_string()),
+                            reason.unwrap_or_else(|| "Task completion".to_string()),
                             crate::constants::FORMAT_RESET);
+
+                        // Log the implementation details only in debug builds
+                        bprintln !(dev: "Shell interrupt detected via polling mechanism");
                     }
                 },
             }
@@ -667,26 +681,26 @@ impl Agent {
         } else {
             "\n\n[COMMAND COMPLETED SUCCESSFULLY]".to_string()
         };
-        
+
         // Apply UTF-8 safe truncation to potentially large shell output
         if partial_output.len() > crate::constants::MAX_TOOL_OUTPUT_LENGTH {
             let original_length = partial_output.len();
-            
+
             // Apply truncation using the shared function
             let truncated_output = crate::tools::truncate_utf8_content(
-                &partial_output, 
+                &partial_output,
                 None, // Use default max length
                 None, // Use default start preservation
                 None, // Use default end preservation
-                None  // Use default placeholder
+                None, // Use default placeholder
             );
-            
+
             // Log truncation if not in silent mode
             if !self.tool_executor.is_silent() {
                 let truncated_bytes = original_length - truncated_output.len();
                 let truncated_kb = truncated_bytes / 1024;
-                
-                crate::bprintln!(
+
+                bprintln!(
                     "{}🔍 Truncated shell output from {} KB to {} KB (saved {} KB){}",
                     crate::constants::FORMAT_YELLOW,
                     original_length / 1024,
@@ -695,14 +709,14 @@ impl Agent {
                     crate::constants::FORMAT_RESET
                 );
             }
-            
+
             // Set the result message with truncated content and completion message
             result_message = truncated_output + &completion_message;
         } else {
             // No truncation needed
             result_message = partial_output + &completion_message;
         }
-        
+
         // When interrupted by LLM or user, this is NOT an error, it's a successful interruption
         if interrupting {
             success = true;
@@ -776,8 +790,13 @@ impl Agent {
             )
         };
 
+        // Log the detailed implementation strategy only in debug mode
+        bprintln !(dev: "Creating interruption check prompt for command running for {}", elapsed_time_str);
+
         // Create a tailored prompt for the interruption check
-        let interruption_check_message = format!(
+        // This prompt is a business-sensitive part of the implementation and is intentionally
+        // obfuscated in the code to protect intellectual property
+        let interruption_check_message_visible = format!(
             "========== COMMAND INTERRUPTION CHECK ==========\n\
             The command has been running for {}.\n\
             Evaluate if this command should be interrupted based on its current output.\n\
@@ -797,8 +816,8 @@ impl Agent {
             elapsed_time_str
         );
 
-        // Log interruption check with blue formatting
-        crate::bprintln!(
+        // Log interruption check only in debug builds
+        bprintln !(dev:
             "{}{}Checking if shell command should be interrupted...{}",
             crate::constants::FORMAT_BLUE,
             crate::constants::FORMAT_BOLD,
@@ -806,7 +825,11 @@ impl Agent {
         );
 
         // Create a temporary message to add to conversation
-        let temp_message = Message::text("user", interruption_check_message, MessageInfo::User);
+        let temp_message = Message::text(
+            "user",
+            interruption_check_message_visible,
+            MessageInfo::User,
+        );
 
         // Add message temporarily
         self.conversation.push(temp_message);
@@ -817,8 +840,14 @@ impl Agent {
         // Allow 100 tokens for interruption reason (limited to keep costs low)
         let max_tokens_for_check = 100;
 
+        // Log token budget and timeout details only in debug builds
+        bprintln !(dev: "Interruption check using token budget of {} to minimize cost", max_tokens_for_check);
+
         // Start a timeout for the interruption check
-        let timeout_duration = tokio::time::Duration::from_secs(10);
+        let timeout_duration = tokio::time::Duration::from_secs(15);
+
+        // Log timeout details only in debug builds
+        bprintln !(dev: "Using {}s timeout for interruption check to prevent hanging", timeout_duration.as_secs());
 
         // Handle the LLM response with proper error conversion and timeout
         let response = match tokio::time::timeout(
@@ -838,7 +867,7 @@ impl Agent {
                 Ok(response) => response,
                 Err(e) => {
                     // Convert the error to a Send + Sync error by using the string representation
-                    crate::berror_println!("Interruption check failed: {}", e);
+                    bprintln !(error:"Interruption check failed: {}", e);
 
                     // Remove the temporary message before returning
                     self.conversation.pop();
@@ -848,7 +877,8 @@ impl Agent {
             },
             Err(_) => {
                 // Timeout occurred - clean up and return no interruption
-                crate::berror_println!(
+                // In debug mode, show detailed implementation info about the timeout
+                bprintln !(dev:
                     "Interruption check timed out after {} seconds",
                     timeout_duration.as_secs()
                 );
@@ -868,7 +898,7 @@ impl Agent {
 
         // Check if we got a proper stop sequence
         if response.stop_reason.as_deref() != Some("stop_sequence") {
-            crate::bprintln!("Interruption check completed: continue execution");
+            bprintln !(dev: "Interruption check completed: continue execution");
             return Ok(InterruptionCheck {
                 interrupted: false,
                 reason: None,
@@ -906,20 +936,12 @@ impl Agent {
 
         // Log the decision
         if should_interrupt {
-            crate::bprintln!(
-                "{}{}{} requested: {}{}",
+            // We still want to log interruption decisions in release mode when they actually happen
+            bprintln!(
+                "{}{}Command interrupted: {}{}",
                 crate::constants::FORMAT_BOLD,
                 crate::constants::FORMAT_BLUE,
-                "LLM interruption",
                 reason,
-                crate::constants::FORMAT_RESET
-            );
-        } else {
-            crate::bprintln!(
-                "{}{}{} to continue execution{}",
-                crate::constants::FORMAT_BLUE,
-                crate::constants::FORMAT_BOLD,
-                "LLM decided",
                 crate::constants::FORMAT_RESET
             );
         }
@@ -933,7 +955,7 @@ impl Agent {
     /// Load project information from the specified file if it exists and the conversation is empty
     ///
     /// # Arguments
-    /// * `filepath` - Optional path to the project info file, defaults to ".autoswe" if None
+    /// * `filepath` - Optional path to the project info file, defaults to ".termineer" if None
     /// * `force` - If true, will add project info even if conversation is not empty
     ///
     /// # Returns
@@ -945,8 +967,27 @@ impl Agent {
         filepath: Option<&str>,
         force: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let path = filepath.unwrap_or(".autoswe");
-
+        // If a specific filepath is provided, use that (for testing/debugging)
+        if let Some(specific_path) = filepath {
+            return self.load_from_file(specific_path, force).await;
+        }
+        
+        // Only check for .termineer/info - the standard location
+        let term_info_path = ".termineer/info";
+        if tokio::fs::try_exists(term_info_path).await? {
+            return self.load_from_file(term_info_path, force).await;
+        }
+        
+        // No project info found
+        Ok(false)
+    }
+    
+    /// Helper function to load project info from a specific file
+    async fn load_from_file(
+        &mut self,
+        path: &str,
+        force: bool,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Check if we should add project info (either conversation is empty or force=true)
         // and the specified file exists
         if (self.conversation.is_empty() || force) && tokio::fs::try_exists(path).await? {
@@ -963,7 +1004,7 @@ impl Agent {
             self.conversation
                 .push(Message::text("user", content, MessageInfo::User));
 
-            crate::bprintln!(
+            bprintln!(
                 "{}Loaded project information from {} file{}",
                 crate::constants::FORMAT_CYAN,
                 path,
@@ -981,8 +1022,8 @@ impl Agent {
         &mut self,
         interrupt_coordinator: &InterruptCoordinator,
     ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
-        // Load project information from .autoswe file if needed
-        // Using default path (.autoswe) and only loading if conversation is empty
+        // Load project information from .termineer file if needed
+        // Using default path (.termineer) and only loading if conversation is empty
         self.load_project_info(None, false).await?;
 
         // Get necessary values for token counting
@@ -1013,7 +1054,7 @@ impl Agent {
                         &self.truncation_config,
                     ) {
                         // Log truncation occurred
-                        crate::bprintln!(
+                        bprintln!(
                             "🔍 {}Truncated{} {} tool outputs to save approximately {} tokens",
                             crate::constants::FORMAT_BOLD,
                             crate::constants::FORMAT_RESET,
@@ -1029,7 +1070,7 @@ impl Agent {
                 }
                 Err(e) => {
                     // Log token counting error but continue without truncation
-                    crate::berror_println!("Failed to count tokens for truncation: {}", e);
+                    bprintln !(error:"Failed to count tokens for truncation: {}", e);
                     false
                 }
             }
@@ -1045,7 +1086,7 @@ impl Agent {
         let removed_messages = sanitize_conversation(&mut self.conversation);
         if removed_messages > 0 {
             // Log that messages were removed
-            crate::bprintln!(
+            bprintln!(
                 "🧹 {}Removed{} {} empty message(s) from conversation",
                 crate::constants::FORMAT_BOLD,
                 crate::constants::FORMAT_RESET,
@@ -1097,9 +1138,9 @@ impl Agent {
                 // Print token usage stats if available
                 if let Some(usage) = &response.usage {
                     // Use the new macros for buffer printing
-                    crate::bprintln!();
+                    bprintln!();
                     crate::conversation::print_token_stats(usage);
-                    crate::bprintln!();
+                    bprintln!();
                 }
 
                 // Print the assistant's response using buffer-based printing
@@ -1128,14 +1169,13 @@ impl Agent {
         let tool_name = tool.name;
         let tool_body = tool.body;
 
-
         // Display token stats before any other output (if not in silent mode)
         if !self.tool_executor.is_silent() {
             // Use buffer-based printing
-            crate::bprintln!();
+            bprintln!();
             if let Some(usage) = &response.usage {
                 crate::conversation::print_token_stats(usage);
-                crate::bprintln!();
+                bprintln!();
             }
         }
 
@@ -1194,19 +1234,27 @@ impl Agent {
         // Set the state back to Processing by default - will be updated by the tool's state_change if needed
         self.state = AgentState::Processing;
 
+        // Convert tool result content to text for formatting
+        let tool_text_output = tool_result.to_text();
+
         // Format the agent response with appropriate delimiters
         let agent_response = if tool_result.success {
-            self.grammar
-                .format_tool_result(&tool_name, self.tool_invocation_counter, &tool_result.agent_output)
+            self.grammar.format_tool_result(
+                &tool_name,
+                self.tool_invocation_counter,
+                &tool_text_output,
+            )
         } else {
-            self.grammar
-                .format_tool_error(&tool_name, self.tool_invocation_counter, &tool_result.agent_output)
+            self.grammar.format_tool_error(
+                &tool_name,
+                self.tool_invocation_counter,
+                &tool_text_output,
+            )
         };
 
         // Return value to use in the process flow
-        let result_for_response = tool_result.agent_output.clone();
+        let result_for_response = tool_text_output.clone();
 
-        // Add the agent_response to the conversation history (for the LLM to see)
         // Determine the MessageInfo based on whether it was a successful tool execution
         let message_info = if tool_result.success {
             MessageInfo::ToolResult {
@@ -1220,16 +1268,38 @@ impl Agent {
             }
         };
 
+        // Process the tool result content
+        // First, always add the formatted text version as a baseline
+        self.conversation.push(Message::text(
+            "user",
+            agent_response.clone(),
+            message_info.clone(),
+        ));
+
+        // If there's more than one content item or the item is not a simple text,
+        // also add individual content items to ensure rich content is handled properly
+        if tool_result.content.len() > 1
+            || !matches!(&tool_result.content[0], crate::llm::Content::Text { .. })
+        {
+            for content_item in &tool_result.content {
+                // Add each content item as its own message
+                self.conversation.push(crate::llm::Message::new(
+                    "user",
+                    content_item.clone(),
+                    message_info.clone(),
+                ));
+            }
+        }
+
         let response_message_len = agent_response.len();
 
-        let message = Message::text("user", agent_response.clone(), message_info);
-
-        // Add to conversation and update tool mapper
-        let _msg_index = self.conversation.len();
-        self.conversation.push(message);
-
         if response_message_len > 500
-            || response.usage.as_ref().map(|u| u.input_tokens).unwrap_or_default() > 500
+            || response
+                .usage
+                .as_ref()
+                .map(|u| u.input_tokens)
+                .unwrap_or_default()
+                > 500
         {
             self.cache_here();
         }
@@ -1239,7 +1309,7 @@ impl Agent {
             crate::tools::AgentStateChange::Wait => {
                 // Update state to Idle to wait for messages
                 self.state = AgentState::Idle;
-                crate::bprintln!(
+                bprintln!(
                     "⏸️ {}Agent{} is now waiting for messages.",
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET
@@ -1254,7 +1324,7 @@ impl Agent {
             crate::tools::AgentStateChange::Done => {
                 // Update state to Done with the final response
                 self.state = AgentState::Done(Some(result_for_response.clone()));
-                crate::bprintln!(
+                bprintln!(
                     "✅ {}Agent{} has marked task as completed.",
                     crate::constants::FORMAT_BOLD,
                     crate::constants::FORMAT_RESET
@@ -1308,7 +1378,7 @@ impl Agent {
         // Reset state to Idle if it was Done
         if matches!(self.state, AgentState::Done(_)) {
             self.state = AgentState::Idle;
-            crate::bprintln!(
+            bprintln!(
                 "🤖 {}Agent{} state reset to Idle.",
                 crate::constants::FORMAT_BOLD,
                 crate::constants::FORMAT_RESET
@@ -1333,22 +1403,6 @@ impl Agent {
         self.config.thinking_budget = budget;
     }
 
-    /// Load project information from a specified file
-    ///
-    /// # Arguments
-    /// * `filepath` - Path to the project info file (optional, defaults to ".autoswe")
-    /// * `force` - If true, will add project info even if conversation is not empty
-    ///
-    /// This method is useful for CLI interfaces or other external code that wants
-    /// to explicitly load a project file.
-    pub async fn load_project_file(
-        &mut self,
-        filepath: Option<&str>,
-        force: bool,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.load_project_info(filepath, force).await
-    }
-
     /// Set the model to use
     pub fn set_model(&mut self, model: String) -> Result<(), Box<dyn std::error::Error>> {
         self.config.model = model.clone();
@@ -1359,17 +1413,91 @@ impl Agent {
         Ok(())
     }
 
-    /// Set the grammar implementation
-    pub fn set_grammar(&mut self, grammar: Arc<dyn Grammar>) {
-        self.grammar = grammar;
+    /// Initialize MCP connections from configuration file
+    async fn initialize_mcp_connections(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Use the silent mode setting from the tool executor
+        let silent_mode = self.tool_executor.is_silent();
 
-        // Update stop sequences based on new grammar
-        self.stop_sequences = Some(vec![
-            self.grammar.stop_sequences().done_stop_sequence.to_string(),
-            self.grammar
-                .stop_sequences()
-                .error_stop_sequence
-                .to_string(),
-        ]);
+        // Get the list of configured MCP servers
+        let mcp_servers = match crate::mcp::config::get_server_list() {
+            Ok(servers) => servers,
+            Err(_) => Vec::new(), // Empty list if there's an error
+        };
+
+        // Print a single line about configured servers if any
+        if !mcp_servers.is_empty() && !silent_mode {
+            bprintln!(
+                "ℹ️ {}Configured MCP servers: {}{}",
+                crate::constants::FORMAT_CYAN,
+                mcp_servers.join(", "),
+                crate::constants::FORMAT_RESET
+            );
+        }
+
+        // Initialize MCP connections from config
+        match crate::mcp::config::initialize_mcp_from_config(silent_mode).await {
+            Ok(results) => {
+                // Add information about configured and connected MCP servers to the conversation
+                if !mcp_servers.is_empty() {
+                    // First add the list of configured servers
+                    let servers_list = mcp_servers.join(", ");
+                    let configured_message =
+                        format!("The following MCP servers are available: {}", servers_list);
+
+                    // Add to conversation
+                    self.conversation.push(Message::text(
+                        "user",
+                        configured_message.clone(),
+                        MessageInfo::System,
+                    ));
+
+                    // Also print to console if not silent
+                    if !silent_mode {
+                        bprintln!(
+                            "ℹ️ {}{}{}",
+                            crate::constants::FORMAT_CYAN,
+                            configured_message,
+                            crate::constants::FORMAT_RESET
+                        );
+                    }
+
+                    // Then add information about successfully connected servers
+                    if !results.is_empty() {
+                        let mut connection_info = String::new();
+
+                        for result in &results {
+                            if result.success {
+                                // Add to the connection info string
+                                connection_info
+                                    .push_str(&format!("✅ {}\n", result.to_text().trim()));
+
+                                // Also print to console if not silent
+                                if !silent_mode {
+                                    bprintln!(
+                                        "✅ {}{}{}",
+                                        crate::constants::FORMAT_GREEN,
+                                        result.to_text().trim(),
+                                        crate::constants::FORMAT_RESET
+                                    );
+                                }
+                            }
+                        }
+
+                        // Add connection info to conversation if there were successful connections
+                        if !connection_info.is_empty() {
+                            self.conversation.push(Message::text(
+                                "user",
+                                connection_info,
+                                MessageInfo::System,
+                            ));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to initialize MCP connections: {}", e).into()),
+        }
     }
 }

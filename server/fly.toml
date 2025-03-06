@@ -1,5 +1,10 @@
+# Keep the autoswe- terminology here, do not recreate the resources
+
 app = "autoswe-server"
 primary_region = "sjc"
+
+[build]
+dockerfile = "Dockerfile.prod"
 
 [http_service]
   internal_port = 8080
