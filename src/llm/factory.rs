@@ -3,11 +3,11 @@
 //! This module provides factory functions for creating LLM backends
 //! based on model name inference.
 
-use std::env;
 use crate::config::Config;
-use crate::llm::{Backend, LlmError};
 use crate::llm::anthropic::Anthropic;
-use crate::llm::gemini::Gemini;
+use crate::llm::openrouter::OpenRouter;
+use crate::llm::{Backend, LlmError};
+use std::env;
 
 /// Supported model provider types
 #[derive(Debug, PartialEq, Eq)]
@@ -18,6 +18,8 @@ pub enum Provider {
     OpenAI,
     /// Google's Gemini models
     Google,
+    /// OpenRouter unified API
+    OpenRouter,
     /// Unknown provider
     Unknown(String),
 }
@@ -32,6 +34,8 @@ struct ModelInfo {
 
 /// Create an LLM backend from configuration, inferring the provider from model name
 pub fn create_backend(config: &Config) -> Result<Box<dyn Backend>, LlmError> {
+    // Create the backend directly using the requested model
+    // No model restrictions based on app mode - all users can access all models
     infer_backend_from_model(&config.model)
 }
 
@@ -47,15 +51,16 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
             "anthropic" => Provider::Anthropic,
             "openai" => Provider::OpenAI,
             "google" => Provider::Google,
+            "openrouter" => Provider::OpenRouter,
             other => Provider::Unknown(other.to_string()),
         };
-        
+
         return ModelInfo {
             provider: provider_type,
             model_name: model.trim().to_string(),
         };
     }
-    
+
     // No explicit provider, infer it from the model name
     let provider = if is_anthropic_model(model_str) {
         Provider::Anthropic
@@ -63,10 +68,12 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
         Provider::OpenAI
     } else if is_gemini_model(model_str) {
         Provider::Google
+    } else if is_openrouter_model(model_str) {
+        Provider::OpenRouter
     } else {
         Provider::Unknown(String::new())
     };
-    
+
     ModelInfo {
         provider,
         model_name: model_str.to_string(),
@@ -76,34 +83,50 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
 /// Infer and create the appropriate backend based on model name
 fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmError> {
     let model_info = parse_model_string(model_str);
-    
+
     match model_info.provider {
         Provider::Anthropic => {
             let api_key = resolve_anthropic_api_key()?;
             Ok(Box::new(Anthropic::new(api_key, model_info.model_name)))
-        },
+        }
         Provider::Google => {
-            let api_key = resolve_google_api_key()?;
-            Ok(Box::new(Gemini::new(api_key, model_info.model_name)))
-        },
+            // let api_key = resolve_google_api_key()?;
+            // Ok(Box::new(Gemini::new(api_key, model_info.model_name)))
+            todo!()
+        }
         Provider::OpenAI => {
             // For future implementation
             Err(LlmError::ConfigError(
-                "OpenAI provider is not yet implemented".into()
+                "OpenAI provider is not yet implemented".into(),
             ))
-        },
+        }
+        Provider::OpenRouter => {
+            let api_key = resolve_openrouter_api_key()?;
+
+            // Get optional site information for OpenRouter headers
+            let site_url = env::var("OPENROUTER_SITE_URL").ok();
+            let site_name = env::var("OPENROUTER_SITE_NAME").ok();
+
+            Ok(Box::new(
+                OpenRouter::new(api_key, model_info.model_name).with_site_info(site_url, site_name),
+            ))
+        }
         Provider::Unknown(provider) => {
             let provider_msg = if provider.is_empty() {
                 format!("Unknown model '{}'. Cannot determine provider.", model_str)
             } else {
-                format!("Unknown provider '{}' specified in '{}'", provider, model_str)
+                format!(
+                    "Unknown provider '{}' specified in '{}'",
+                    provider, model_str
+                )
             };
-            
+
             Err(LlmError::ConfigError(format!(
                 "{}. Please use a supported model format:\n\
                  - Anthropic models: 'claude-3-opus', 'claude-3-sonnet', etc.\n\
                  - Google models: 'gemini-1.5-flash', 'gemini-pro', etc.\n\
-                 - Explicit provider: 'anthropic/claude-3-opus', 'google/gemini-1.5-flash', etc.", 
+                 - OpenRouter models: 'openrouter/gpt-4o', 'openrouter/claude-3-opus', etc.\n\
+                 - Explicit provider: 'anthropic/claude-3-opus', 'google/gemini-1.5-flash', etc.",
                 provider_msg
             )))
         }
@@ -118,35 +141,41 @@ fn is_anthropic_model(model: &str) -> bool {
 
 /// Determine if a model name belongs to the OpenAI family
 fn is_openai_model(model: &str) -> bool {
-    model.starts_with("gpt-") || 
-    model.starts_with("text-") || 
-    model.starts_with("davinci") || 
-    model == "o1" || 
-    model.starts_with("o1-")
+    model.starts_with("gpt-")
+        || model.starts_with("text-")
+        || model.starts_with("davinci")
+        || model == "o1"
+        || model.starts_with("o1-")
 }
 
 /// Determine if a model name belongs to the Google Gemini family
 fn is_gemini_model(model: &str) -> bool {
-    model.starts_with("gemini-") || 
-    model.starts_with("models/gemini-")
+    model.starts_with("gemini-") || model.starts_with("models/gemini-")
+}
+
+/// Determine if a model name belongs to the OpenRouter family
+fn is_openrouter_model(_model: &str) -> bool {
+    // OpenRouter doesn't have specific model prefixes, but we can check for common patterns
+    // Users will typically need to use the explicit provider format: openrouter/gpt-4-turbo
+    false
 }
 
 /// Resolve Anthropic API key from environment variables
 fn resolve_anthropic_api_key() -> Result<String, LlmError> {
-    env::var("ANTHROPIC_API_KEY").map_err(|_| 
-        LlmError::ConfigError("ANTHROPIC_API_KEY environment variable not set".into())
-    )
+    env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| LlmError::ConfigError("ANTHROPIC_API_KEY environment variable not set".into()))
 }
 
 /// Resolve Google API key from environment variables
+#[allow(dead_code)]
 fn resolve_google_api_key() -> Result<String, LlmError> {
-    env::var("GOOGLE_API_KEY").map_err(|_| 
-        LlmError::ConfigError("GOOGLE_API_KEY environment variable not set".into())
-    )
+    env::var("GOOGLE_API_KEY")
+        .map_err(|_| LlmError::ConfigError("GOOGLE_API_KEY environment variable not set".into()))
 }
 
-/// Create a backend for a specific task with custom model
-pub fn create_backend_for_task(model: Option<&str>) -> Result<Box<dyn Backend>, LlmError> {
-    let model_name = model.unwrap_or("claude-3-7-sonnet-20250219");
-    infer_backend_from_model(model_name)
+/// Resolve OpenRouter API key from environment variables
+fn resolve_openrouter_api_key() -> Result<String, LlmError> {
+    env::var("OPENROUTER_API_KEY").map_err(|_| {
+        LlmError::ConfigError("OPENROUTER_API_KEY environment variable not set".into())
+    })
 }

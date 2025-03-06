@@ -1,271 +1,374 @@
-use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader, Write};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use crossterm::terminal;
-use crate::tools::ToolResult;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
+use crate::tools::ToolResult;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 
-// No scrolling display - just stream output directly
+/// Data structure for managing interruption with reason
+pub struct InterruptData {
+    /// Flag indicating whether the process should be interrupted
+    pub flag: bool,
+    /// Optional reason for the interruption
+    pub reason: Option<String>,
+}
 
-pub fn execute_shell(args: &str, body: &str, silent_mode: bool) -> ToolResult {
+impl InterruptData {
+    /// Create a new InterruptData instance
+    pub fn new() -> Self {
+        Self {
+            flag: false,
+            reason: None,
+        }
+    }
+
+    /// Set interruption with reason
+    pub fn interrupt(&mut self, reason: String) {
+        self.flag = true;
+        self.reason = Some(reason);
+    }
+
+    /// Check if interruption is requested
+    pub fn is_interrupted(&self) -> bool {
+        self.flag
+    }
+
+    /// Get interruption reason
+    pub fn reason(&self) -> Option<&String> {
+        self.reason.as_ref()
+    }
+}
+
+/// Message type for shell output streaming
+pub enum ShellOutput {
+    /// Line from standard output
+    Stdout(String),
+    /// Line from standard error
+    Stderr(String),
+    /// Completion signal with final result
+    Complete(ToolResult),
+}
+
+/// Execute shell command with streaming output and interruption capability
+/// Returns a receiver to consume streaming output
+///
+/// # Arguments
+/// * `command_to_run` - Command to execute
+/// * `body` - Optional script body (overrides command if not empty)
+/// * `interrupt_data` - Shared data for interruption coordination
+/// * `silent_mode` - Whether to suppress console output
+///
+/// # Returns
+/// A receiver for consuming output events and final result
+pub async fn execute_shell(
+    command_to_run: &str,
+    body: &str,
+    interrupt_data: Arc<Mutex<InterruptData>>,
+    silent_mode: bool,
+) -> Result<mpsc::Receiver<ShellOutput>, Box<dyn std::error::Error>> {
     // If body is provided, use it as a script instead of the args
-    let command_to_run = if !body.is_empty() {
-        body
+    let command_str = if !body.is_empty() {
+        body.to_string()
     } else {
-        args
+        command_to_run.to_string()
     };
+
     let shell = if cfg!(target_os = "windows") {
         "cmd"
     } else {
         "sh"
     };
-
     let shell_arg = if cfg!(target_os = "windows") {
         "/C"
     } else {
         "-c"
     };
 
-    // Use spawn instead of output to get a handle to the running process
-    let command_result = Command::new(shell)
-        .arg(shell_arg)
-        .arg(command_to_run)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+    // Create a channel for output streaming
+    let (sender, receiver) = mpsc::channel(100); // Buffer size of 100 messages
 
-    match command_result {
-        Ok(mut child) => {
-            // Shared buffers for collecting stdout and stderr
-            let stdout_buffer = Arc::new(Mutex::new(String::new()));
-            let stderr_buffer = Arc::new(Mutex::new(String::new()));
-            
-            // Take the stdout and stderr handles from the child process
-            let stdout = child.stdout.take().expect("Failed to capture stdout");
-            let stderr = child.stderr.take().expect("Failed to capture stderr");
-            
-            // Clone arc references for thread use
-            let stdout_buf_clone = Arc::clone(&stdout_buffer);
-            let stderr_buf_clone = Arc::clone(&stderr_buffer);
-            
-            // Status tracking 
-            let command_running = Arc::new(Mutex::new(true));
-            let stdout_running_clone = Arc::clone(&command_running);
-            let stderr_running_clone = Arc::clone(&command_running);
-            
-            // Thread for reading stdout
-            let stdout_thread = thread::spawn(move || {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        // Don't print anything in silent mode
-                        if !silent_mode {
-                            print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
-                            std::io::stdout().flush().unwrap_or(());
-                        }
-                        
-                        // Store in buffer for later processing
-                        let mut buffer = stdout_buf_clone.lock().unwrap();
-                        buffer.push_str(&line);
-                        buffer.push('\n');
-                    }
-                    
-                    // Check if command is still running
-                    if !*stdout_running_clone.lock().unwrap() {
-                        break;
-                    }
-                }
-            });
-            
-            // Thread for reading stderr
-            let stderr_thread = thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        // Print stderr in gray too (merged with stdout), only if not in silent mode
-                        if !silent_mode {
-                            print!("{}{}{}\r\n", FORMAT_GRAY, line, FORMAT_RESET);
-                            std::io::stdout().flush().unwrap_or(());
-                        }
-                        
-                        // Store in buffer for later processing
-                        let mut buffer = stderr_buf_clone.lock().unwrap();
-                        buffer.push_str(&line);
-                        buffer.push('\n');
-                    }
-                    
-                    // Check if command is still running
-                    if !*stderr_running_clone.lock().unwrap() {
-                        break;
-                    }
-                }
-            });
-            
-            // Setup for handling interrupts
-            let mut interrupted = false;
-            
-            // Print status message with consistent formatting only if not in silent mode
-            if !silent_mode {
-                // Print status message with consistent bold formatting
-                println!("{}🐚 Shell:{} {} (Press Ctrl+C to interrupt)", 
-                        FORMAT_BOLD, FORMAT_RESET, args);
-            }
-
-            // We want to enable raw mode to capture Ctrl+C, but we need to ensure
-            // we restore terminal state properly regardless of how we exit
-            let raw_mode_result = terminal::enable_raw_mode();
-            let raw_mode_enabled = raw_mode_result.is_ok();
-            
-            // Poll for keyboard events while checking process status
-            loop {
-                // Check if process has completed on its own
-                match child.try_wait() {
-                    Ok(Some(_status)) => {
-                        // Process has exited
-                        *command_running.lock().unwrap() = false;
-                        break;
-                    }
-                    Ok(None) => {
-                        // Process still running, continue polling
-                    }
-                    Err(e) => {
-                        // Error checking process status
-                        eprintln!("Error checking process status: {}", e);
-                        *command_running.lock().unwrap() = false;
-                        break;
-                    }
-                }
-                
-                // Check for keyboard input (with short timeout to not block)
-                if raw_mode_enabled && crossterm::event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                    if let Ok(Event::Key(key)) = event::read() {
-                        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                            interrupted = true;
-                            // Mark as not running and kill the process
-                            *command_running.lock().unwrap() = false;
-                            let _ = child.kill();
-                            break;
-                        }
-                    }
-                }
-                
-                // No progress indicator for cleaner output
-            }
-            
-            // Restore terminal state if we modified it
-            if raw_mode_enabled {
-                let _ = terminal::disable_raw_mode();
-                // Raw mode is now disabled
-            }
-            
-            // Wait for stdout/stderr threads to finish processing
-            let _ = stdout_thread.join();
-            let _ = stderr_thread.join();
-            
-            // Get final outputs from shared buffers
-            let stdout = stdout_buffer.lock().unwrap().clone();
-            let stderr = stderr_buffer.lock().unwrap().clone(); 
-            
-            // Get exit status if process wasn't interrupted
-            let success = if interrupted {
-                false
-            } else {
-                match child.try_wait() {
-                    Ok(Some(status)) => status.success(),
-                    _ => false
-                }
-            };
-            
-            // Format the output in a consistent style with other tools
-            if success {
-                // Count lines for output
-                let stdout_line_count = stdout.lines().count();
-                let stderr_line_count = stderr.lines().count();
-                let _total_lines = stdout_line_count + stderr_line_count;
-                
-                // Combined output for agent with clear separation
-                let agent_output = format!(
-                    "STDOUT (lines: {})\n{}\nSTDERR (lines: {})\n{}\n",
-                    stdout_line_count, stdout, 
-                    stderr_line_count, stderr
-                );
-                
-                // Print output directly if not in silent mode
-                if !silent_mode {
-                    println!("{}🐚 Shell:{} {} (success)", 
-                        FORMAT_BOLD, FORMAT_RESET, args);
-                    // Note: Not printing output summary here as it was already streamed in real-time
-                }
-                
-                ToolResult {
-                    success: true,
-                    agent_output,
-                }
-            } else if interrupted {
-                // Command was interrupted by user
-                let stdout_line_count = stdout.lines().count();
-                let stderr_line_count = stderr.lines().count();
-                
-                // Combined output for agent with clear labels
-                let agent_output = format!(
-                    "Command '{}' was interrupted by user.\nPartial output:\nSTDOUT (lines: {})\n{}\nSTDERR (lines: {})\n{}\n",
-                    args, stdout_line_count, stdout, stderr_line_count, stderr
-                );
-                
-                // Print output directly if not in silent mode
-                if !silent_mode {
-                    println!("{}🐚 Shell:{} {} (interrupted by user)",
-                        FORMAT_BOLD, FORMAT_RESET, args);
-                }
-                
-                ToolResult {
-                    success: false,
-                    agent_output,
-                }
-            } else {
-                // Command failed with error
-                let stdout_line_count = stdout.lines().count();
-                let stderr_line_count = stderr.lines().count();
-                
-                // Combined full output for agent
-                let agent_output = format!(
-                    "Error executing command '{}':\nSTDOUT (lines: {})\n{}\nSTDERR (lines: {})\n{}\n", 
-                    args, stdout_line_count, stdout, stderr_line_count, stderr
-                );
-                
-                // Print output directly if not in silent mode
-                if !silent_mode {
-                    println!("{}🐚 Shell:{} {} (failed with error)",
-                        FORMAT_BOLD, FORMAT_RESET, args);
-                    // Note: Not printing error details here as they were already streamed in real-time
-                }
-                
-                ToolResult {
-                    success: false,
-                    agent_output,
-                }
-            }
-        },
-        Err(e) => {
-            // Failed to start the command
-            let agent_output = format!("Failed to execute command '{}': {}", args, e);
-            
-            // Print output directly if not in silent mode
-            if !silent_mode {
-                println!("{}🐚 Shell:{} {} (failed to start: {})",
-                    FORMAT_BOLD, FORMAT_RESET,
-                    args,
-                    e
-                );
-            }
-            
-            ToolResult {
-                success: false,
-                agent_output,
-            }
-        },
+    // Print initial status message
+    if !silent_mode {
+        // Use output buffer for shell status message
+        bprintln !(tool: "shell",
+            "{}🐚 Shell:{} {} (streaming - can be interrupted)",
+            FORMAT_BOLD,
+            FORMAT_RESET,
+            command_str
+        );
     }
+
+    // Clone the interrupt data for thread use
+    let thread_interrupt_data = Arc::clone(&interrupt_data);
+
+    // Start the actual command
+    let mut child = Command::new(shell)
+        .arg(shell_arg)
+        .arg(&command_str)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    // Take the stdout and stderr handles
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    // Command status (using tokio::sync::Mutex now)
+    let command_running = Arc::new(tokio::sync::Mutex::new(true));
+
+    // Interrupt data clone for checking
+    let interrupt_data_clone = Arc::clone(&thread_interrupt_data);
+
+    // Stdout reader task
+    let stdout_sender = sender.clone();
+    let stdout_running_clone = Arc::clone(&command_running);
+    let stdout_silent = silent_mode;
+
+    crate::output::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        let mut _line_count = 0;
+
+        while let Ok(Some(line)) = reader.next_line().await {
+            // Display line if not in silent mode
+            if !stdout_silent {
+                // Use output buffer for shell output
+                bprintln !(tool: "shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
+                _line_count += 1;
+            }
+
+            // Send the line through the channel
+            if stdout_sender
+                .send(ShellOutput::Stdout(line.clone()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+
+            // Check if we should exit
+            if !*stdout_running_clone.lock().await {
+                break;
+            }
+        }
+
+        // No need to manually flush output when using buffer system
+    });
+
+    // Stderr reader task
+    let stderr_sender = sender.clone();
+    let stderr_running_clone = Arc::clone(&command_running);
+    let stderr_silent = silent_mode;
+
+    crate::output::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        let mut _line_count = 0;
+
+        while let Ok(Some(line)) = reader.next_line().await {
+            // Display line if not in silent mode
+            if !stderr_silent {
+                // Use output buffer for shell stderr output
+                bprintln !(tool: "shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
+                _line_count += 1;
+            }
+
+            // Send the line through the channel
+            if stderr_sender
+                .send(ShellOutput::Stderr(line.clone()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+
+            // Check if we should exit
+            if !*stderr_running_clone.lock().await {
+                break;
+            }
+        }
+
+        // No need to manually flush output when using buffer system
+    });
+
+    // No longer handling keyboard interruptions directly in the shell tool
+    // Interrupts now come from the UI layer through the InterruptData
+
+    // Spawn the main monitoring task
+    let main_command_str = command_str.clone();
+    let main_sender = sender.clone();
+    let main_silent_mode = silent_mode;
+
+    crate::output::spawn(async move {
+        // Main process monitoring variables
+        let mut was_interrupted = false;
+        let mut interrupt_reason = String::new();
+        let mut exit_status = None;
+
+        // Add a timestamp for tracking performance
+        let start_time = std::time::Instant::now();
+
+        // Main process monitoring loop
+        loop {
+            // Check if process has completed on its own
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // Store the exit status for later use
+                    exit_status = Some(status);
+                    *command_running.lock().await = false;
+                    break;
+                }
+                Ok(None) => {
+                    // Check if interruption requested
+                    let is_interrupted;
+                    {
+                        // Use a scoped block to limit the lock duration
+                        let interrupt_data = interrupt_data_clone.lock().unwrap();
+                        is_interrupted = interrupt_data.is_interrupted();
+                        if is_interrupted {
+                            // Get the reason if available
+                            if let Some(reason) = interrupt_data.reason() {
+                                interrupt_reason = reason.clone();
+                            } else {
+                                interrupt_reason = "No reason provided".to_string();
+                            }
+                        }
+                    }
+
+                    if is_interrupted {
+                        // Log the interrupt
+                        if !main_silent_mode {
+                            bprintln !(tool: "shell",
+                                "{}🔴 Interrupt:{} Stopping command execution: {}",
+                                FORMAT_BOLD,
+                                FORMAT_RESET,
+                                interrupt_reason
+                            );
+                        }
+
+                        // Kill the process and wait for it to terminate
+                        was_interrupted = true;
+
+                        // First try a graceful termination
+                        match child.kill().await {
+                            Ok(_) => {
+                                if !main_silent_mode {
+                                    bprintln !(tool: "shell",
+                                        "Command process terminated successfully"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                // Process might have already exited
+                                if !main_silent_mode {
+                                    bprintln !(tool: "shell",
+                                        "Note: Could not kill process (it may have already exited): {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+
+                        // Mark as no longer running
+                        *command_running.lock().await = false;
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // Error checking process
+                    *command_running.lock().await = false;
+
+                    // Log error
+                    if !main_silent_mode {
+                        // Use output buffer for error message
+                        bprintln !(tool: "shell",
+                            "{}🐚 Shell:{} Error monitoring process: {}",
+                            FORMAT_BOLD,
+                            FORMAT_RESET,
+                            e
+                        );
+                    }
+
+                    // Send error completion
+                    let _ = main_sender
+                        .send(ShellOutput::Complete(ToolResult::default(
+                            false,
+                            format!("Error monitoring process status: {}", e),
+                        )))
+                        .await;
+                    return;
+                }
+            }
+
+            // Brief delay to avoid CPU spinning
+            sleep(Duration::from_millis(10)).await;
+        }
+
+        // Wait a moment for stdout/stderr to finish processing
+        sleep(Duration::from_millis(50)).await;
+
+        // Determine success based on exit status or interruption
+        let success = if was_interrupted {
+            true // Interruption is successful
+        } else {
+            // Use the stored exit status
+            exit_status.map_or(false, |status| status.success())
+        };
+
+        // Combined output
+        let agent_output = if was_interrupted {
+            format!(
+                "Command '{}' was interrupted: {}.",
+                main_command_str, interrupt_reason,
+            )
+        } else {
+            if success {
+                format!("Command '{}' finished with success", main_command_str)
+            } else {
+                format!("Command '{}' finished with error", main_command_str)
+            }
+        };
+
+        // Log execution time
+        let execution_time = start_time.elapsed();
+        // bprintln !("Shell command execution completed in {:.2}s", execution_time.as_secs_f64());
+
+        // Print status message
+        if !main_silent_mode {
+            // Use output buffer for completion status
+            if was_interrupted {
+                bprintln !(tool: "shell",
+                    "{}🐚 Shell {}interrupted in {:.2}s: {}",
+                    FORMAT_BOLD,
+                    FORMAT_RESET,
+                    execution_time.as_secs_f64(),
+                    interrupt_reason
+                );
+            } else if success {
+                bprintln !(tool: "shell",
+                    "{}🐚 Shell {}completed successfully in {:.2}s",
+                    FORMAT_BOLD,
+                    FORMAT_RESET,
+                    execution_time.as_secs_f64()
+                );
+            } else {
+                bprintln !(tool: "shell",
+                    "{}🐚 Shell {}completed with error in {:.2}s",
+                    FORMAT_BOLD,
+                    FORMAT_RESET,
+                    execution_time.as_secs_f64()
+                );
+            }
+        }
+
+        // Send final completion message with result
+        let _ = main_sender
+            .send(ShellOutput::Complete(ToolResult::default(
+                success,
+                agent_output,
+            )))
+            .await;
+    });
+
+    // Return the receiver for streaming output
+    Ok(receiver)
 }

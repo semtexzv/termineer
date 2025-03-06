@@ -1,0 +1,72 @@
+# Termineer - AI Agent Console Interface
+
+## Project Overview
+This is a Rust application that provides a command-line interface for interacting with AI models through various APIs. It features a comprehensive agent system with tools, authentication modes, and conversation management.
+
+## Core Components
+- **main.rs**: Application entry point, command-line handling, and authentication flow
+- **agent/**: Directory containing agent implementation
+  - **agent.rs**: Core agent implementation with tool execution and conversation handling
+  - **manager.rs**: Manages multiple agent instances
+  - **types.rs**: Type definitions for agent communication
+  - **interrupt.rs**: Handles user and LLM-based interruption of long-running operations
+- **config.rs**: Configuration management including app modes (Free/Plus/Pro)
+- **constants.rs**: Project-wide constants and formatting settings
+- **conversation.rs**: Manages conversation history and message formatting
+- **llm/**: LLM client implementations
+  - **mod.rs**: Common interface for LLM backends
+  - **anthropic.rs**: Anthropic Claude API integration
+  - **openrouter.rs**: OpenRouter API for accessing multiple models
+  - **factory.rs**: Factory for creating appropriate LLM clients
+  - **types.rs**: Type definitions for LLM interactions
+- **macros.rs**: Unified buffer printing macros (bprintln)
+- **mcp/**: Model Context Protocol server implementation
+- **prompts/**: System prompt templates with grammar support
+- **tools/**: Tool implementations
+  - **shell.rs**: Execute shell commands with streaming output
+  - **read.rs**: Read file contents (single and multiple files)
+  - **write.rs**: Write content to files
+  - **patch.rs**: Make targeted changes to files
+  - **fetch.rs**: Retrieve content from URLs
+  - **search.rs**: Perform web searches
+  - **mcp.rs**: Interact with MCP servers
+  - **task.rs**: Execute subtasks
+  - **agent.rs**: Create and communicate with other agents
+  - **wait.rs**: Pause execution until resumed
+  - **done.rs**: Signal task completion
+
+## Authentication System
+- **Free Mode**: Available without authentication, limited to basic agent kinds
+- **Plus Mode**: Authenticated users with Plus subscription
+- **Pro Mode**: Authenticated users with Pro subscription, full feature access
+- OAuth-based authentication flow via server_auth.rs
+- Persistent authentication with token caching
+
+## Features
+- Interactive TUI with conversation history and tool output
+- Single query mode for scripting and command-line use
+- Support for multiple agent kinds (templates) with tiered access
+- Unified buffer printing system with various message types
+- Tool integrations allowing agents to:
+  - Execute shell commands with real-time streaming
+  - Read/write/modify files
+  - Fetch remote content and perform web searches
+  - Create sub-agents and subtasks
+  - Wait for events and signal completion
+- MCP (Model Context Protocol) integration for advanced capabilities
+- Intelligent LLM-based interruption of long-running processes
+- Project info loading with directory-specific context
+
+## Configuration
+- API keys for Anthropic, Google, and OpenRouter
+- Model selection with automatic tier-appropriate suggestions
+- Custom system prompts and agent kinds
+- Environment variable configuration via .env files
+
+## Project Dependencies
+- tokio: Asynchronous runtime
+- serde: For serialization/deserialization
+- reqwest: For HTTP requests
+- crossterm & ratatui: For terminal UI
+- lazy_static: For global state management (app mode)
+- dirs: For managing config directories

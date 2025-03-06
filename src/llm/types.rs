@@ -3,17 +3,23 @@
 //! These types are used across different LLM providers to
 //! represent messages, content, and responses.
 
+use crate::serde_utils::element_array;
 use serde::{Deserialize, Serialize};
-use crate::serde_element_array;
 
 /// Response from an LLM provider
 #[derive(Debug)]
 pub struct LlmResponse {
     /// The content of the response
     pub content: Vec<Content>,
-    
+
     /// Usage statistics, if available
     pub usage: Option<TokenUsage>,
+
+    /// The stop sequence that terminated the response, if any
+    pub stop_sequence: Option<String>,
+
+    /// The reason the response was stopped (e.g., "max_tokens", "stop_sequence")
+    pub stop_reason: Option<String>,
 }
 
 /// Token usage statistics
@@ -21,12 +27,12 @@ pub struct LlmResponse {
 pub struct TokenUsage {
     /// Input tokens for the current request
     pub input_tokens: usize,
-    
+
     /// Output tokens for the current request
     pub output_tokens: usize,
 
     pub cache_creation_input_tokens: usize,
-    
+
     pub cache_read_input_tokens: usize,
 }
 
@@ -36,21 +42,30 @@ pub struct TokenUsage {
 pub enum MessageInfo {
     /// User message
     User,
-    
+
     /// Assistant message
     Assistant,
-    
+
     /// System message
     System,
-    
+
     /// Tool call
-    ToolCall { tool_name: String },
-    
+    ToolCall {
+        tool_name: String,
+        tool_index: Option<usize>,
+    },
+
     /// Tool result
-    ToolResult { tool_name: String },
-    
+    ToolResult {
+        tool_name: String,
+        tool_index: Option<usize>,
+    },
+
     /// Tool error
-    ToolError { tool_name: String },
+    ToolError {
+        tool_name: String,
+        tool_index: Option<usize>,
+    },
 }
 
 /// Cache control information
@@ -58,7 +73,7 @@ pub enum MessageInfo {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CacheControl {
     /// Message can be cached
-    Ephemeral
+    Ephemeral,
 }
 
 /// A message in a conversation
@@ -66,11 +81,11 @@ pub enum CacheControl {
 pub struct Message {
     /// The sender role (user, assistant, system)
     pub role: String,
-    
+
     /// The content of the message
-    #[serde(with = "serde_element_array")]
+    #[serde(with = "element_array")]
     pub content: Content,
-    
+
     /// Additional information about the message
     pub info: MessageInfo,
 }
@@ -84,7 +99,8 @@ impl Message {
             info,
         }
     }
-    
+
+    #[allow(dead_code)]
     /// Create a new message with arbitrary content
     pub fn new(role: &str, content: Content, info: MessageInfo) -> Self {
         Self {
@@ -106,25 +122,19 @@ pub enum Content {
         #[serde(skip_serializing_if = "Option::is_none")]
         thinking: Option<String>,
     },
-    
+
     /// Redacted thinking
     RedactedThinking {
         #[serde(skip_serializing_if = "Option::is_none")]
         data: Option<String>,
     },
-    
+
     /// Text content
-    Text {
-        text: String,
-    },
-    
+    Text { text: String },
+
     /// Image content
-    Image {
-        source: String,
-    },
-    
+    Image { source: String },
+
     /// Document content
-    Document {
-        source: String,
-    },
+    Document { source: String },
 }

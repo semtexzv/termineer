@@ -1,0 +1,26 @@
+# Keep the autoswe- terminology here, do not recreate the resources
+
+app = "autoswe-server"
+primary_region = "sjc"
+
+[build]
+dockerfile = "Dockerfile.prod"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[env]
+  PORT = "8080"
+  ENVIRONMENT = "production"
+  FRONTEND_URL = "https://autoswe-server.fly.dev"
+  SUCCESS_REDIRECT_URL = "https://autoswe-server.fly.dev/payment/success"
+  CANCEL_REDIRECT_URL = "https://autoswe-server.fly.dev/payment/cancel"
+
+[[mounts]]
+  source = "autoswe_data"
+  destination = "/data"

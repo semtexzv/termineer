@@ -1,0 +1,118 @@
+//! Tool provider implementation for MCP servers
+
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use crate::mcp::client::McpClient;
+use crate::mcp::error::{McpError, McpResult};
+use crate::mcp::protocol::Tool;
+
+/// Tool provider for interacting with MCP servers
+///
+/// This manages a connection to an MCP server and provides
+/// methods for listing and executing tools.
+pub struct McpToolProvider {
+    /// MCP client for communicating with the server
+    client: McpClient,
+    /// URL of the server
+    #[allow(dead_code)]
+    server_url: String,
+    /// Available tools, cached for efficiency
+    tools: Mutex<HashMap<String, Tool>>,
+}
+
+impl McpToolProvider {
+    /* WebSocket-based connection removed in favor of file-based MCP configuration */
+
+    /// Create a new tool provider for an MCP process
+    pub async fn new_process(name: &str, executable: &str, args: &[&str]) -> McpResult<Self> {
+        // Create client
+        let client = McpClient::new();
+
+        // Connect to process
+        client.connect_process(name, executable, args).await?;
+
+        // Initialize client
+        client
+            .initialize(crate::mcp::protocol::ClientInfo {
+                name: "Termineer".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            })
+            .await?;
+
+        // Create provider
+        let provider = Self {
+            client,
+            server_url: format!("process://{}", executable),
+            tools: Mutex::new(HashMap::new()),
+        };
+
+        // Refresh tools
+        provider.refresh_tools().await?;
+
+        Ok(provider)
+    }
+
+    /// Refresh the list of available tools
+    pub async fn refresh_tools(&self) -> McpResult<()> {
+        // List tools
+        let tools = self.client.list_tools().await?;
+
+        // Store tools by ID - now using a Mutex
+        let mut tools_map = self.tools.lock().unwrap();
+        tools_map.clear();
+        for tool in tools {
+            tools_map.insert(tool.name.clone(), tool);
+        }
+
+        Ok(())
+    }
+
+    /// List available tools
+    pub async fn list_tools(&self) -> Vec<Tool> {
+        let tools_map = self.tools.lock().unwrap();
+        tools_map.values().cloned().collect()
+    }
+
+    /// Get a tool by ID
+    pub async fn get_tool(&self, id: &str) -> Option<Tool> {
+        let tools_map = self.tools.lock().unwrap();
+        tools_map.get(id).cloned()
+    }
+
+    /// Execute a tool with the given arguments
+    pub async fn execute_tool(
+        &self,
+        id: &str,
+        arguments: Value,
+    ) -> McpResult<crate::mcp::protocol::CallToolResult> {
+        // Check if tool exists
+        let tool_exists = {
+            let tools_map = self.tools.lock().unwrap();
+            tools_map.contains_key(id)
+        };
+
+        if !tool_exists {
+            return Err(McpError::ToolNotFound(id.to_string()));
+        }
+
+        // Call tool and return the full result
+        self.client.call_tool(id, arguments).await
+    }
+
+    /// Get content objects from a tool result
+    pub async fn get_tool_content(
+        &self,
+        id: &str,
+        arguments: Value,
+    ) -> McpResult<Vec<crate::mcp::protocol::content::Content>> {
+        // Execute the tool
+        let result = self.execute_tool(id, arguments).await?;
+
+        // Convert to content objects
+        result.to_content_objects().map_err(|e| {
+            McpError::ProtocolError(format!("Failed to parse tool result as content: {}", e))
+        })
+    }
+}

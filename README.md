@@ -1,31 +1,34 @@
-# AutoSWE - Multi-LLM Console Interface
+# Termineer: Advanced AI Terminal Assistant
 
-A powerful command-line interface for interacting with various AI models including Claude and Google Gemini.
+Termineer is a powerful command-line interface that brings conversational AI capabilities to your terminal, enhancing productivity for developers, data analysts, and power users.
 
-## Features
+![Termineer Screenshot](./docs/screenshots/terminal-demo.png)
 
-- Interactive console-based conversation with multiple AI models
-- Support for both Anthropic Claude and Google Gemini models
-- Single query mode for scripting and command-line use
-- Maintains conversation history during interactive sessions
-- Support for system prompts
-- Ability to switch between different models
-- Advanced tool capabilities including web content summarization
-- Simple command system for interactive control
-- .env file support for API keys and configuration
+## Overview
+
+Termineer creates a seamless bridge between the terminal environment and state-of-the-art AI models, allowing power users to leverage natural language for a variety of tasks while remaining in their preferred workflow environment.
+
+### Key Capabilities
+
+- **Interactive AI in Your Terminal**: Have multi-turn conversations with AI assistants directly in your command line
+- **Multi-Model Support**: Connect to Anthropic Claude, Google Gemini, and OpenRouter models
+- **Powerful Tooling**: Execute commands, manipulate files, fetch web content, and more through natural language
+- **Terminal Efficiency**: Maintain your productivity environment without switching contexts
+- **Conversational Approach**: Inspired by the emerging practice of expressing intent through conversation rather than explicit coding (sometimes called "vibe coding")
 
 ## Requirements
 
 - Rust (latest stable version recommended)
 - Anthropic API key (for Claude models)
 - Google API key (for Gemini models)
+- OpenRouter API key (optional, for access to various models through OpenRouter)
 
 ## Installation
 
 1. Clone this repository:
    ```
    git clone <repository-url>
-   cd autoswe
+   cd termineer
    ```
 
 2. Build the project:
@@ -42,6 +45,13 @@ A powerful command-line interface for interacting with various AI models includi
      
      # For Google Gemini models
      GOOGLE_API_KEY=your_google_api_key
+     
+     # For OpenRouter models (optional)
+     OPENROUTER_API_KEY=your_openrouter_api_key
+     
+     # Optional OpenRouter site information
+     OPENROUTER_SITE_URL=https://your-site-url.com
+     OPENROUTER_SITE_NAME=Your Site Name
      ```
    
    - Or set as environment variables:
@@ -51,6 +61,11 @@ A powerful command-line interface for interacting with various AI models includi
      
      # For Google Gemini models
      export GOOGLE_API_KEY=your_google_api_key
+     
+     # For OpenRouter models
+     export OPENROUTER_API_KEY=your_openrouter_api_key
+     export OPENROUTER_SITE_URL=https://your-site-url.com
+     export OPENROUTER_SITE_NAME="Your Site Name"
      ```
 
 ## Usage
@@ -62,22 +77,22 @@ Run the program without arguments to start an interactive session:
 cargo run --release
 ```
 
-### Non-Interactive Mode
+### Single Query Mode
 
 Provide a query as a command-line argument to get a single response:
 ```
-cargo run --release -- "What is the capital of France?"
+cargo run --release -- "Analyze the memory usage patterns in this log file"
 ```
 
 You can also specify a model and system prompt:
 ```
-cargo run --release -- --model claude-3-haiku-20240307 --system "You are a helpful assistant." "What is the capital of France?"
+cargo run --release -- --model claude-3-haiku-20240307 --system "You are a helpful assistant." "What is the most efficient algorithm for this problem?"
 ```
 
 ### Command-Line Options
 
 ```
-Usage: AutoSWE [OPTIONS] [QUERY]
+Usage: Termineer [OPTIONS] [QUERY]
 
 If QUERY is provided, runs in non-interactive mode and outputs only the response.
 If QUERY is not provided, starts an interactive console session.
@@ -93,8 +108,8 @@ Environment Variables:
   GOOGLE_API_KEY         Your Google API key (required for Gemini models)
 
 Example:
-  AutoSWE --model claude-3-haiku-20240307 "What is the capital of France?"
-  AutoSWE --model google/gemini-1.5-flash "Explain quantum computing."
+  Termineer --model claude-3-haiku-20240307 "What is the capital of France?"
+  Termineer --model google/gemini-1.5-flash "Explain quantum computing."
 ```
 
 ### Interactive Commands
@@ -107,28 +122,56 @@ In interactive mode, the following commands are available:
 - `/model NAME` - Changes the model (e.g., claude-3-opus-20240229 or gemini-1.5-flash)
 - `/exit` - Exits the program
 
-### Example Models
+## Available AI Models
 
-#### Anthropic Claude Models
+### Anthropic Claude Models
 - `claude-3-opus-20240229` - Most capable Claude model (default)
 - `claude-3-sonnet-20240229` - Balanced Claude model
 - `claude-3-haiku-20240307` - Fastest Claude model
 - `claude-3-7-sonnet-20250219` - Latest Claude 3.7 model
 
-#### Google Gemini Models
+### Google Gemini Models
 - `gemini-1.5-flash` - Fast Gemini model
 - `gemini-1.5-pro` - Capable Gemini model
 - `gemini-pro` - Previous generation Gemini model
 
-You can also use explicit provider prefixes:
-- `anthropic/claude-3-opus-20240229`
-- `google/gemini-1.5-flash`
+### OpenRouter Models
+- `openrouter/gpt-4o` - OpenAI's GPT-4o model via OpenRouter
+- `openrouter/anthropic/claude-3-opus` - Claude Opus via OpenRouter (note the provider prefix)
+- `openrouter/anthropic/claude-3-haiku` - Claude Haiku via OpenRouter
+- `openrouter/anthropic/claude-3-sonnet` - Claude Sonnet via OpenRouter
 
 ## Advanced Features
 
+### MCP (Model Context Protocol) Integration
+
+Termineer supports the Model Context Protocol for enhanced tool capabilities. MCP servers are configured using a `.term/config.json` file in your project directory:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/Desktop",
+        "/Users/username/Downloads"
+      ]
+    }
+  }
+}
+```
+
+This configuration is loaded automatically on startup, and the configured MCP servers are made available to the AI by including them in the system prompt.
+
+For detailed instructions, see:
+- [MCP Configuration Guide](./docs/mcp-configuration.md)
+- [MCP Template Integration](./docs/mcp-template-integration.md)
+
 ### Enhanced Web Content Fetching
 
-The fetch tool now includes content summarization capabilities, reducing token usage and focusing on essential information:
+The fetch tool includes content summarization capabilities, reducing token usage and focusing on essential information:
 
 ```
 fetch [--summarize] [--length short|medium|long|<word_count>] https://example.com
@@ -150,18 +193,34 @@ fetch --summarize --length long https://example.com
 fetch --summarize --length 300 https://example.com
 ```
 
-Summarization uses the Google Gemini Flash model to efficiently process content, saving tokens in your main conversation.
+## Use Cases
 
-### Context Caching for Gemini Models
+Termineer excels in a variety of scenarios:
 
-This application supports Gemini's context caching, which can improve performance and reduce token usage for similar requests:
+### For Developers
+- Generate boilerplate code with a single prompt
+- Debug complex issues by describing the problem
+- Create prototypes rapidly
+- Automate repetitive development tasks
+- Research APIs and integration patterns
 
-- Automatically caches conversation contexts in memory
-- Reduces token usage by reusing previous context
-- Applies intelligent cache key generation based on conversation content
-- Cache entries automatically expire after a configurable TTL (default: 1 hour)
+### For Data Analysts
+- Generate analysis scripts
+- Find patterns in complex datasets
+- Create and optimize queries
+- Extract insights from raw data
 
-Cache is transparently managed in the background without requiring any user action.
+### For System Administrators
+- Generate complex shell commands
+- Create scripts for system maintenance
+- Debug configuration issues
+- Document system setups
+
+### For Content Creators
+- Research topics efficiently
+- Generate outlines and drafts
+- Summarize complex content
+- Edit and refine writing
 
 ## Environment File Support
 
@@ -172,20 +231,19 @@ The application supports loading configuration from `.env` files using the doten
 3. `../.env`
 4. `~/.env`
 
-Example `.env` file content:
-```
-# For Claude models
-ANTHROPIC_API_KEY=your_anthropic_api_key
-
-# For Google Gemini models
-GOOGLE_API_KEY=your_google_api_key
-```
-
 ## How It Works
 
-This application connects to multiple AI providers including Anthropic and Google. In interactive mode, it maintains a conversation history in memory, allowing for multi-turn conversations. The system prompt provides high-level instructions that persist across the conversation.
+Termineer connects to multiple AI providers including Anthropic and Google. In interactive mode, it maintains a conversation history in memory, allowing for multi-turn conversations. The system prompt provides high-level instructions that persist across the conversation.
 
 In non-interactive mode, it sends a single message and returns the response without any formatting, making it suitable for use in scripts and command-line pipes.
+
+## About the Name
+
+"Termineer" combines "terminal" and "engineer" - representing an AI-powered engineering assistant that lives in your terminal, ready to help with your tasks.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 

@@ -2,15 +2,77 @@
 //!
 //! Implementation of the LLM provider for Anthropic's Claude models.
 
-use std::collections::BTreeSet;
+use crate::jsonpath;
+use crate::llm::{Backend, Content, LlmError, LlmResponse, Message, TokenUsage};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::jsonpath;
-use crate::llm::{Backend, LlmResponse, LlmError, Message, Content, TokenUsage};
+use std::collections::BTreeSet;
+use std::time::Duration;
+use tokio::time::sleep;
 
-// Constants for the Anthropic API
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
+/// Get the token limit for an Anthropic model
+///
+/// Uses a pattern-matching approach to determine the appropriate token limit
+/// for a given model name, based on the model family and version.
+///
+/// This function supports all Anthropic Claude models with correct token limits
+/// and can be extended as new models are released. It uses a pattern-based approach
+/// rather than an explicit list to be more maintainable and future-proof.
+///
+/// Token limits are sourced from Anthropic's official documentation:
+/// https://docs.anthropic.com/claude/docs/model-comparison
+fn get_model_token_limit(model_name: &str) -> usize {
+    // Default to a conservative limit if no pattern matches
+    const DEFAULT_TOKEN_LIMIT: usize = 100_000;
+
+    // Claude 3 and newer models (generally have 200K token context)
+    // This covers all Claude 3 variants including:
+    // - claude-3-opus-20240229
+    // - claude-3-sonnet-20240229
+    // - claude-3-haiku-20240307
+    // - claude-3-5-sonnet-20240620
+    // - claude-3-7-sonnet-20250219
+    if model_name.starts_with("claude-3")
+        || model_name.starts_with("claude-3.")
+        || model_name.contains("claude-3-")
+        || model_name.contains("claude-3.5")
+        || model_name.contains("claude-3.7")
+        || model_name.contains("claude-3-5")
+        || model_name.contains("claude-3-7")
+    {
+        return 200_000;
+    }
+
+    // Claude 2.1 (200K token context)
+    if model_name.contains("claude-2.1") {
+        return 200_000;
+    }
+
+    // Claude 2.0 and Claude 2 base (100K token context)
+    if model_name.contains("claude-2.0") || model_name.starts_with("claude-2") {
+        return 100_000;
+    }
+
+    // Claude Instant models (100K token context)
+    if model_name.contains("claude-instant") {
+        return 100_000;
+    }
+
+    // Fall back to default for any unknown models
+    // Using a conservative default ensures we don't exceed context windows
+    DEFAULT_TOKEN_LIMIT
+}
+
+// URLs and version info for the Anthropic API - using lazy initialization for protection
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref API_URL: String =
+        obfstr::obfstring!("https://api.anthropic.com/v1/messages").to_string();
+    static ref COUNT_TOKENS_URL: String =
+        obfstr::obfstring!("https://api.anthropic.com/v1/messages/count_tokens").to_string();
+    static ref ANTHROPIC_VERSION: String = obfstr::obfstring!("2023-06-01").to_string();
+}
 
 /// Anthropic request configuration
 #[derive(Serialize, Clone)]
@@ -44,29 +106,55 @@ struct MessageRequest {
 /// Response from the Anthropic API
 #[derive(Deserialize, Debug)]
 struct MessageResponse {
+    #[allow(dead_code)]
     id: String,
     content: Vec<Content>,
+    #[allow(dead_code)]
     model: String,
     usage: Option<TokenUsage>,
+    stop_reason: Option<String>,
+    stop_sequence: Option<String>,
+}
+
+/// Request to count tokens
+#[derive(Serialize, Clone)]
+struct CountTokensRequest {
+    model: String,
+    messages: Vec<Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+}
+
+/// Response from the token counting endpoint
+#[derive(Deserialize, Debug)]
+struct CountTokensResponse {
+    input_tokens: usize,
 }
 
 /// Implementation of LLM provider for Anthropic
 pub struct Anthropic {
     /// API key for Anthropic
     api_key: String,
-    
+
     /// Model name to use
     model: String,
+
+    /// HTTP client
+    client: reqwest::Client,
 }
 
 impl Anthropic {
     /// Create a new Anthropic provider with the specified API key and model
     pub fn new(api_key: String, model: String) -> Self {
-        Self { api_key, model }
+        Self {
+            api_key,
+            model,
+            client: reqwest::Client::new(),
+        }
     }
-    
+
     /// Send a request to the Anthropic API with retry logic
-    fn send_api_request<T: serde::de::DeserializeOwned>(
+    async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
@@ -76,28 +164,38 @@ impl Anthropic {
         let base_retry_delay_ms = 1000; // 1 second initial retry delay
 
         loop {
-            match ureq::post(API_URL)
-                .set("Content-Type", "application/json")
-                .set("X-Api-Key", &self.api_key)
-                .set("anthropic-version", ANTHROPIC_VERSION)
-                .set("anthropic-beta", "output-128k-2025-02-19")
-                .send_json(request_json.clone())
-            {
-                Ok(res) => return Ok(res.into_json().map_err(|e| LlmError::ApiError(e.to_string()))?),
-                Err(err) => match err {
-                    ureq::Error::Status(429, response) => {
+            let response = self
+                .client
+                .post(&*API_URL)
+                .header("Content-Type", "application/json")
+                .header("X-Api-Key", &self.api_key)
+                .header("anthropic-version", &*ANTHROPIC_VERSION)
+                .header("anthropic-beta", "output-128k-2025-02-19")
+                .json(&request_json)
+                .send()
+                .await;
+
+            match response {
+                Ok(res) => {
+                    if res.status().is_success() {
+                        return res.json::<T>().await.map_err(|e| {
+                            LlmError::ApiError(format!("Failed to parse response: {}", e))
+                        });
+                    } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                         // Handle rate limiting (429 Too Many Requests)
                         attempts += 1;
                         if attempts >= max_attempts {
                             return Err(LlmError::ApiError(format!(
                                 "Max retry attempts reached for rate limiting: {}",
-                                response.status_text()
+                                res.status()
                             )));
                         }
 
                         // Try to get retry-after header, default to exponential backoff if not present
-                        let retry_after = match response
-                            .header("retry-after")
+                        let retry_after = match res
+                            .headers()
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
                             .and_then(|v| v.parse::<u64>().ok())
                         {
                             Some(value) => value * 1000,
@@ -109,42 +207,49 @@ impl Anthropic {
                             }
                         };
 
-                        // Return a rate limit error with retry information
-                        return Err(LlmError::RateLimitError { 
-                            retry_after: Some(retry_after / 1000) 
-                        });
-                    }
-                    ureq::Error::Status(status_code, response) => {
-                        let error_message = response.into_string()
+                        // Sleep for the retry duration
+                        sleep(Duration::from_millis(retry_after)).await;
+                        continue;
+                    } else {
+                        let status = res.status();
+                        let error_text = res
+                            .text()
+                            .await
                             .unwrap_or_else(|_| "Unknown error".to_string());
-                        
+
                         return Err(LlmError::ApiError(format!(
                             "HTTP error {}: {}",
-                            status_code,
-                            error_message
+                            status, error_text
                         )));
                     }
-                    // Pass through other errors
-                    err => return Err(LlmError::ApiError(format!("HTTP request error: {}", err))),
-                },
+                }
+                Err(err) => {
+                    return Err(LlmError::ApiError(format!("HTTP request error: {}", err)));
+                }
             }
         }
     }
 }
 
+#[async_trait::async_trait]
 impl Backend for Anthropic {
-    fn send_message(
-        &self, 
-        messages: &[Message], 
+    async fn send_message(
+        &self,
+        messages: &[Message],
         system: Option<&str>,
         stop_sequences: Option<&[String]>,
         thinking_budget: Option<usize>,
         cache_points: Option<&BTreeSet<usize>>,
+        max_tokens: Option<usize>,
     ) -> Result<LlmResponse, LlmError> {
+        // Default max tokens if not provided
+        let default_max_tokens = 32768; // Large default for Claude's capabilities
+        let tokens = max_tokens.unwrap_or(default_max_tokens);
+
         // Create the message request
         let request = MessageRequest {
             model: self.model.clone(),
-            max_tokens: 32768, // Large default for Claude's capabilities
+            max_tokens: tokens,
             messages: messages.to_vec(),
             system: system.map(|s| s.to_string()),
             stop_sequences: stop_sequences.map(|s| s.to_vec()),
@@ -153,36 +258,92 @@ impl Backend for Anthropic {
                 type_: ThinkingType::Enabled,
             }),
         };
-        
+
         // Convert to JSON and prepare for the API
         let mut json = serde_json::to_value(request.clone())
             .map_err(|e| LlmError::ApiError(format!("Failed to serialize request: {}", e)))?;
-        
+
         // Remove info field which is not part of the API schema
         jsonpath::remove(&mut json, "/messages[..]/info")
             .map_err(|e| LlmError::ApiError(format!("Failed to process request: {}", e)))?;
-        
+
+        // Add cache annotation to cached conversation points
         for point in cache_points.iter().flat_map(|v| v.iter()) {
             let path = format!("/messages[{}]/content[-1]/cache_control", point);
             jsonpath::insert(&mut json, &path, json!({"type": "ephemeral"}))
                 .map_err(|e| LlmError::ApiError(format!("Failed to process request: {}", e)))?;
         }
-        
+
         // Send the request
-        let response: MessageResponse = self.send_api_request(json)?;
-        
-        // Convert to LlmResponse
+        let response: MessageResponse = self.send_api_request(json).await?;
+
+        // Convert to LlmResponse with stop information
         Ok(LlmResponse {
             content: response.content,
             usage: response.usage,
+            stop_reason: response.stop_reason,
+            stop_sequence: response.stop_sequence,
         })
     }
-    
+
     fn name(&self) -> &str {
         "anthropic"
     }
-    
+
     fn model(&self) -> &str {
         &self.model
+    }
+
+    fn max_token_limit(&self) -> usize {
+        // Get the token limit based on the model name pattern
+        get_model_token_limit(&self.model)
+    }
+
+    async fn count_tokens(
+        &self,
+        messages: &[Message],
+        system: Option<&str>,
+    ) -> Result<TokenUsage, LlmError> {
+        // Create the token counting request
+        let request = CountTokensRequest {
+            model: self.model.clone(),
+            messages: messages.to_vec(),
+            system: system.map(|s| s.to_string()),
+        };
+
+        // Convert to JSON and prepare for the API
+        let mut json = serde_json::to_value(request.clone()).map_err(|e| {
+            LlmError::ApiError(format!("Failed to serialize token count request: {}", e))
+        })?;
+
+        // Remove info field which is not part of the API schema
+        jsonpath::remove(&mut json, "/messages[..]/info").map_err(|e| {
+            LlmError::ApiError(format!("Failed to process token count request: {}", e))
+        })?;
+
+        // Send the request to the count_tokens endpoint
+        let client_response = self
+            .client
+            .post(&*COUNT_TOKENS_URL)
+            .header("Content-Type", "application/json")
+            .header("X-Api-Key", &self.api_key)
+            .header("anthropic-version", &*ANTHROPIC_VERSION)
+            .json(&json)
+            .send()
+            .await
+            .map_err(|e| LlmError::ApiError(format!("Token count request failed: {}", e)))?;
+
+        let response: CountTokensResponse = client_response.json().await.map_err(|e| {
+            LlmError::ApiError(format!("Failed to parse token count response: {}", e))
+        })?;
+
+        // Create TokenUsage from the response
+        // Note: count_tokens only provides input tokens, output tokens will be 0
+        Ok(TokenUsage {
+            input_tokens: response.input_tokens,
+            output_tokens: 0, // No output for token counting
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        })
     }
 }
