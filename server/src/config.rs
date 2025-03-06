@@ -37,7 +37,7 @@ impl Config {
             .set_default("port", 8080)?
             .set_default("jwt_expiry", 86400)?
             // Set default values for SQLite
-            .set_default("database_url", "sqlite:data/autoswe.db")?
+            .set_default("database_url", "sqlite:data/termineer.db")?
             // For test/development, use mock values
             .set_default("google_client_id", "mock_client_id")?
             .set_default("google_client_secret", "mock_client_secret")?

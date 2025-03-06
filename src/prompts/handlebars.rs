@@ -11,8 +11,7 @@ use handlebars::{
 // Using RenderError::new which is deprecated, but we need it
 #[allow(deprecated)]
 use serde_json::{json, Value};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::prompts::Grammar;
@@ -41,7 +40,7 @@ pub struct TemplateManager {
 
     /// Templates directory
     templates_dir: PathBuf,
-    
+
     /// Whether to prefer embedded templates (true in release mode)
     prefer_embedded: bool,
 }
@@ -221,10 +220,9 @@ impl HelperDef for PatchHelper {
         let before = h.template().unwrap();
         let after = h.inverse().unwrap();
 
-        let patch = self.grammar.format_patch(
-            &before.renders(r, ctx, rc)?,
-            &after.renders(r, ctx, rc)?,
-        );
+        let patch = self
+            .grammar
+            .format_patch(&before.renders(r, ctx, rc)?, &after.renders(r, ctx, rc)?);
 
         out.write(&patch)?;
         Ok(())
@@ -254,14 +252,14 @@ impl TemplateManager {
 
         Ok(())
     }
-    
+
     /// Load protected templates
     fn load_protected_templates(&mut self) -> Result<(), TemplateError> {
         use crate::prompts::protected;
-        
+
         // Get all available templates from protected storage
         let templates = protected::list_available_templates();
-        
+
         for template_name in templates {
             if let Some(source) = protected::get_prompt_template(&template_name) {
                 // Register as both a template and a partial
@@ -274,15 +272,16 @@ impl TemplateManager {
                     .map_err(|e| TemplateError::Render(e.into()))?;
             }
         }
-        
+
         Ok(())
     }
 
-    /// Render a template with specific tools enabled
-    pub fn render_with_tool_enablement(
+    /// Render a template with specific tools enabled and MCP servers
+    pub fn render_with_context(
         &self,
         template_name: &str,
         enabled_tools: &[&str],
+        mcp_servers: &[String],
     ) -> Result<String, TemplateError> {
         // Create data object for template variables
         let mut data = serde_json::Map::new();
@@ -293,10 +292,23 @@ impl TemplateManager {
         // Add the enabled_tools array for template usage
         data.insert("enabled_tools".to_string(), json!(lowercase_tools));
 
+        // Add the MCP servers array
+        data.insert("mcp_servers".to_string(), json!(mcp_servers));
+
         // Render the template with the variables
         self.handlebars
             .render(template_name, &Value::Object(data))
             .map_err(|e| TemplateError::Render(e))
+    }
+
+    /// Render a template with specific tools enabled (legacy method)
+    pub fn render_with_tool_enablement(
+        &self,
+        template_name: &str,
+        enabled_tools: &[&str],
+    ) -> Result<String, TemplateError> {
+        // Forward to the new method with an empty MCP servers list
+        self.render_with_context(template_name, enabled_tools, &[])
     }
 
     /// Create a Handlebars instance with registered helpers
@@ -328,9 +340,7 @@ impl TemplateManager {
             }),
         );
 
-        handlebars.register_helper("patch", Box::new(PatchHelper {
-            grammar,
-        }));
+        handlebars.register_helper("patch", Box::new(PatchHelper { grammar }));
 
         // Register the iftool helper for tool-specific conditional content
         handlebars.register_helper("iftool", Box::new(IfToolHelper));

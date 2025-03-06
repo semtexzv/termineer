@@ -50,19 +50,19 @@ pub enum MessageInfo {
     System,
 
     /// Tool call
-    ToolCall { 
+    ToolCall {
         tool_name: String,
         tool_index: Option<usize>,
     },
 
     /// Tool result
-    ToolResult { 
+    ToolResult {
         tool_name: String,
         tool_index: Option<usize>,
     },
 
     /// Tool error
-    ToolError { 
+    ToolError {
         tool_name: String,
         tool_index: Option<usize>,
     },

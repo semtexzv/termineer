@@ -1,13 +1,13 @@
-# AutoSWE Server Implementation
+# Termineer Server Implementation
 
-This server provides user registration, authentication, and payment processing for the AutoSWE application.
+This server provides user registration, authentication, and payment processing for the Termineer application.
 
 ## Architecture Overview
 
 The server follows a modular architecture with clear separation of concerns:
 
 ```
-autoswe-server/
+termineer-server/
 ├── src/
 │   ├── config.rs       - Configuration and environment settings
 │   ├── auth/           - Authentication related modules
@@ -35,7 +35,7 @@ autoswe-server/
 
 ## Implementation Status
 
-We have created a comprehensive server implementation for the AutoSWE application that handles:
+We have created a comprehensive server implementation for the Termineer application that handles:
 
 1. **User Authentication**: OAuth 2.0 flow with Google
 2. **Payment Processing**: Stripe integration for subscription management

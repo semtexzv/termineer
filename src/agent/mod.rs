@@ -8,9 +8,9 @@
 
 // Re-export the agent submodules
 mod agent;
+mod interrupt;
 mod manager;
 pub mod types;
-mod interrupt;
 // Re-export public types from the submodules
 // Agent isn't publicly used, so we don't re-export it
 pub use manager::AgentManager;

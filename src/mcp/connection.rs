@@ -7,18 +7,24 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::connect_async;
 use futures::{stream::{SplitSink, SplitStream}, SinkExt, StreamExt};
 use url::Url;
+use async_trait::async_trait;
 
 use crate::mcp::error::{McpError, McpResult};
 use crate::mcp::protocol::JsonRpcMessage;
+use crate::mcp::Connection;
 
+#[allow(dead_code)]
 type WebSocketSender = SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>;
+#[allow(dead_code)]
 type WebSocketReceiver = SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>;
 
 /// Command messages for the connection manager
 enum Command {
     /// Send a message to the server
     SendMessage {
+        #[allow(dead_code)]
         message: JsonRpcMessage,
+        #[allow(dead_code)]
         response_sender: oneshot::Sender<McpResult<JsonRpcMessage>>,
     },
     /// Close the connection
@@ -33,6 +39,7 @@ pub struct WebSocketConnection {
 
 impl WebSocketConnection {
     /// Create a new WebSocket connection to the given URL
+    #[allow(dead_code)]
     pub async fn connect(url_str: &str) -> McpResult<Self> {
         // Parse URL
         let url = Url::parse(url_str)?;
@@ -102,6 +109,7 @@ impl WebSocketConnection {
     }
     
     /// Connection manager task
+    #[allow(dead_code)]
     async fn connection_task(
         mut ws_sender: WebSocketSender,
         mut ws_receiver: WebSocketReceiver,
@@ -174,6 +182,7 @@ impl WebSocketConnection {
     }
     
     /// Handle an incoming WebSocket message
+    #[allow(dead_code)]
     async fn handle_ws_message(
         msg: WsMessage,
         pending_responses: &mut std::collections::HashMap<String, oneshot::Sender<McpResult<JsonRpcMessage>>>,
@@ -200,6 +209,7 @@ impl WebSocketConnection {
     }
     
     /// Handle a send message command
+    #[allow(dead_code)]
     async fn handle_send_command(
         ws_sender: &mut WebSocketSender,
         message: JsonRpcMessage,
@@ -229,6 +239,26 @@ impl WebSocketConnection {
         }
         
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Connection for WebSocketConnection {
+    // Implement the trait methods by calling the struct's own methods
+    // This avoids recursion since they have different signatures
+    async fn send_message(&self, message: JsonRpcMessage) -> McpResult<JsonRpcMessage> {
+        // Use the WebSocketConnection's implementation of send_message directly
+        WebSocketConnection::send_message(self, message).await
+    }
+    
+    async fn close(&self) -> McpResult<()> {
+        // Use the WebSocketConnection's implementation of close directly
+        WebSocketConnection::close(self).await
+    }
+    
+    fn is_connected(&self) -> bool {
+        // Use the WebSocketConnection's implementation of is_connected directly
+        WebSocketConnection::is_connected(self)
     }
 }
 

@@ -20,14 +20,10 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use output buffer for error messages
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-            state_change: AgentStateChange::Continue,
-        };
+        return ToolResult::error(error_msg);
     }
 
     // If offset or limit is specified, only read a single file
@@ -38,14 +34,10 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
 
             if !silent_mode {
                 // Use buffer-based printing
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: error_msg,
-                state_change: AgentStateChange::Continue,
-            };
+            return ToolResult::error(error_msg);
         }
         return read_single_file(
             &parsed_args.paths[0],
@@ -142,10 +134,8 @@ async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolRes
 
     for filepath in filepaths {
         let result = read_file_content(filepath, None, None, silent_mode).await;
-        if result.success {
-            agent_outputs.push(result.agent_output);
-        } else {
-            agent_outputs.push(result.agent_output.clone());
+        agent_outputs.push(result.to_text());
+        if !result.success {
             all_successful = false;
         }
     }
@@ -155,8 +145,7 @@ async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolRes
     // Print combined output message if not in silent mode
     if !silent_mode {
         // Use buffer-based printing
-        crate::btool_println!(
-            "read",
+        bprintln !(tool: "read",
             "{}📚 Read {} files:{}",
             FORMAT_BOLD,
             filepaths.len(),
@@ -168,8 +157,10 @@ async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolRes
 
     ToolResult {
         success: all_successful,
-        agent_output: combined_agent_output,
         state_change: AgentStateChange::Continue,
+        content: vec![crate::llm::Content::Text {
+            text: combined_agent_output,
+        }],
     }
 }
 
@@ -188,14 +179,10 @@ async fn read_single_file(
 
             if !silent_mode {
                 // Use output buffer for error messages
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: error_msg,
-                state_change: AgentStateChange::Continue,
-            };
+            return ToolResult::error(error_msg);
         }
     };
 
@@ -208,14 +195,10 @@ async fn read_single_file(
 
         if !silent_mode {
             // Use output buffer for error messages
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
-        return ToolResult {
-            success: false,
-            agent_output: error_msg,
-            state_change: AgentStateChange::Continue,
-        };
+        return ToolResult::error(error_msg);
     }
 
     // Check if path is a directory
@@ -229,7 +212,13 @@ async fn read_single_file(
     }
 
     // Handle regular file - use the validated path, not the original string
-    read_file_content(&validated_path.to_string_lossy(), offset, limit, silent_mode).await
+    read_file_content(
+        &validated_path.to_string_lossy(),
+        offset,
+        limit,
+        silent_mode,
+    )
+    .await
 }
 
 /// Helper function to read file content with optional offset and limit
@@ -249,14 +238,10 @@ async fn read_file_content(
 
             if !silent_mode {
                 // Use output buffer for error messages
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: error_msg,
-                state_change: AgentStateChange::Continue,
-            };
+            return ToolResult::error(error_msg);
         }
     };
 
@@ -303,8 +288,7 @@ async fn read_file_content(
 
                 // Use output buffer for read tool output
                 if !preview_lines.is_empty() {
-                    crate::btool_println!(
-                        "read",
+                    bprintln !(tool: "read",
                         "{}📄 Read: {} (lines {}-{} of {} total){}\n{}{}{}",
                         FORMAT_BOLD,
                         safe_display_path,
@@ -317,8 +301,7 @@ async fn read_file_content(
                         FORMAT_RESET
                     );
                 } else {
-                    crate::btool_println!(
-                        "read",
+                    bprintln !(tool: "read",
                         "{}📄 Read: {} (lines {}-{} of {} total){}",
                         FORMAT_BOLD,
                         safe_display_path,
@@ -337,10 +320,10 @@ async fn read_file_content(
 
             if !silent_mode {
                 // Use buffer-based printing
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
-            ToolResult::error(error_msg) 
+            ToolResult::error(error_msg)
         }
     }
 }
@@ -357,14 +340,10 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
 
             if !silent_mode {
                 // Use output buffer for error messages
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
-            return ToolResult {
-                success: false,
-                agent_output: error_msg,
-                state_change: AgentStateChange::Continue,
-            };
+            return ToolResult::error(error_msg);
         }
     };
 
@@ -415,7 +394,10 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
                 // Add directories with trailing slash and bold formatting
                 for dir in &dirs {
                     let dir_name = dir.trim_end_matches('/');
-                    output.push_str(&format!("{}{}{}/{}\n", FORMAT_BOLD, FORMAT_GRAY, dir_name, FORMAT_RESET));
+                    output.push_str(&format!(
+                        "{}{}{}/{}\n",
+                        FORMAT_BOLD, FORMAT_GRAY, dir_name, FORMAT_RESET
+                    ));
                 }
 
                 // Add files
@@ -424,13 +406,13 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
                 }
 
                 // Use buffer-based printing
-                crate::btool_println!("read", "{}", output.trim_end());
+                bprintln !(tool: "read", "{}", output.trim_end());
             }
 
             ToolResult {
                 success: true,
-                agent_output,
                 state_change: Default::default(),
+                content: vec![crate::llm::Content::Text { text: agent_output }],
             }
         }
         Err(e) => {
@@ -438,7 +420,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
 
             if !silent_mode {
                 // Use buffer-based printing
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
             ToolResult::error(error_msg)

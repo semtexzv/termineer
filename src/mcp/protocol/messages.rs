@@ -1,12 +1,12 @@
 //! JSON-RPC message types for MCP protocol
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 /// Base JSON-RPC 2.0 message structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcMessage {
-    pub jsonrpc: String,  // Always "2.0"
+    pub jsonrpc: String, // Always "2.0"
     pub id: Option<serde_json::Value>,
     #[serde(flatten)]
     pub content: MessageContent,
@@ -58,6 +58,7 @@ impl std::fmt::Display for JsonRpcError {
 
 /// Client information sent during initialize
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientInfo {
     pub name: String,
     pub version: String,
@@ -65,17 +66,20 @@ pub struct ClientInfo {
 
 /// Client capabilities
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
     pub roots: RootsCapabilities,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RootsCapabilities {
     pub list_changed: bool,
 }
 
 /// Initialize request parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
     pub protocol_version: String,
     pub capabilities: ClientCapabilities,
@@ -84,11 +88,13 @@ pub struct InitializeParams {
 
 /// Initialize response
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
     pub server_info: ServerInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
     pub name: String,
     pub version: String,

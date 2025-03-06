@@ -27,7 +27,7 @@ Example:
 {{#done "shell" 0}}
 drwxr-xr-x  14 mhornicky  primarygroup    448 Feb 27 22:11 .
 drwxr-x---+ 89 mhornicky  primarygroup   2848 Feb 27 21:59 ..
--rw-r--r--@  1 mhornicky  primarygroup   2169 Feb 27 22:09 .autoswe
+-rw-r--r--@  1 mhornicky  primarygroup   2169 Feb 27 22:09 .termineer
 -rw-r--r--   1 mhornicky  primarygroup    127 Feb 27 13:44 .env
 -rw-r--r--@  1 mhornicky  primarygroup    175 Feb 27 10:48 .env.example
 {{/done}}
@@ -210,66 +210,40 @@ When to use:
 {{/iftool}}
 
 {{#iftool "mcp"}}
-### MCP
-Connect to and use tools from Model Context Protocol (MCP) servers:
-{{#tool "mcp"}}[subcommand] [arguments]{{/tool}}
+### MCP Servers
 
-Subcommands:
-- `connect [server_url]`: Connect to an MCP server
-- `list [server_url]`: List available tools on a connected server
-- `call [server_url] [tool_id]`: Call a tool on a connected server (with JSON input in the body)
+{{#if mcp_servers}}
+The following Model Context Protocol (MCP) servers are available:
+{{#each mcp_servers}}
+- {{this}}
+{{/each}}
 
-Example - Connect to a server:
-{{#tool "mcp"}}connect http://localhost:8080{{/tool}}
-
-{{#done "mcp" 0}}
-Connected to MCP server: http://localhost:8080. Found 5 tools.
-{{/done}}
-
-Example - List available tools:
-{{#tool "mcp"}}list http://localhost:8080{{/tool}}
-
-{{#done "mcp" 0}}
-Tools available from MCP server http://localhost:8080:
-
-- ID: weather-api
-  Name: Weather API
-  Description: Get current weather for a location
-  Parameters:
-    - location: string (City name or coordinates)
-    - units: string (Unit system: metric or imperial)
-
-- ID: calculator
-  Name: Calculator
-  Description: Perform mathematical calculations
-  Parameters:
-    - expression: string (Mathematical expression to evaluate)
-{{/done}}
-
-Example - Call a tool:
-{{#tool "mcp"}}call http://localhost:8080 weather-api
+For advanced operations, you can call MCP tools directly using:
+```
+mcp call <server_name> <tool_id>
 {
-  "location": "New York",
-  "units": "metric"
-}{{/tool}}
-
-{{#done "mcp" 0}}
-Result from tool Weather API (Get current weather for a location) on MCP server http://localhost:8080:
-
-{
-  "temperature": 22.5,
-  "conditions": "Partly cloudy",
-  "humidity": 65,
-  "wind_speed": 12.3
+  "param1": "value1",
+  "param2": "value2"
 }
-{{/done}}
+```
 
-When to use:
-- Access external tools and services via MCP servers
-- Perform specialized calculations or operations
-- Retrieve real-time data from connected services
-- Interact with domain-specific tools
-- Extend your capabilities with server-provided functionality
+You can view available tools on a server with:
+```
+mcp list <server_name>
+```
+
+Example:
+{{#tool "mcp"}}list {{#each mcp_servers}}{{#if @first}}{{this}}{{/if}}{{/each}}{{/tool}}
+
+{{else}}
+No MCP servers are currently configured.
+{{/if}}
+
+When using MCP servers:
+- Use the exact server names as shown above
+- Format JSON parameters according to the tool's requirements
+- Provide all required parameters for the tool
+- Refer to available MCP servers when discussing capabilities
 {{/iftool}}
 
 {{#iftool "task"}}

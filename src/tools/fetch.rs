@@ -51,17 +51,19 @@ fn strip_html_and_js(html: &str) -> String {
                     in_anchor = true;
                     link_text.clear();
                     link_url.clear();
-                    
+
                     // Extract href attribute
                     if let Some(href_start) = tag.find("href=\"") {
                         let href_content_start = href_start + 6; // 6 = length of href="
                         if let Some(href_end) = tag[href_content_start..].find('"') {
-                            link_url = tag[href_content_start..(href_content_start + href_end)].to_string();
+                            link_url = tag[href_content_start..(href_content_start + href_end)]
+                                .to_string();
                         }
                     } else if let Some(href_start) = tag.find("href='") {
                         let href_content_start = href_start + 6; // 6 = length of href='
                         if let Some(href_end) = tag[href_content_start..].find('\'') {
-                            link_url = tag[href_content_start..(href_content_start + href_end)].to_string();
+                            link_url = tag[href_content_start..(href_content_start + href_end)]
+                                .to_string();
                         }
                     }
                 } else if tag == "</a>" {
@@ -130,7 +132,7 @@ fn strip_html_and_js(html: &str) -> String {
                     "&apos;" => '\'',
                     _ => '&', // For unknown entities
                 };
-                
+
                 // Add to link text if in anchor, otherwise to main result
                 if in_anchor {
                     link_text.push(entity_char);
@@ -140,7 +142,7 @@ fn strip_html_and_js(html: &str) -> String {
             } else {
                 // Not a valid entity, reset and just add the '&'
                 i = start_idx + 1;
-                
+
                 // Add to link text if in anchor, otherwise to main result
                 if in_anchor {
                     link_text.push('&');
@@ -202,14 +204,16 @@ mod tests {
 
     #[test]
     fn test_strip_html_links() {
-        let html = "<p>Visit our <a href=\"https://example.com\">website</a> for more information.</p>";
+        let html =
+            "<p>Visit our <a href=\"https://example.com\">website</a> for more information.</p>";
         let expected = "Visit our website [https://example.com] for more information.";
         assert_eq!(strip_html_and_js(html), expected);
     }
 
     #[test]
     fn test_strip_html_links_with_single_quotes() {
-        let html = "<p>Check out <a href='https://rust-lang.org'>Rust</a> programming language.</p>";
+        let html =
+            "<p>Check out <a href='https://rust-lang.org'>Rust</a> programming language.</p>";
         let expected = "Check out Rust [https://rust-lang.org] programming language.";
         assert_eq!(strip_html_and_js(html), expected);
     }
@@ -268,7 +272,7 @@ mod tests {
         let html = "";
         let expected = "";
         assert_eq!(strip_html_and_js(html), expected);
-        
+
         let html = "<div></div>";
         let expected = "";
         assert_eq!(strip_html_and_js(html), expected);
@@ -284,39 +288,39 @@ mod tests {
     #[test]
     fn test_strip_html_complex_document() {
         // Using a string that's assembled piece by piece to avoid any parsing issues
-        let html = String::from("<!DOCTYPE html>") +
-            "<html>" +
-            "<head>" +
-            "<title>Test Document</title>" +
-            "<style>body { font-family: Arial; }</style>" +
-            "<script>console.log('This should be removed');</script>" +
-            "</head>" +
-            "<body>" +
-            "<header>" +
-            "<h1>Main Title</h1>" +
-            "<nav>Navigation: <a href='/link1'>Link 1</a> | <a href='/link2'>Link 2</a></nav>" +
-            "</header>" +
-            "<main>" +
-            "<section>" +
-            "<h2>Section Title</h2>" +
-            "<p>This is <em>important</em> content with some <strong>bold text</strong>.</p>" +
-            "<ul>" +
-            "<li>List item 1</li>" +
-            "<li>List item 2</li>" +
-            "</ul>" +
-            "</section>" +
-            "<hr>" +
-            "<section>" +
-            "<table>" +
-            "<tr><th>Header 1</th><th>Header 2</th></tr>" +
-            "<tr><td>Data 1</td><td>Data 2</td></tr>" +
-            "</table>" +
-            "</section>" +
-            "</main>" +
-            "<footer>&copy; 2023 Test Company</footer>" +
-            "</body>" +
-            "</html>";
-        
+        let html = String::from("<!DOCTYPE html>")
+            + "<html>"
+            + "<head>"
+            + "<title>Test Document</title>"
+            + "<style>body { font-family: Arial; }</style>"
+            + "<script>console.log('This should be removed');</script>"
+            + "</head>"
+            + "<body>"
+            + "<header>"
+            + "<h1>Main Title</h1>"
+            + "<nav>Navigation: <a href='/link1'>Link 1</a> | <a href='/link2'>Link 2</a></nav>"
+            + "</header>"
+            + "<main>"
+            + "<section>"
+            + "<h2>Section Title</h2>"
+            + "<p>This is <em>important</em> content with some <strong>bold text</strong>.</p>"
+            + "<ul>"
+            + "<li>List item 1</li>"
+            + "<li>List item 2</li>"
+            + "</ul>"
+            + "</section>"
+            + "<hr>"
+            + "<section>"
+            + "<table>"
+            + "<tr><th>Header 1</th><th>Header 2</th></tr>"
+            + "<tr><td>Data 1</td><td>Data 2</td></tr>"
+            + "</table>"
+            + "</section>"
+            + "</main>"
+            + "<footer>&copy; 2023 Test Company</footer>"
+            + "</body>"
+            + "</html>";
+
         let expected = "Test DocumentMain Title\nNavigation: Link 1 [/link1] | Link 2 [/link2]Section Title\nThis is important content with some bold text.\nList item 1\nList item 2\n----------\nHeader 1Header 2\nData 1\nData 2\n& 2023 Test Company";
         assert_eq!(strip_html_and_js(&html), expected);
     }
@@ -337,7 +341,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         let error_msg = "Error: No URL provided. Usage: fetch https://example.com".to_string();
 
         if !silent_mode {
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
         return ToolResult::error(error_msg);
@@ -349,7 +353,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         Ok(response) => response,
         Err(err) => {
             if !silent_mode {
-                crate::berror_println!("Error fetching URL: {}", err);
+                bprintln !(error:"Error fetching URL: {}", err);
             }
 
             return ToolResult::error(format!("Error fetching URL: {}", err));
@@ -359,10 +363,13 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
     // Check status code
     if !response.status().is_success() {
         if !silent_mode {
-            crate::berror_println!("Error fetching URL: HTTP status {}", response.status());
+            bprintln !(error:"Error fetching URL: HTTP status {}", response.status());
         }
 
-        return ToolResult::error(format!("Error fetching URL: HTTP status {}", response.status()));
+        return ToolResult::error(format!(
+            "Error fetching URL: HTTP status {}",
+            response.status()
+        ));
     }
 
     // Try to get content type
@@ -378,7 +385,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         Ok(text) => text,
         Err(err) => {
             if !silent_mode {
-                crate::berror_println!("Error reading response: {}", err);
+                bprintln !(error:"Error reading response: {}", err);
             }
 
             return ToolResult::error(format!("Error reading response: {}", err));
@@ -386,27 +393,25 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
     };
 
     // Process text based on content type
-    let processed_text =
-        if content_type.contains("text/html") || content_type.contains("html") {
-            strip_html_and_js(&text)
-        } else {
-            // For plain text, JSON, or other formats, use as-is
-            text
-        };
+    let processed_text = if content_type.contains("text/html") || content_type.contains("html") {
+        strip_html_and_js(&text)
+    } else {
+        // For plain text, JSON, or other formats, use as-is
+        text
+    };
 
     // Truncate large responses for user output - show first 1000 and last 1000 characters
     let user_text = processed_text.clone();
 
     // Return the fetched content
     if !silent_mode {
-        crate::btool_println!(
-            "fetch",
+        bprintln !(tool: "fetch",
             "{}🌐 Fetch:{} {} - Content fetched successfully",
             FORMAT_BOLD,
             FORMAT_RESET,
             url
         );
-        crate::bprintln!("{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
+        bprintln !(debug: "{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
     }
 
     ToolResult::success(format!("Fetched from {}:\n\n{}", url, processed_text))

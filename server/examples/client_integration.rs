@@ -1,7 +1,7 @@
-//! Example client code for integrating with the AutoSWE server
+//! Example client code for integrating with the Termineer server
 //! 
 //! This demonstrates how to verify licenses, check authentication,
-//! and interact with the server API from the AutoSWE client.
+//! and interact with the server API from the Termineer client.
 
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -29,17 +29,17 @@ struct VerifyResponse {
     message: Option<String>,
 }
 
-/// Main entry point showing how to integrate license checking in AutoSWE
+/// Main entry point showing how to integrate license checking in Termineer
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Print example header
-    println!("AutoSWE License Verification Example");
+    println!("Termineer License Verification Example");
     println!("===================================");
     println!();
     
     // Configuration
-    let server_url = env::var("AUTOSWE_SERVER_URL")
-        .unwrap_or_else(|_| "https://api.autoswe.com".to_string());
+    let server_url = env::var("TERMINEER_SERVER_URL")
+        .unwrap_or_else(|_| "https://api.termineer.com".to_string());
     
     let license_file = get_license_file_path()?;
     let http_client = Client::new();
@@ -73,22 +73,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     if result {
         println!("\nLicense validation successful!");
-        println!("Starting AutoSWE with full functionality...");
+        println!("Starting Termineer with full functionality...");
         
-        // Here you would continue with the normal operation of AutoSWE
-        run_autoswe().await?;
+        // Here you would continue with the normal operation of Termineer
+        run_termineer().await?;
     } else {
         println!("\nNo valid license found. Running in limited mode.");
-        println!("Please subscribe at https://autoswe.com to unlock full functionality.");
+        println!("Please subscribe at https://termineer.com to unlock full functionality.");
         
         // Demonstrate the login flow
         if prompt_for_login() {
             // This would normally open a browser for OAuth login
             println!("Opening browser for login...");
-            println!("After login and subscription, restart AutoSWE to activate.");
+            println!("After login and subscription, restart Termineer to activate.");
         } else {
             // Run in limited mode
-            run_autoswe_limited().await?;
+            run_termineer_limited().await?;
         }
     }
     
@@ -98,17 +98,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Get the path to the license file
 fn get_license_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let config_dir = if cfg!(windows) {
-        // Windows: %APPDATA%\AutoSWE
+        // Windows: %APPDATA%\Termineer
         let app_data = env::var("APPDATA")?;
-        PathBuf::from(app_data).join("AutoSWE")
+        PathBuf::from(app_data).join("Termineer")
     } else if cfg!(target_os = "macos") {
-        // macOS: ~/Library/Application Support/AutoSWE
+        // macOS: ~/Library/Application Support/Termineer
         let home = env::var("HOME")?;
-        PathBuf::from(home).join("Library/Application Support/AutoSWE")
+        PathBuf::from(home).join("Library/Application Support/Termineer")
     } else {
-        // Linux: ~/.config/autoswe
+        // Linux: ~/.config/termineer
         let home = env::var("HOME")?;
-        PathBuf::from(home).join(".config/autoswe")
+        PathBuf::from(home).join(".config/termineer")
     };
     
     // Create the directory if it doesn't exist
@@ -174,9 +174,9 @@ fn prompt_for_login() -> bool {
     input.trim().to_lowercase().starts_with('y')
 }
 
-/// Simulate running AutoSWE with full functionality
-async fn run_autoswe() -> Result<(), Box<dyn std::error::Error>> {
-    println!("AutoSWE is now running with full functionality");
+/// Simulate running Termineer with full functionality
+async fn run_termineer() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Termineer is now running with full functionality");
     println!("- Access to all tools enabled");
     println!("- Premium models available");
     println!("- Advanced features unlocked");
@@ -191,9 +191,9 @@ async fn run_autoswe() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Simulate running AutoSWE in limited mode
-async fn run_autoswe_limited() -> Result<(), Box<dyn std::error::Error>> {
-    println!("AutoSWE is running in limited mode");
+/// Simulate running Termineer in limited mode
+async fn run_termineer_limited() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Termineer is running in limited mode");
     println!("- Basic tools only");
     println!("- Limited model access");
     println!("- Advanced features unavailable");

@@ -1,8 +1,8 @@
 [package]
-name = "autoswe-server"
+name = "termineer-server"
 version = "0.1.0"
 edition = "2021"
-description = "Server for AutoSWE user registration and payment processing"
+description = "Server for Termineer user registration and payment processing"
 
 [dependencies]
 # Web framework

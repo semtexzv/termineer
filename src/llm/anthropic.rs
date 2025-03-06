@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 /// Get the token limit for an Anthropic model
-/// 
+///
 /// Uses a pattern-matching approach to determine the appropriate token limit
 /// for a given model name, based on the model family and version.
 ///
@@ -24,7 +24,7 @@ use tokio::time::sleep;
 fn get_model_token_limit(model_name: &str) -> usize {
     // Default to a conservative limit if no pattern matches
     const DEFAULT_TOKEN_LIMIT: usize = 100_000;
-    
+
     // Claude 3 and newer models (generally have 200K token context)
     // This covers all Claude 3 variants including:
     // - claude-3-opus-20240229
@@ -32,40 +32,47 @@ fn get_model_token_limit(model_name: &str) -> usize {
     // - claude-3-haiku-20240307
     // - claude-3-5-sonnet-20240620
     // - claude-3-7-sonnet-20250219
-    if model_name.starts_with("claude-3") || 
-       model_name.starts_with("claude-3.") || 
-       model_name.contains("claude-3-") || 
-       model_name.contains("claude-3.5") || 
-       model_name.contains("claude-3.7") ||
-       model_name.contains("claude-3-5") || 
-       model_name.contains("claude-3-7") {
+    if model_name.starts_with("claude-3")
+        || model_name.starts_with("claude-3.")
+        || model_name.contains("claude-3-")
+        || model_name.contains("claude-3.5")
+        || model_name.contains("claude-3.7")
+        || model_name.contains("claude-3-5")
+        || model_name.contains("claude-3-7")
+    {
         return 200_000;
     }
-    
+
     // Claude 2.1 (200K token context)
     if model_name.contains("claude-2.1") {
         return 200_000;
     }
-    
+
     // Claude 2.0 and Claude 2 base (100K token context)
     if model_name.contains("claude-2.0") || model_name.starts_with("claude-2") {
         return 100_000;
     }
-    
+
     // Claude Instant models (100K token context)
     if model_name.contains("claude-instant") {
         return 100_000;
     }
-    
+
     // Fall back to default for any unknown models
     // Using a conservative default ensures we don't exceed context windows
     DEFAULT_TOKEN_LIMIT
 }
 
-// Constants for the Anthropic API
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
-const COUNT_TOKENS_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
+// URLs and version info for the Anthropic API - using lazy initialization for protection
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref API_URL: String =
+        obfstr::obfstring!("https://api.anthropic.com/v1/messages").to_string();
+    static ref COUNT_TOKENS_URL: String =
+        obfstr::obfstring!("https://api.anthropic.com/v1/messages/count_tokens").to_string();
+    static ref ANTHROPIC_VERSION: String = obfstr::obfstring!("2023-06-01").to_string();
+}
 
 /// Anthropic request configuration
 #[derive(Serialize, Clone)]
@@ -99,8 +106,10 @@ struct MessageRequest {
 /// Response from the Anthropic API
 #[derive(Deserialize, Debug)]
 struct MessageResponse {
+    #[allow(dead_code)]
     id: String,
     content: Vec<Content>,
+    #[allow(dead_code)]
     model: String,
     usage: Option<TokenUsage>,
     stop_reason: Option<String>,
@@ -157,10 +166,10 @@ impl Anthropic {
         loop {
             let response = self
                 .client
-                .post(API_URL)
+                .post(&*API_URL)
                 .header("Content-Type", "application/json")
                 .header("X-Api-Key", &self.api_key)
-                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-version", &*ANTHROPIC_VERSION)
                 .header("anthropic-beta", "output-128k-2025-02-19")
                 .json(&request_json)
                 .send()
@@ -284,12 +293,12 @@ impl Backend for Anthropic {
     fn model(&self) -> &str {
         &self.model
     }
-    
+
     fn max_token_limit(&self) -> usize {
         // Get the token limit based on the model name pattern
         get_model_token_limit(&self.model)
     }
-    
+
     async fn count_tokens(
         &self,
         messages: &[Message],
@@ -303,29 +312,30 @@ impl Backend for Anthropic {
         };
 
         // Convert to JSON and prepare for the API
-        let mut json = serde_json::to_value(request.clone())
-            .map_err(|e| LlmError::ApiError(format!("Failed to serialize token count request: {}", e)))?;
+        let mut json = serde_json::to_value(request.clone()).map_err(|e| {
+            LlmError::ApiError(format!("Failed to serialize token count request: {}", e))
+        })?;
 
         // Remove info field which is not part of the API schema
-        jsonpath::remove(&mut json, "/messages[..]/info")
-            .map_err(|e| LlmError::ApiError(format!("Failed to process token count request: {}", e)))?;
+        jsonpath::remove(&mut json, "/messages[..]/info").map_err(|e| {
+            LlmError::ApiError(format!("Failed to process token count request: {}", e))
+        })?;
 
         // Send the request to the count_tokens endpoint
         let client_response = self
             .client
-            .post(COUNT_TOKENS_URL)
+            .post(&*COUNT_TOKENS_URL)
             .header("Content-Type", "application/json")
             .header("X-Api-Key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("anthropic-version", &*ANTHROPIC_VERSION)
             .json(&json)
             .send()
             .await
             .map_err(|e| LlmError::ApiError(format!("Token count request failed: {}", e)))?;
-            
-        let response: CountTokensResponse = client_response
-            .json()
-            .await
-            .map_err(|e| LlmError::ApiError(format!("Failed to parse token count response: {}", e)))?;
+
+        let response: CountTokensResponse = client_response.json().await.map_err(|e| {
+            LlmError::ApiError(format!("Failed to parse token count response: {}", e))
+        })?;
 
         // Create TokenUsage from the response
         // Note: count_tokens only provides input tokens, output tokens will be 0

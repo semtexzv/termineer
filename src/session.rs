@@ -80,10 +80,10 @@ impl Session {
 pub fn get_base_session_dir() -> std::path::PathBuf {
     // Get the config directory for the user's platform
     match dirs::config_dir() {
-        Some(config_dir) => config_dir.join("autoswe").join("sessions"),
+        Some(config_dir) => config_dir.join("termineer").join("sessions"),
         None => {
             // Fallback to a local directory if we can't get a config directory
-            std::path::PathBuf::from(".autoswe_sessions")
+            std::path::PathBuf::from(".termineer_sessions")
         }
     }
 }

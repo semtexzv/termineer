@@ -84,7 +84,7 @@ pub async fn success_page(
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AutoSWE - Subscription Success</title>
+    <title>Termineer - Subscription Success</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -93,7 +93,7 @@ pub async fn success_page(
     <header style="background-color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1rem 0;">
         <div style="max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center;">
             <a href="/" style="display: flex; align-items: center; text-decoration: none; color: inherit;">
-                <span style="font-size: 1.5rem; font-weight: 700; color: #111827;">AutoSWE</span>
+                <span style="font-size: 1.5rem; font-weight: 700; color: #111827;">Termineer</span>
             </a>
         </div>
     </header>
@@ -120,7 +120,7 @@ pub async fn success_page(
     
     <footer style="background-color: #1f2937; color: white; padding: 1.5rem 0;">
         <div style="max-width: 1280px; margin: 0 auto; padding: 0 1rem; text-align: center;">
-            <p style="color: #9ca3af; margin: 0;">&copy; 2024 AutoSWE. All rights reserved.</p>
+            <p style="color: #9ca3af; margin: 0;">&copy; 2024 Termineer. All rights reserved.</p>
         </div>
     </footer>
 </body>
@@ -134,7 +134,7 @@ pub async fn success_page(
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AutoSWE - Subscription Error</title>
+    <title>Termineer - Subscription Error</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -143,7 +143,7 @@ pub async fn success_page(
     <header style="background-color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1rem 0;">
         <div style="max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center;">
             <a href="/" style="display: flex; align-items: center; text-decoration: none; color: inherit;">
-                <span style="font-size: 1.5rem; font-weight: 700; color: #111827;">AutoSWE</span>
+                <span style="font-size: 1.5rem; font-weight: 700; color: #111827;">Termineer</span>
             </a>
         </div>
     </header>
@@ -162,7 +162,7 @@ pub async fn success_page(
                     <a href="/" style="display: inline-block; padding: 0.75rem 1.5rem; background-color: #4f46e5; color: white; font-weight: 500; border-radius: 0.375rem; text-decoration: none;">
                         Return to Home
                     </a>
-                    <a href="mailto:support@autoswe.com" style="display: inline-block; padding: 0.75rem 1.5rem; background-color: white; color: #111827; font-weight: 500; border: 1px solid #d1d5db; border-radius: 0.375rem; text-decoration: none;">
+                    <a href="mailto:support@termineer.com" style="display: inline-block; padding: 0.75rem 1.5rem; background-color: white; color: #111827; font-weight: 500; border: 1px solid #d1d5db; border-radius: 0.375rem; text-decoration: none;">
                         Contact Support
                     </a>
                 </div>
@@ -172,7 +172,7 @@ pub async fn success_page(
     
     <footer style="background-color: #1f2937; color: white; padding: 1.5rem 0;">
         <div style="max-width: 1280px; margin: 0 auto; padding: 0 1rem; text-align: center;">
-            <p style="color: #9ca3af; margin: 0;">&copy; 2024 AutoSWE. All rights reserved.</p>
+            <p style="color: #9ca3af; margin: 0;">&copy; 2024 Termineer. All rights reserved.</p>
         </div>
     </footer>
 </body>

@@ -27,9 +27,9 @@ pub trait Backend: Send + Sync {
         cache_points: Option<&BTreeSet<usize>>,
         max_tokens: Option<usize>, // Maximum tokens to generate in the response
     ) -> Result<LlmResponse, LlmError>;
-    
+
     /// Count tokens for messages without making a full API request
-    /// 
+    ///
     /// This allows efficiently tracking token usage without guessing.
     /// Different LLM providers have different token counting algorithms, so this
     /// method delegates to the provider-specific implementation.
@@ -45,9 +45,9 @@ pub trait Backend: Send + Sync {
         messages: &[Message],
         system: Option<&str>,
     ) -> Result<TokenUsage, LlmError>;
-    
+
     /// Get the maximum token limit for this model
-    /// 
+    ///
     /// Returns the total context window size for the current model,
     /// including both input and output tokens. This is used for
     /// conversation truncation and to prevent exceeding model limits.
@@ -55,9 +55,9 @@ pub trait Backend: Send + Sync {
     /// # Returns
     /// Maximum token limit as documented by the model provider
     fn max_token_limit(&self) -> usize;
-    
+
     /// Get the safe input token limit for this model
-    /// 
+    ///
     /// Returns a conservative limit that leaves room for the model's response.
     /// This is typically 80-90% of the max limit, ensuring we don't exceed
     /// the context window when the model generates its response.

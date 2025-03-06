@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Protected prompts module
 //!
 //! This module handles encrypted prompt templates, providing
@@ -44,15 +45,18 @@ pub fn get_prompt_template(name: &str) -> Option<String> {
     } else {
         name.to_string()
     };
-    
+
     // Normalize path to use forward slashes
     let normalized_path = file_path.replace('\\', "/");
-    
+
     // Check cache first
     {
         let cache = DECRYPTED_CACHE.lock().unwrap();
         // Remove .hbs for cache lookup
-        let cache_key = normalized_path.strip_suffix(".hbs").unwrap_or(&normalized_path).to_string();
+        let cache_key = normalized_path
+            .strip_suffix(".hbs")
+            .unwrap_or(&normalized_path)
+            .to_string();
         if let Some(cached) = cache.get(&cache_key) {
             return Some(cached.clone());
         }
@@ -74,7 +78,7 @@ pub fn get_prompt_template(name: &str) -> Option<String> {
             .find(|(path, _)| *path == path_with_extension)
             .map(|(_, data)| *data)
     };
-    
+
     let encrypted_content = match encrypted_content {
         Some(content) => content,
         None => return None, // File not found
@@ -109,7 +113,10 @@ pub fn get_prompt_template(name: &str) -> Option<String> {
     // Store in cache (without .hbs extension)
     {
         let mut cache = DECRYPTED_CACHE.lock().unwrap();
-        let cache_key = normalized_path.strip_suffix(".hbs").unwrap_or(&normalized_path).to_string();
+        let cache_key = normalized_path
+            .strip_suffix(".hbs")
+            .unwrap_or(&normalized_path)
+            .to_string();
         cache.insert(cache_key, template_str.clone());
     }
 

@@ -12,7 +12,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error: "{}", error_msg);
         }
 
         return ToolResult::error(error_msg);
@@ -26,7 +26,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
             if !silent_mode {
                 // Use buffer-based printing
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error: "{}", error_msg);
             }
 
             return ToolResult::error(error_msg);
@@ -35,7 +35,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
     // Use the entire body as content
     let content = body;
-    
+
     // Get a safe display path for output messages
     let safe_display_path = validated_path.to_string_lossy();
 
@@ -52,8 +52,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
                 // Use buffer-based printing
                 if !preview_lines.is_empty() {
-                    crate::btool_println!(
-                        "write",
+                    bprintln !(tool: "write",
                         "{}✍️ Write: {} ({} lines){}\n{}{}{}",
                         FORMAT_BOLD,
                         safe_display_path,
@@ -64,8 +63,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
                         FORMAT_RESET
                     );
                 } else {
-                    crate::btool_println!(
-                        "write",
+                    bprintln !(tool: "write",
                         "{}✍️ Write: {} ({} lines){}",
                         FORMAT_BOLD,
                         safe_display_path,
@@ -86,7 +84,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Err(e) => {
             if !silent_mode {
                 // Use buffer-based printing with direct error message
-                crate::berror_println!("Error writing to file '{}': {}", safe_display_path, e);
+                bprintln !(error:"Error writing to file '{}': {}", safe_display_path, e);
             }
 
             let error_msg = format!("Error writing to file '{}': {}", safe_display_path, e);

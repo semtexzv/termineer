@@ -8,7 +8,6 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::task;
 
-
 /// Types of output lines that can be stored in the buffer
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutputType {
@@ -24,8 +23,8 @@ pub enum OutputType {
     Debug,
 }
 
-use ratatui::text::Line as RatatuiLine;
 use crate::ansi_converter::ansi_to_line;
+use ratatui::text::Line as RatatuiLine;
 
 /// A single line of output with its type
 #[derive(Debug, Clone)]
@@ -120,7 +119,7 @@ impl SharedBuffer {
     ) -> Result<(), String> {
         self.send_split_lines(OutputType::Tool(tool_name.into()), content.into(), None)
     }
-    
+
     /// Helper method to split content by newlines and add each line separately
     fn send_split_lines(
         &self,
@@ -130,7 +129,7 @@ impl SharedBuffer {
     ) -> Result<(), String> {
         // Split the content by newlines
         let lines = content.split('\n');
-        
+
         // Add each line as a separate OutputLine
         for line in lines {
             // Skip empty lines if they're at the end
@@ -139,7 +138,7 @@ impl SharedBuffer {
             }
 
             let converted_line = ansi_to_line(line);
-            
+
             let output_line = OutputLine {
                 output_type: output_type.clone(),
                 content: line.to_string(),
@@ -147,13 +146,12 @@ impl SharedBuffer {
                 timestamp: Utc::now(),
                 converted_line,
             };
-            
+
             self.push(output_line)?;
         }
-        
+
         Ok(())
     }
-
 }
 
 // Task-local storage for the current task's output buffer
@@ -170,7 +168,6 @@ where
     tokio::spawn(CURRENT_BUFFER.scope(buffer, async move { future.await }))
 }
 
-
 pub fn spawn<F, T>(future: F) -> task::JoinHandle<T>
 where
     F: futures::Future<Output = T> + Send + 'static,
@@ -178,4 +175,3 @@ where
 {
     spawn_with_buffer(CURRENT_BUFFER.get(), future)
 }
-

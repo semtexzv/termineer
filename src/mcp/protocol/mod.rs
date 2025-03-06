@@ -1,15 +1,13 @@
 //! MCP protocol messages and data structures
 
+pub mod common;
+pub mod content;
 pub mod messages;
 pub mod tools;
 
 // Re-export common types for easier imports
 pub use messages::{
-    JsonRpcMessage, MessageContent, Request, JsonRpcError,
-    ClientInfo, ClientCapabilities, RootsCapabilities,
-    InitializeParams, InitializeResult, ServerInfo
+    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, JsonRpcError,
+    JsonRpcMessage, MessageContent, Request, RootsCapabilities, ServerInfo,
 };
-pub use tools::{
-    Tool, ListToolsParams, ListToolsResult,
-    CallToolParams, CallToolResult
-};
+pub use tools::{CallToolParams, CallToolResult, ListToolsResult, Tool};

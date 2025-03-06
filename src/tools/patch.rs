@@ -14,7 +14,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
         return ToolResult::error(error_msg);
@@ -25,7 +25,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
         return ToolResult::error(error_msg);
@@ -42,7 +42,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
             if !silent_mode {
                 // Use buffer-based printing directly
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
 
             return ToolResult::error(error_msg);
@@ -55,7 +55,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Err(e) => {
             if !silent_mode {
                 // Use buffer-based printing directly
-                crate::berror_println!("Error reading file '{}': {}", filename, e);
+                bprintln !(error:"Error reading file '{}': {}", filename, e);
             }
 
             return ToolResult::error(format!("Error reading file '{}': {}", filename, e));
@@ -68,10 +68,13 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         None => {
             if !silent_mode {
                 // Use buffer-based printing directly
-                crate::berror_println!("Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE);
+                bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE);
             }
 
-            return ToolResult::error(format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE));
+            return ToolResult::error(format!(
+                "Missing '{}' delimiter in patch",
+                PATCH_DELIMITER_BEFORE
+            ));
         }
     };
 
@@ -80,10 +83,13 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         None => {
             if !silent_mode {
                 // Use buffer-based printing directly
-                crate::berror_println!("Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER);
+                bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER);
             }
 
-            return ToolResult::error(format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER));
+            return ToolResult::error(format!(
+                "Missing '{}' delimiter in patch",
+                PATCH_DELIMITER_AFTER
+            ));
         }
     };
 
@@ -92,10 +98,13 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         None => {
             if !silent_mode {
                 // Use buffer-based printing directly
-                crate::berror_println!("Missing '{}' delimiter in patch", PATCH_DELIMITER_END);
+                bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_END);
             }
 
-            return ToolResult::error(format!("Missing '{}' delimiter in patch", PATCH_DELIMITER_END));
+            return ToolResult::error(format!(
+                "Missing '{}' delimiter in patch",
+                PATCH_DELIMITER_END
+            ));
         }
     };
 
@@ -106,7 +115,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
         return ToolResult::error(error_msg);
@@ -117,7 +126,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
 
         return ToolResult::error(error_msg);
@@ -143,7 +152,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{} {:?}", error_msg, patch_content);
         }
 
         return ToolResult::error(error_msg);
@@ -156,17 +165,20 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     if !file_content.contains(before_text) {
         if !silent_mode {
             // Use buffer-based printing directly
-            crate::berror_println!("Text to replace not found in the file: '{}'", before_text);
+            bprintln !(error:"Text to replace not found in the file: '{}'", before_text);
         }
 
-        return ToolResult::error(format!("Text to replace not found in the file: '{}'", before_text));
+        return ToolResult::error(format!(
+            "Text to replace not found in the file: '{}'",
+            before_text
+        ));
     }
 
     let new_content = file_content.replace(before_text, after_text);
 
     // Get a safe display path for output messages
     let safe_display_path = validated_path.to_string_lossy();
-    
+
     // Write the updated content (using validated path)
     match fs::write(&validated_path, new_content).await {
         Ok(_) => {
@@ -313,7 +325,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 let full_diff = unified_diff.join("\n");
 
                 // Use buffer-based printing
-                crate::btool_println!("patch", "{}\n{}\n\n{}", diff_header, line_info, full_diff);
+                bprintln !(tool: "patch", "{}\n{}\n\n{}", diff_header, line_info, full_diff);
             }
 
             ToolResult::success(agent_output)
@@ -321,7 +333,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Err(e) => {
             if !silent_mode {
                 // Use buffer-based printing directly
-                crate::berror_println!("Error writing patched file '{}': {}", filename, e);
+                bprintln !(error:"Error writing patched file '{}': {}", filename, e);
             }
 
             ToolResult::error(format!("Error writing patched file '{}': {}", filename, e))

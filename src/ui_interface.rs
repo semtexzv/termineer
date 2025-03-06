@@ -1,15 +1,16 @@
-//! TUI interface for the AutoSWE application
+//! TUI interface for the Termineer application
 //!
 //! This module implements a Text User Interface (TUI) using ratatui,
 //! providing a more interactive and visually appealing interface.
 
-use crate::agent::{AgentManager, AgentId, AgentMessage, AgentState};
+use crate::agent::{AgentId, AgentManager, AgentMessage, AgentState};
 use crate::output::SharedBuffer;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::widgets::{BorderType, Clear};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -20,7 +21,6 @@ use ratatui::{
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use ratatui::widgets::{BorderType, Clear};
 
 /// Maximum number of lines to keep in the conversation history view
 #[allow(dead_code)]
@@ -48,17 +48,20 @@ impl TemporaryOutput {
 
     /// Count the number of lines needed to display content
     pub fn count_lines(&self, width: u16) -> usize {
-        self.content.iter().map(|line| {
-            // Calculate how many display lines this content line will take
-            // with wrapping at the specified width
-            let chars = line.chars().count();
-            if chars == 0 {
-                1 // Empty line still takes one line
-            } else {
-                // Number of full lines plus one for any partial line
-                (chars / width as usize) + if chars % width as usize > 0 { 1 } else { 0 }
-            }
-        }).sum()
+        self.content
+            .iter()
+            .map(|line| {
+                // Calculate how many display lines this content line will take
+                // with wrapping at the specified width
+                let chars = line.chars().count();
+                if chars == 0 {
+                    1 // Empty line still takes one line
+                } else {
+                    // Number of full lines plus one for any partial line
+                    (chars / width as usize) + if chars % width as usize > 0 { 1 } else { 0 }
+                }
+            })
+            .sum()
     }
 
     /// Hide the output
@@ -100,15 +103,42 @@ impl CommandSuggestionsPopup {
     pub fn new() -> Self {
         // Initialize with all available commands
         let all_commands = vec![
-            CommandSuggestion { name: "/help".to_string(), description: "Show available commands".to_string() },
-            CommandSuggestion { name: "/exit".to_string(), description: "Exit the application".to_string() },
-            CommandSuggestion { name: "/quit".to_string(), description: "Exit the application".to_string() },
-            CommandSuggestion { name: "/interrupt".to_string(), description: "Interrupt the current agent".to_string() },
-            CommandSuggestion { name: "/model".to_string(), description: "Set the model for the current agent".to_string() },
-            CommandSuggestion { name: "/tools".to_string(), description: "Enable or disable tools".to_string() },
-            CommandSuggestion { name: "/system".to_string(), description: "Set the system prompt".to_string() },
-            CommandSuggestion { name: "/reset".to_string(), description: "Reset the conversation".to_string() },
-            CommandSuggestion { name: "/thinking".to_string(), description: "Set the thinking budget in tokens".to_string() },
+            CommandSuggestion {
+                name: "/help".to_string(),
+                description: "Show available commands".to_string(),
+            },
+            CommandSuggestion {
+                name: "/exit".to_string(),
+                description: "Exit the application".to_string(),
+            },
+            CommandSuggestion {
+                name: "/quit".to_string(),
+                description: "Exit the application".to_string(),
+            },
+            CommandSuggestion {
+                name: "/interrupt".to_string(),
+                description: "Interrupt the current agent".to_string(),
+            },
+            CommandSuggestion {
+                name: "/model".to_string(),
+                description: "Set the model for the current agent".to_string(),
+            },
+            CommandSuggestion {
+                name: "/tools".to_string(),
+                description: "Enable or disable tools".to_string(),
+            },
+            CommandSuggestion {
+                name: "/system".to_string(),
+                description: "Set the system prompt".to_string(),
+            },
+            CommandSuggestion {
+                name: "/reset".to_string(),
+                description: "Reset the conversation".to_string(),
+            },
+            CommandSuggestion {
+                name: "/thinking".to_string(),
+                description: "Set the thinking budget in tokens".to_string(),
+            },
         ];
 
         Self {
@@ -143,11 +173,10 @@ impl CommandSuggestionsPopup {
         }
 
         // Filter commands that match the input prefix
-        self.filtered_commands = self.all_commands
+        self.filtered_commands = self
+            .all_commands
             .iter()
-            .filter(|cmd| {
-                cmd.name.trim_start_matches('/').starts_with(search_text)
-            })
+            .filter(|cmd| cmd.name.trim_start_matches('/').starts_with(search_text))
             .cloned()
             .collect();
 
@@ -214,7 +243,11 @@ pub struct TuiState {
 
 impl TuiState {
     /// Create a new TUI state
-    pub fn new(selected_agent_id: AgentId, agent_buffer: SharedBuffer, agent_manager: Arc<Mutex<AgentManager>>) -> Self {
+    pub fn new(
+        selected_agent_id: AgentId,
+        agent_buffer: SharedBuffer,
+        agent_manager: Arc<Mutex<AgentManager>>,
+    ) -> Self {
         Self {
             input: String::new(),
             cursor_position: 0,
@@ -342,9 +375,9 @@ impl TuiState {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),                 // Header
-                Constraint::Min(1),                    // Content (flexible)
-                Constraint::Length(input_height),      // Dynamic-height input
+                Constraint::Length(3),            // Header
+                Constraint::Min(1),               // Content (flexible)
+                Constraint::Length(input_height), // Dynamic-height input
             ])
             .split(size);
 
@@ -396,15 +429,26 @@ impl TuiState {
         // Create the temporary output widget with dark orange styling
         let content_text = self.temp_output.content.join("\n");
         let output_widget = Paragraph::new(content_text)
-            .style(Style::default()
-                .fg(Color::LightCyan) // More visible cyan text instead of white
-                .bg(Color::Rgb(180, 80, 0))) // Dark orange background
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(255, 140, 0))) // Brighter orange border
-                .title(format!("{} (Press ESC or Enter to dismiss)", self.temp_output.title))
-                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+            .style(
+                Style::default()
+                    .fg(Color::LightCyan) // More visible cyan text instead of white
+                    .bg(Color::Rgb(180, 80, 0)),
+            ) // Dark orange background
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(255, 140, 0))) // Brighter orange border
+                    .title(format!(
+                        "{} (Press ESC or Enter to dismiss)",
+                        self.temp_output.title
+                    ))
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+            )
             .wrap(Wrap { trim: true });
 
         // Render the output
@@ -414,7 +458,9 @@ impl TuiState {
     /// Render command suggestions popup
     fn render_command_suggestions(&self, f: &mut Frame) {
         // Only render if suggestions are visible and we have any
-        if !self.command_suggestions.visible || self.command_suggestions.filtered_commands.is_empty() {
+        if !self.command_suggestions.visible
+            || self.command_suggestions.filtered_commands.is_empty()
+        {
             return;
         }
 
@@ -427,20 +473,26 @@ impl TuiState {
         let popup_height = num_commands.min(8) as u16 + 2; // +2 for borders
 
         // Calculate width based on longest command and description
-        let max_cmd_width = self.command_suggestions.filtered_commands
+        let max_cmd_width = self
+            .command_suggestions
+            .filtered_commands
             .iter()
             .map(|cmd| cmd.name.len())
             .max()
             .unwrap_or(10) as u16;
 
-        let max_desc_width = self.command_suggestions.filtered_commands
+        let max_desc_width = self
+            .command_suggestions
+            .filtered_commands
             .iter()
             .map(|cmd| cmd.description.len())
             .max()
             .unwrap_or(30) as u16;
 
         // Set popup width with some padding
-        let popup_width = (max_cmd_width + max_desc_width + 10).min(area.width.saturating_sub(4)).max(30);
+        let popup_width = (max_cmd_width + max_desc_width + 10)
+            .min(area.width.saturating_sub(4))
+            .max(30);
 
         // Position popup at the left bottom edge of screen, above input area
         let input_area_y = area.height.saturating_sub(3); // Input is 3 lines from bottom
@@ -462,13 +514,21 @@ impl TuiState {
         // Create lines for each suggestion with proper highlighting
         let mut content_lines: Vec<Line> = Vec::with_capacity(num_commands);
 
-        for (index, suggestion) in self.command_suggestions.filtered_commands.iter().enumerate() {
+        for (index, suggestion) in self
+            .command_suggestions
+            .filtered_commands
+            .iter()
+            .enumerate()
+        {
             // Determine if this is the selected suggestion
             let is_selected = index == self.command_suggestions.selected_index;
 
             // Create style for command name based on selection
             let cmd_style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Yellow)
             };
@@ -491,10 +551,11 @@ impl TuiState {
         }
 
         // Create the suggestions widget
-        let suggestions_widget = Paragraph::new(content_lines)
-            .block(Block::default()
+        let suggestions_widget = Paragraph::new(content_lines).block(
+            Block::default()
                 .borders(Borders::ALL)
-                .title("Commands (TAB to complete)"));
+                .title("Commands (TAB to complete)"),
+        );
 
         // Render the suggestions
         f.render_widget(suggestions_widget, popup_area);
@@ -503,11 +564,11 @@ impl TuiState {
     /// Get an emoji indicator for agent state
     fn get_state_indicator(state: &AgentState) -> &'static str {
         match state {
-            AgentState::Idle => "🟢", // Green circle for ready
-            AgentState::Processing => "🤔", // Thinking face for processing
+            AgentState::Idle => "🟢",               // Green circle for ready
+            AgentState::Processing => "🤔",         // Thinking face for processing
             AgentState::RunningTool { .. } => "🔧", // Wrench for tool execution
-            AgentState::Terminated => "⛔", // No entry sign for terminated
-            AgentState::Done(_) => "✅", // Checkmark for done
+            AgentState::Terminated => "⛔",         // No entry sign for terminated
+            AgentState::Done(_) => "✅",            // Checkmark for done
         }
     }
 
@@ -525,7 +586,9 @@ impl TuiState {
             }
 
             // Create spans for each agent
-            agents.iter().zip(agent_states.iter())
+            agents
+                .iter()
+                .zip(agent_states.iter())
                 .map(|((id, name), state_opt)| {
                     // Get state indicator based on agent state
                     let state_char = if let Some(state) = state_opt {
@@ -561,11 +624,12 @@ impl TuiState {
             Style::default().fg(Color::DarkGray), // Ensure text is visible but subdued
         ));
 
-        let header = Paragraph::new(Line::from(all_spans))
-            .block(Block::default()
+        let header = Paragraph::new(Line::from(all_spans)).block(
+            Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .title("Agents"));
+                .title("Agents"),
+        );
 
         f.render_widget(header, area);
     }
@@ -592,14 +656,15 @@ impl TuiState {
 
             // When at maximum scroll offset (bottom), we want to ensure the last line is visible
             // This requires special handling
-            let adjusted_start = if self.scroll_offset == self.max_scroll_offset && total_lines > visible_height {
-                // Ensure we show the last line by adjusting start index
-                // This forces display of the range ending with the last line
-                total_lines - visible_height
-            } else {
-                // Normal scroll position
-                start_idx
-            };
+            let adjusted_start =
+                if self.scroll_offset == self.max_scroll_offset && total_lines > visible_height {
+                    // Ensure we show the last line by adjusting start index
+                    // This forces display of the range ending with the last line
+                    total_lines - visible_height
+                } else {
+                    // Normal scroll position
+                    start_idx
+                };
 
             // Get the visible range of lines
             let end_idx = (adjusted_start + visible_height).min(total_lines);
@@ -627,18 +692,22 @@ impl TuiState {
                 ""
             };
 
-            format!(" | Scroll: {}/{}{}", self.scroll_offset, self.max_scroll_offset, latest_indicator)
+            format!(
+                " | Scroll: {}/{}{}",
+                self.scroll_offset, self.max_scroll_offset, latest_indicator
+            )
         } else {
             String::new()
         };
 
         let title = format!("Conversation ({} lines{})", total_lines, scroll_info);
 
-        let conversation = Paragraph::new(items)
-            .block(Block::default()
+        let conversation = Paragraph::new(items).block(
+            Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .title(title));
+                .title(title),
+        );
         f.render_widget(conversation, area);
     }
 
@@ -657,8 +726,13 @@ impl TuiState {
         }
 
         // Calculate lines needed (min of 1)
-        let lines_needed = ((input_chars / available_width) + if input_chars % available_width > 0 { 1 } else { 0 })
-            .max(1);
+        let lines_needed = ((input_chars / available_width)
+            + if input_chars % available_width > 0 {
+                1
+            } else {
+                0
+            })
+        .max(1);
 
         // Count newlines in the input
         let newlines = self.input.matches('\n').count() as u16;
@@ -684,7 +758,8 @@ impl TuiState {
         // Get the current agent name directly from the agent manager
         let agent_name = if let Ok(manager) = self.agent_manager.lock() {
             // Clone the name to avoid lifetime issues
-            manager.get_agent_handle(self.selected_agent_id)
+            manager
+                .get_agent_handle(self.selected_agent_id)
                 .map(|h| h.name.clone())
                 .unwrap_or_else(|| "Unknown".to_string())
         } else {
@@ -692,12 +767,20 @@ impl TuiState {
         };
 
         // Create title with agent state
-        let title = format!("Input [{} [{}] | {}]", agent_name, self.selected_agent_id, agent_state_str);
+        let title = format!(
+            "Input [{} [{}] | {}]",
+            agent_name, self.selected_agent_id, agent_state_str
+        );
 
         // Create the input widget with text wrapping enabled
         let input_text = Paragraph::new(self.input.clone())
             .style(input_style)
-            .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .title(title),
+            )
             .wrap(Wrap { trim: true }); // Enable wrapping, don't trim to preserve formatting
 
         f.render_widget(input_text, area);
@@ -714,10 +797,7 @@ impl TuiState {
             let cursor_row = (cursor_pos_in_chars / available_width) as u16 + 1; // +1 for border
 
             // Show cursor at calculated position
-            f.set_cursor(
-                area.x + cursor_column,
-                area.y + cursor_row
-            );
+            f.set_cursor(area.x + cursor_column, area.y + cursor_row);
         }
     }
 
@@ -743,7 +823,7 @@ impl TuiState {
     }
 }
 
-/// TUI interface for the AutoSWE application
+/// TUI interface for the Termineer application
 pub struct TuiInterface {
     /// Terminal instance for the TUI
     terminal: Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
@@ -766,7 +846,11 @@ impl TuiInterface {
         let backend = ratatui::backend::CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
-        let buffer = agent_manager.lock().unwrap().get_agent_buffer(main_agent_id).unwrap();
+        let buffer = agent_manager
+            .lock()
+            .unwrap()
+            .get_agent_buffer(main_agent_id)
+            .unwrap();
         let state = TuiState::new(main_agent_id, buffer, agent_manager.clone());
 
         Ok(Self {
@@ -788,13 +872,13 @@ impl TuiInterface {
                 match event::read()? {
                     Event::Key(key) => {
                         self.handle_key_event(key).await?;
-                    },
+                    }
                     Event::Mouse(mouse) => {
                         self.handle_mouse_event(mouse).await?;
-                    },
+                    }
                     Event::Resize(_, _) => {
                         // Terminal resize - bounds will be updated in draw
-                    },
+                    }
                     _ => {}
                 }
 
@@ -835,7 +919,10 @@ impl TuiInterface {
     }
 
     /// Handle key events
-    async fn handle_key_event(&mut self, key: KeyEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_key_event(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match key.code {
             // Multi-level interrupt with Ctrl+C
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -923,7 +1010,9 @@ impl TuiInterface {
 
                     // Handle special case: check if we're still in command mode
                     if self.state.command_mode {
-                        self.state.command_suggestions.update_suggestions(&self.state.input);
+                        self.state
+                            .command_suggestions
+                            .update_suggestions(&self.state.input);
                     }
                 }
             }
@@ -941,7 +1030,9 @@ impl TuiInterface {
 
                     // Update command suggestions if still in command mode
                     if self.state.command_mode {
-                        self.state.command_suggestions.update_suggestions(&self.state.input);
+                        self.state
+                            .command_suggestions
+                            .update_suggestions(&self.state.input);
                     }
                 }
             }
@@ -1173,7 +1264,10 @@ impl TuiInterface {
                 }
 
                 // If command suggestions are visible, navigate up through them
-                if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
+                if self.state.command_mode
+                    && self.state.command_suggestions.visible
+                    && !self.state.command_suggestions.filtered_commands.is_empty()
+                {
                     // Navigate to previous suggestion (looping to bottom if at top)
                     let current = self.state.command_suggestions.selected_index;
                     let count = self.state.command_suggestions.filtered_commands.len();
@@ -1202,7 +1296,10 @@ impl TuiInterface {
                     // Go backward in history if not at beginning
                     if self.state.history_index < (self.state.command_history.len() as isize - 1) {
                         self.state.history_index += 1;
-                        let history_entry = &self.state.command_history[self.state.command_history.len() - 1 - self.state.history_index as usize];
+                        let history_entry =
+                            &self.state.command_history[self.state.command_history.len()
+                                - 1
+                                - self.state.history_index as usize];
                         self.state.input = history_entry.clone();
                         self.state.cursor_position = self.state.input.len();
                     }
@@ -1217,7 +1314,10 @@ impl TuiInterface {
                 }
 
                 // If command suggestions are visible, navigate down through them
-                if self.state.command_mode && self.state.command_suggestions.visible && !self.state.command_suggestions.filtered_commands.is_empty() {
+                if self.state.command_mode
+                    && self.state.command_suggestions.visible
+                    && !self.state.command_suggestions.filtered_commands.is_empty()
+                {
                     // Navigate to next suggestion (looping to top if at bottom)
                     self.state.command_suggestions.next();
 
@@ -1244,7 +1344,10 @@ impl TuiInterface {
                         }
                     } else {
                         // Otherwise show the history entry
-                        let history_entry = &self.state.command_history[self.state.command_history.len() - 1 - self.state.history_index as usize];
+                        let history_entry =
+                            &self.state.command_history[self.state.command_history.len()
+                                - 1
+                                - self.state.history_index as usize];
                         self.state.input = history_entry.clone();
                     }
                     self.state.cursor_position = self.state.input.len();
@@ -1259,17 +1362,20 @@ impl TuiInterface {
     }
 
     /// Handle mouse events (simplified version)
-    async fn handle_mouse_event(&mut self, mouse: event::MouseEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_mouse_event(
+        &mut self,
+        mouse: event::MouseEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Simple mouse wheel scrolling implementation
         match mouse.kind {
             event::MouseEventKind::ScrollDown => {
                 // Scroll down (increase offset to show newer/more recent messages)
                 self.state.scroll(3);
-            },
+            }
             event::MouseEventKind::ScrollUp => {
                 // Scroll up (decrease offset to show older messages)
                 self.state.scroll(-3);
-            },
+            }
             _ => {}
         }
 
@@ -1277,7 +1383,9 @@ impl TuiInterface {
     }
 
     /// Handle Ctrl+C interrupt with multi-level behavior
-    async fn handle_ctrl_c_interrupt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_ctrl_c_interrupt(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Define the double-press window (3 seconds)
         const DOUBLE_PRESS_WINDOW: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -1287,7 +1395,9 @@ impl TuiInterface {
         // Check if this is a double-press (second Ctrl+C within window)
         if let Some(last_time) = self.state.last_interrupt_time {
             // Only count as double-press if previous Ctrl+C wasn't for interrupting a process
-            if !self.state.last_interrupt_was_process && now.duration_since(last_time) < DOUBLE_PRESS_WINDOW {
+            if !self.state.last_interrupt_was_process
+                && now.duration_since(last_time) < DOUBLE_PRESS_WINDOW
+            {
                 // This is a double-press, exit the application
                 let popup_title = "Exiting Application".to_string();
                 let popup_content = "Received second Ctrl+C. Exiting application...".to_string();
@@ -1314,7 +1424,7 @@ impl TuiInterface {
                 let manager = self.agent_manager.lock().unwrap();
                 manager.interrupt_agent_with_reason(
                     self.state.selected_agent_id,
-                    "User pressed Ctrl+C".to_string()
+                    "User pressed Ctrl+C".to_string(),
                 )?;
 
                 // Mark that we used Ctrl+C to interrupt a process
@@ -1324,11 +1434,12 @@ impl TuiInterface {
 
                 // Don't show popup when interrupting an agent
                 // Just silently interrupt the process
-            },
+            }
 
             // If agent is waiting for input (idle or done), start the double-press timer
             _ => {
-                popup_content = "Press Ctrl+C again within 3 seconds to exit application.".to_string();
+                popup_content =
+                    "Press Ctrl+C again within 3 seconds to exit application.".to_string();
 
                 // Start the double-press timer for exiting the application
                 self.state.last_interrupt_time = Some(now);
@@ -1348,7 +1459,10 @@ impl TuiInterface {
     }
 
     /// Process slash commands
-    async fn process_command(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn process_command(
+        &mut self,
+        input: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Split command and arguments
         let parts: Vec<&str> = input.splitn(2, ' ').collect();
         let command = parts[0].trim_start_matches('/');
@@ -1358,7 +1472,8 @@ impl TuiInterface {
         match command {
             "help" => {
                 // Show help information
-                let help_text = obfstr::obfstring!("\
+                let help_text = obfstr::obfstring!(
+                    "\
                 Available commands:
                 /help - Show this help information
                 /exit, /quit - Exit the application
@@ -1371,15 +1486,16 @@ impl TuiInterface {
 
                 Agent selection:
                 #ID or #NAME - Switch to agent by ID or name
-                ");
+                "
+                );
 
                 self.show_command_result("Help".to_string(), help_text);
-            },
+            }
 
             "exit" | "quit" => {
                 // Exit the application
                 self.state.should_quit = true;
-            },
+            }
 
             "interrupt" => {
                 // Interrupt the current agent
@@ -1388,11 +1504,14 @@ impl TuiInterface {
                     self.state.selected_agent_id,
                     "User requested interruption via /interrupt command".to_string(),
                 )?;
-            },
+            }
 
             "model" => {
                 if args.is_empty() {
-                    self.show_command_result("Error".to_string(), "Model name is required".to_string());
+                    self.show_command_result(
+                        "Error".to_string(),
+                        "Model name is required".to_string(),
+                    );
                     return Ok(());
                 }
 
@@ -1403,18 +1522,18 @@ impl TuiInterface {
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
 
-                manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(cmd),
-                )?;
-            },
+                manager.send_message(self.state.selected_agent_id, AgentMessage::Command(cmd))?;
+            }
 
             "tools" => {
                 let enable = match args.to_lowercase().as_str() {
                     "on" | "true" | "yes" | "1" => true,
                     "off" | "false" | "no" | "0" => false,
                     _ => {
-                        self.show_command_result("Error".to_string(), "Invalid argument. Use 'on' or 'off'".to_string());
+                        self.show_command_result(
+                            "Error".to_string(),
+                            "Invalid argument. Use 'on' or 'off'".to_string(),
+                        );
                         return Ok(());
                     }
                 };
@@ -1425,15 +1544,15 @@ impl TuiInterface {
 
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
-                manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(cmd),
-                )?;
-            },
+                manager.send_message(self.state.selected_agent_id, AgentMessage::Command(cmd))?;
+            }
 
             "system" => {
                 if args.is_empty() {
-                    self.show_command_result("Error".to_string(), "System prompt is required".to_string());
+                    self.show_command_result(
+                        "Error".to_string(),
+                        "System prompt is required".to_string(),
+                    );
                     return Ok(());
                 }
 
@@ -1443,11 +1562,8 @@ impl TuiInterface {
 
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
-                manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(cmd),
-                )?;
-            },
+                manager.send_message(self.state.selected_agent_id, AgentMessage::Command(cmd))?;
+            }
 
             "reset" => {
                 // Create ResetConversation command
@@ -1456,23 +1572,26 @@ impl TuiInterface {
 
                 // Send to agent
                 let manager = self.agent_manager.lock().unwrap();
-                manager.send_message(
-                    self.state.selected_agent_id,
-                    AgentMessage::Command(cmd),
-                )?;
-            },
+                manager.send_message(self.state.selected_agent_id, AgentMessage::Command(cmd))?;
+            }
 
             "thinking" => {
                 // Parse the thinking budget argument
                 if args.is_empty() {
-                    self.show_command_result("Error".to_string(), "Thinking budget (number of tokens) is required".to_string());
+                    self.show_command_result(
+                        "Error".to_string(),
+                        "Thinking budget (number of tokens) is required".to_string(),
+                    );
                     return Ok(());
                 }
 
                 let budget = match args.parse::<usize>() {
                     Ok(value) => value,
                     Err(_) => {
-                        self.show_command_result("Error".to_string(), "Invalid number format".to_string());
+                        self.show_command_result(
+                            "Error".to_string(),
+                            "Invalid number format".to_string(),
+                        );
                         return Ok(());
                     }
                 };
@@ -1488,12 +1607,23 @@ impl TuiInterface {
                     self.state.selected_agent_id,
                     AgentMessage::Command(AgentCommand::SetThinkingBudget(budget)),
                 )?;
-            },
+            }
+
+            "mcp" => {
+                self.show_command_result("MCP Configuration".to_string(), 
+                    "MCP servers must be configured in .termineer/config.json file. Direct connection via command is no longer supported.".to_string());
+            }
 
             // Unknown command
             _ => {
                 // Log error message to buffer
-                self.state.agent_buffer.stdout(&format!("Unknown command: '{}'. Type /help for available commands.", input)).unwrap();
+                self.state
+                    .agent_buffer
+                    .stdout(&format!(
+                        "Unknown command: '{}'. Type /help for available commands.",
+                        input
+                    ))
+                    .unwrap();
             }
         }
 
@@ -1501,7 +1631,10 @@ impl TuiInterface {
     }
 
     /// Handle pound command for agent switching
-    async fn handle_pound_command(&mut self, cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_pound_command(
+        &mut self,
+        cmd: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Create popup for command result
         let command_title = format!("Agent Selection: {}", cmd);
         let mut result = String::new();
@@ -1514,7 +1647,9 @@ impl TuiInterface {
             let agent_id = AgentId(agent_id);
 
             // Check if this agent exists
-            let agent_exists = self.agent_manager.lock()
+            let agent_exists = self
+                .agent_manager
+                .lock()
                 .map(|manager| manager.get_agent_handle(agent_id).is_some())
                 .unwrap_or(false);
 
@@ -1528,7 +1663,8 @@ impl TuiInterface {
                     self.state.agent_buffer = buffer;
 
                     // Get agent name from manager
-                    let agent_name = manager.get_agent_handle(agent_id)
+                    let agent_name = manager
+                        .get_agent_handle(agent_id)
                         .map(|handle| handle.name.clone())
                         .unwrap_or_else(|| "Unknown".to_string());
 
@@ -1545,7 +1681,8 @@ impl TuiInterface {
 
             let agent_info = manager_result.and_then(|manager| {
                 manager.get_agent_id_by_name(agent_str).map(|id| {
-                    let name = manager.get_agent_handle(id)
+                    let name = manager
+                        .get_agent_handle(id)
                         .map(|h| h.name.clone())
                         .unwrap_or_else(|| "Unknown".to_string());
                     (id, name)

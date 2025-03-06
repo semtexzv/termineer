@@ -5,15 +5,15 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_USER: autoswe
+      POSTGRES_USER: termineer
       POSTGRES_PASSWORD: development
-      POSTGRES_DB: autoswe
+      POSTGRES_DB: termineer
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U autoswe"]
+      test: ["CMD-SHELL", "pg_isready -U termineer"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,7 +26,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgres://autoswe:development@db:5432/autoswe
+      - DATABASE_URL=postgres://termineer:development@db:5432/termineer
       - JWT_SECRET=developmentSecret123
       - GOOGLE_CLIENT_ID=mock_client_id_for_testing
       - GOOGLE_CLIENT_SECRET=mock_client_secret_for_testing

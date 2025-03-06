@@ -4,7 +4,7 @@
 //! - create: Create a new agent
 //! - send: Send a message to another agent
 
-use crate::agent::{AgentManager, AgentMessage, AgentId};
+use crate::agent::{AgentId, AgentManager, AgentMessage};
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_RESET};
 use crate::tools::ToolResult;
@@ -14,10 +14,10 @@ use crate::GLOBAL_AGENT_MANAGER;
 
 /// Execute the agent tool with the given arguments and body
 pub async fn execute_agent_tool(
-    args: &str, 
-    body: &str, 
+    args: &str,
+    body: &str,
     silent_mode: bool,
-    source_agent_id: Option<AgentId>
+    source_agent_id: Option<AgentId>,
 ) -> ToolResult {
     // Get access to the agent manager (either provided or global)
     let agent_manager = GLOBAL_AGENT_MANAGER.clone();
@@ -32,7 +32,14 @@ pub async fn execute_agent_tool(
             execute_create_subcommand(subcommand_args, body, silent_mode, agent_manager).await
         }
         "send" => {
-            execute_send_subcommand(subcommand_args, body, silent_mode, agent_manager, source_agent_id).await
+            execute_send_subcommand(
+                subcommand_args,
+                body,
+                silent_mode,
+                agent_manager,
+                source_agent_id,
+            )
+            .await
         }
         _ => {
             let error_msg = format!(
@@ -40,7 +47,7 @@ pub async fn execute_agent_tool(
                 subcommand
             );
             if !silent_mode {
-                crate::berror_println!("{}", error_msg);
+                bprintln !(error:"{}", error_msg);
             }
             ToolResult::error(error_msg)
         }
@@ -61,7 +68,7 @@ async fn execute_create_subcommand(
     // Split the args by spaces to check for parameters with key=value syntax
     let parts: Vec<&str> = args_string.split_whitespace().collect();
     let mut agent_name_parts = Vec::new();
-    
+
     for part in parts {
         if part.starts_with("kind=") {
             // Extract kind parameter
@@ -73,7 +80,7 @@ async fn execute_create_subcommand(
             agent_name_parts.push(part);
         }
     }
-    
+
     // Reconstruct the agent name from non-parameter parts
     let agent_name = agent_name_parts.join(" ");
 
@@ -81,7 +88,7 @@ async fn execute_create_subcommand(
     if agent_name.is_empty() {
         let error_msg = "Error: Agent creation requires a name".to_string();
         if !silent_mode {
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
         return ToolResult::error(error_msg);
     }
@@ -91,29 +98,27 @@ async fn execute_create_subcommand(
     if agent_instructions.is_empty() {
         let error_msg = "Error: Agent creation requires instructions in the body".to_string();
         if !silent_mode {
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
         return ToolResult::error(error_msg);
     }
 
     // Create a configuration for the new agent
     let mut config = Config::new();
-    
+
     // Set the kind parameter if provided
     config.kind = kind_name.clone();
-    
+
     // Log the agent creation
     if !silent_mode {
         if let Some(kind) = &kind_name {
-            crate::btool_println!(
-                "agent",
+            bprintln !(tool: "agent",
                 "Creating agent '{}' with kind '{}'",
                 agent_name,
                 kind
             );
         } else {
-            crate::btool_println!(
-                "agent",
+            bprintln !(tool: "agent",
                 "Creating agent '{}'",
                 agent_name
             );
@@ -128,7 +133,7 @@ async fn execute_create_subcommand(
             Err(e) => {
                 let error_msg = format!("Failed to create agent: {}", e);
                 if !silent_mode {
-                    crate::berror_println!("{}", error_msg);
+                    bprintln !(error:"{}", error_msg);
                 }
                 return ToolResult::error(error_msg);
             }
@@ -144,8 +149,7 @@ async fn execute_create_subcommand(
         ) {
             Ok(_) => {
                 if !silent_mode {
-                    crate::btool_println!(
-                        "agent",
+                    bprintln !(tool: "agent",
                         "{}✅ Agent Created:{} {} [ID: {}]",
                         FORMAT_BOLD,
                         FORMAT_RESET,
@@ -157,7 +161,7 @@ async fn execute_create_subcommand(
             Err(e) => {
                 let error_msg = format!("Failed to send instructions to new agent: {}", e);
                 if !silent_mode {
-                    crate::berror_println!("{}", error_msg);
+                    bprintln !(error:"{}", error_msg);
                 }
                 return ToolResult::error(error_msg);
             }
@@ -169,9 +173,8 @@ async fn execute_create_subcommand(
         true,
         format!(
             "Agent '{}' created with ID: {}\nInitial instructions sent to the agent.",
-            agent_name,
-            agent_id
-        )
+            agent_name, agent_id
+        ),
     )
 }
 
@@ -188,7 +191,7 @@ async fn execute_send_subcommand(
     if target_agent.is_empty() {
         let error_msg = "Error: send subcommand requires a target agent (name or ID)".to_string();
         if !silent_mode {
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
         return ToolResult::error(error_msg);
     }
@@ -198,7 +201,7 @@ async fn execute_send_subcommand(
     if message_content.is_empty() {
         let error_msg = "Error: Message content is required in the body".to_string();
         if !silent_mode {
-            crate::berror_println!("{}", error_msg);
+            bprintln !(error:"{}", error_msg);
         }
         return ToolResult::error(error_msg);
     }
@@ -214,7 +217,7 @@ async fn execute_send_subcommand(
             if manager.get_agent_handle(agent_id).is_none() {
                 let error_msg = format!("Error: Agent with ID {} not found", id_num);
                 if !silent_mode {
-                    crate::berror_println!("{}", error_msg);
+                    bprintln !(error:"{}", error_msg);
                 }
                 return ToolResult::error(error_msg);
             }
@@ -226,7 +229,7 @@ async fn execute_send_subcommand(
                 None => {
                     let error_msg = format!("Error: Agent with name '{}' not found", target_agent);
                     if !silent_mode {
-                        crate::berror_println!("{}", error_msg);
+                        bprintln !(error:"{}", error_msg);
                     }
                     return ToolResult::error(error_msg);
                 }
@@ -239,33 +242,28 @@ async fn execute_send_subcommand(
         Some(id) => {
             // Try to get the actual agent name if source_agent_id is provided
             let manager = agent_manager.lock().unwrap();
-            let name = manager.get_agent_handle(id)
+            let name = manager
+                .get_agent_handle(id)
                 .map(|h| h.name.clone())
                 .unwrap_or_else(|| format!("agent-{}", id));
             (name, id.to_string())
-        },
-        None => ("unknown_agent".to_string(), "unknown".to_string())
+        }
+        None => ("unknown_agent".to_string(), "unknown".to_string()),
     };
 
     // Format the message with XML tags to indicate it's from another agent
     let formatted_message = format!(
         "<agent_message source=\"{}\" source_id=\"{}\">\n{}\n</agent_message>",
-        source_agent_name,
-        source_id_str,
-        message_content
+        source_agent_name, source_id_str, message_content
     );
 
     // Send the message to the target agent
     {
         let manager = agent_manager.lock().unwrap();
-        match manager.send_message(
-            target_id,
-            AgentMessage::UserInput(formatted_message),
-        ) {
+        match manager.send_message(target_id, AgentMessage::UserInput(formatted_message)) {
             Ok(_) => {
                 if !silent_mode {
-                    crate::btool_println!(
-                        "agent",
+                    bprintln !(tool: "agent",
                         "{}✅ Message Sent:{} to agent {}",
                         FORMAT_BOLD,
                         FORMAT_RESET,
@@ -276,7 +274,7 @@ async fn execute_send_subcommand(
             Err(e) => {
                 let error_msg = format!("Failed to send message to agent: {}", e);
                 if !silent_mode {
-                    crate::berror_println!("{}", error_msg);
+                    bprintln !(error:"{}", error_msg);
                 }
                 return ToolResult::error(error_msg);
             }
@@ -286,10 +284,6 @@ async fn execute_send_subcommand(
     // Return success
     ToolResult::default(
         true,
-        format!(
-            "Message sent to agent {} [ID: {}]",
-            target_agent,
-            target_id
-        )
+        format!("Message sent to agent {} [ID: {}]", target_agent, target_id),
     )
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// MCP server configuration structure matching the .termineer/config.json format
+/// MCP server configuration structure matching the .term/config.json format
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McpServerConfig {
     /// Command to execute for this MCP server
@@ -45,7 +45,7 @@ impl McpConfig {
         }
     }
     
-    /// Load MCP configuration from .termineer/config.json and ~/.termineer/mcp/config.json
+    /// Load MCP configuration from .term/config.json and ~/.termineer/mcp/config.json
     pub fn load() -> Result<Option<Self>> {
         let mut result = None;
         
@@ -103,7 +103,7 @@ mod tests {
     async fn test_mcp_config_loading() {
         // Create a temporary test directory
         let temp_dir = PathBuf::from("./target/test_mcp_config");
-        let term_dir = temp_dir.join("../../.termineer");
+        let term_dir = temp_dir.join(".term");
         fs::create_dir_all(&term_dir).unwrap();
 
         // Write a test config file

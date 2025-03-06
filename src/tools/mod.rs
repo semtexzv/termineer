@@ -19,7 +19,7 @@ pub use mcp::execute_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
 pub use search::execute_search;
-pub use shell::{InterruptData};
+pub use shell::InterruptData;
 pub use task::execute_task;
 pub use wait::execute_wait;
 pub use write::execute_write;
@@ -40,11 +40,11 @@ pub struct ToolResult {
     /// Whether the tool execution was successful
     pub success: bool,
 
-    /// Full output to send to the LLM
-    pub agent_output: String,
-    
     /// Requested state change for the agent
     pub state_change: AgentStateChange,
+
+    /// Content representing the tool's output as LLM content objects
+    pub content: Vec<crate::llm::Content>,
 }
 
 // This allows backward compatibility with legacy code that doesn't specify state_change
@@ -60,17 +60,39 @@ impl ToolResult {
     pub fn success(output: String) -> Self {
         Self {
             success: true,
-            agent_output: output,
             state_change: AgentStateChange::Continue,
+            content: vec![crate::llm::Content::Text { text: output }],
         }
     }
-    
+
+    /// Create a successful tool result with multiple content items
+    pub fn success_with_content(content: Vec<crate::llm::Content>) -> Self {
+        Self {
+            success: true,
+            state_change: AgentStateChange::Continue,
+            content,
+        }
+    }
+
+    /// Create a successful tool result from MCP content
+    pub fn success_from_mcp(mcp_content: Vec<crate::mcp::protocol::content::Content>) -> Self {
+        use crate::mcp::protocol::content::McpContent;
+
+        // Convert each MCP content to LLM content
+        let llm_content = mcp_content
+            .into_iter()
+            .map(|c| c.to_llm_content())
+            .collect();
+
+        Self::success_with_content(llm_content)
+    }
+
     /// Create a default tool result with continue state
-    pub fn default(success: bool, agent_output: String) -> Self {
+    pub fn default(success: bool, output: String) -> Self {
         Self {
             success,
-            agent_output,
             state_change: AgentStateChange::Continue,
+            content: vec![crate::llm::Content::Text { text: output }],
         }
     }
 
@@ -78,27 +100,46 @@ impl ToolResult {
     pub fn error(message: String) -> Self {
         Self {
             success: false,
-            agent_output: message,
             state_change: AgentStateChange::Continue,
+            content: vec![crate::llm::Content::Text { text: message }],
         }
     }
-    
+
     /// Create a tool result that puts the agent in waiting state
     pub fn wait(_reason: String) -> Self {
         Self {
             success: true,
-            agent_output: "Resumed".to_string(),
             state_change: AgentStateChange::Wait,
+            content: vec![crate::llm::Content::Text {
+                text: "Resumed".to_string(),
+            }],
         }
     }
-    
+
     /// Create a tool result that marks the agent as done
     pub fn done(summary: String) -> Self {
         Self {
             success: true,
-            agent_output: summary,
             state_change: AgentStateChange::Done,
+            content: vec![crate::llm::Content::Text { text: summary }],
         }
+    }
+
+    /// Get a text representation of the content
+    pub fn to_text(&self) -> String {
+        let mut result = String::new();
+        for content in &self.content {
+            match content {
+                crate::llm::Content::Text { text } => {
+                    result.push_str(text);
+                    result.push('\n');
+                }
+                _ => {
+                    result.push_str("[Complex content - see formatted response]\n");
+                }
+            }
+        }
+        result
     }
 }
 
@@ -127,8 +168,7 @@ impl ToolExecutor {
     }
 
     /// Create a new tool executor with agent ID
-    pub fn with_agent_manager(readonly_mode: bool, silent_mode: bool, agent_id: AgentId) -> Self {
-        // Keep the method signature for backward compatibility, but we'll use the global manager
+    pub fn with_agent_id(readonly_mode: bool, silent_mode: bool, agent_id: AgentId) -> Self {
         Self {
             readonly_mode,
             silent_mode,
@@ -141,6 +181,8 @@ impl ToolExecutor {
         self.silent_mode
     }
 
+    // Method removed as it's not implemented and not used
+
     /// Execute a tool based on name, args, and body provided by the LLM
     pub async fn execute_with_parts(&self, tool_name: &str, args: &str, body: &str) -> ToolResult {
         // Using pre-parsed components directly
@@ -150,7 +192,7 @@ impl ToolExecutor {
         if self.readonly_mode && !self.is_readonly_tool(&tool_name) {
             if !self.silent_mode {
                 // Always use buffer-based printing with direct formatting
-                crate::berror_println!("Tool '{}' is not available in read-only mode", tool_name);
+                bprintln !(error:"Tool '{}' is not available in read-only mode", tool_name);
             }
             return ToolResult::error(format!(
                 "Tool '{}' is not available in read-only mode",
@@ -173,63 +215,83 @@ impl ToolExecutor {
             _ => {
                 if !self.silent_mode {
                     // Always use buffer-based printing with direct formatting
-                    crate::berror_println!("Unknown tool: {:?}", tool_name);
+                    bprintln !(error:"Unknown tool: {:?}", tool_name);
                 }
                 ToolResult::error(format!("Unknown tool: {:?}", tool_name))
             }
         };
-        
-        // Apply UTF-8 safe truncation to long tool outputs
-        if result.agent_output.len() > crate::constants::MAX_TOOL_OUTPUT_LENGTH {
-            let original_length = result.agent_output.len();
-            
-            // Apply truncation - use default parameters from constants
-            result.agent_output = truncate_utf8_content(&result.agent_output, None, None, None, None);
-            
-            // Log truncation if not in silent mode
-            if !self.silent_mode {
-                let truncated_bytes = original_length - result.agent_output.len();
-                let truncated_kb = truncated_bytes / 1024;
-                
-                crate::bprintln!(
-                    "{}🔍 Truncated tool output from {} KB to {} KB (saved {} KB){}",
-                    crate::constants::FORMAT_YELLOW,
-                    original_length / 1024,
-                    result.agent_output.len() / 1024,
-                    truncated_kb,
-                    crate::constants::FORMAT_RESET
-                );
+
+        // Apply UTF-8 safe truncation to long text outputs
+        for i in 0..result.content.len() {
+            if let crate::llm::Content::Text { text } = &result.content[i] {
+                if text.len() > crate::constants::MAX_TOOL_OUTPUT_LENGTH {
+                    let original_length = text.len();
+
+                    // Apply truncation - use default parameters from constants
+                    let truncated_text = truncate_utf8_content(text, None, None, None, None);
+
+                    // Update the content with truncated text
+                    result.content[i] = crate::llm::Content::Text {
+                        text: truncated_text,
+                    };
+
+                    // Log truncation if not in silent mode
+                    if !self.silent_mode {
+                        // Get the new length after truncation
+                        let new_length =
+                            if let crate::llm::Content::Text { text } = &result.content[i] {
+                                text.len()
+                            } else {
+                                0 // Should never happen
+                            };
+
+                        let truncated_bytes = original_length - new_length;
+                        let truncated_kb = truncated_bytes / 1024;
+
+                        bprintln!(
+                            "{}🔍 Truncated tool output from {} KB to {} KB (saved {} KB){}",
+                            crate::constants::FORMAT_YELLOW,
+                            original_length / 1024,
+                            new_length / 1024,
+                            truncated_kb,
+                            crate::constants::FORMAT_RESET
+                        );
+                    }
+                }
             }
         }
-        
+
         result
     }
-    
+
     /// Check if a tool is read-only
     fn is_readonly_tool(&self, name: &str) -> bool {
-        matches!(name, "read" | "shell" | "fetch" | "search" | "mcp" | "done" | "task" | "agent" | "wait")
+        matches!(
+            name,
+            "read" | "shell" | "fetch" | "search" | "mcp" | "done" | "task" | "agent" | "wait"
+        )
     }
 }
 
 /// Truncates long string content while respecting UTF-8 character boundaries
-/// 
+///
 /// This function handles proper truncation of tool outputs, ensuring that:
 /// 1. UTF-8 character boundaries are preserved (no broken Unicode characters)
 /// 2. A reasonable amount of content from the start is kept for context
 /// 3. Optionally preserves content from the end (configurable)
 /// 4. Inserts a placeholder to indicate truncation occurred
-/// 
+///
 /// # Arguments
 /// * `content` - The string content to truncate
 /// * `max_length` - Maximum desired total length (default from constants)
 /// * `start_length` - How much to preserve from the start
 /// * `end_length` - How much to preserve from the end (0 to skip end preservation)
 /// * `placeholder` - Text to insert between preserved parts
-/// 
+///
 /// # Returns
 /// Truncated string with placeholder if needed, or original string if short enough
 pub fn truncate_utf8_content(
-    content: &str, 
+    content: &str,
     max_length: Option<usize>,
     start_length: Option<usize>,
     end_length: Option<usize>,
@@ -244,12 +306,12 @@ pub fn truncate_utf8_content(
         0
     };
     let placeholder = placeholder.unwrap_or(crate::constants::TRUNCATION_PLACEHOLDER);
-    
+
     // If content is already short enough, return as is
     if content.len() <= max_length {
         return content.to_string();
     }
-    
+
     // Calculate how much we can preserve from start and end
     // We need to ensure the final output fits within max_length
     let total_preserved = start_length + end_length + placeholder.len();
@@ -264,10 +326,11 @@ pub fn truncate_utf8_content(
     } else {
         (start_length, end_length)
     };
-    
+
     // Find valid UTF-8 character boundary for start section
     let prefix_boundary = if actual_start > 0 {
-        content.char_indices()
+        content
+            .char_indices()
             .take_while(|(idx, _)| *idx < actual_start)
             .last()
             .map(|(idx, c)| idx + c.len_utf8())
@@ -275,17 +338,18 @@ pub fn truncate_utf8_content(
     } else {
         0
     };
-    
+
     // Build result with or without end content
     if actual_end > 0 {
         // Find valid UTF-8 character boundary for end section
-        let suffix_start = content.char_indices()
+        let suffix_start = content
+            .char_indices()
             .rev()
             .take_while(|(idx, _)| content.len().saturating_sub(*idx) <= actual_end)
             .last()
             .map(|(idx, _)| idx)
             .unwrap_or(content.len());
-        
+
         // Combine start, placeholder, and end
         format!(
             "{}{}{}",
@@ -295,54 +359,53 @@ pub fn truncate_utf8_content(
         )
     } else {
         // Just use the start and placeholder
-        format!(
-            "{}{}",
-            &content[..prefix_boundary],
-            placeholder
-        )
+        format!("{}{}", &content[..prefix_boundary], placeholder)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_utf8_truncation() {
         // Test with ASCII content
         let ascii = "A".repeat(10_000);
-        let truncated_ascii = truncate_utf8_content(&ascii, Some(1000), Some(100), Some(100), Some("[...]"));
-        
+        let truncated_ascii =
+            truncate_utf8_content(&ascii, Some(1000), Some(100), Some(100), Some("[...]"));
+
         // Verify lengths
         assert!(truncated_ascii.len() < ascii.len());
         assert!(truncated_ascii.contains("[...]"));
-        
+
         // Verify UTF-8 validity
         assert!(std::str::from_utf8(truncated_ascii.as_bytes()).is_ok());
-        
+
         // Test with multi-byte UTF-8 characters (emoji - 4 bytes each)
         let emoji = "😀".repeat(1_000);
-        let truncated_emoji = truncate_utf8_content(&emoji, Some(500), Some(100), Some(100), Some("[...]"));
-        
+        let truncated_emoji =
+            truncate_utf8_content(&emoji, Some(500), Some(100), Some(100), Some("[...]"));
+
         // Verify proper truncation
         assert!(truncated_emoji.len() < emoji.len());
         assert!(truncated_emoji.contains("[...]"));
-        
+
         // Most importantly, verify UTF-8 validity is maintained
         assert!(std::str::from_utf8(truncated_emoji.as_bytes()).is_ok());
-        
+
         // Test mixed content
         let mixed = format!("{}{}{}", "A".repeat(100), "😀".repeat(100), "Z".repeat(100));
-        let truncated_mixed = truncate_utf8_content(&mixed, Some(200), Some(50), Some(50), Some("[...]"));
-        
+        let truncated_mixed =
+            truncate_utf8_content(&mixed, Some(200), Some(50), Some(50), Some("[...]"));
+
         // Verify truncation happened
         assert!(truncated_mixed.len() < mixed.len());
         assert!(truncated_mixed.contains("[...]"));
-        
+
         // Verify both start and end sections are preserved
         assert!(truncated_mixed.starts_with(&"A".repeat(10)));
         assert!(truncated_mixed.ends_with(&"Z".repeat(10)));
-        
+
         // Verify UTF-8 validity
         assert!(std::str::from_utf8(truncated_mixed.as_bytes()).is_ok());
     }

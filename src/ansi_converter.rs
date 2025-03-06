@@ -27,19 +27,19 @@ impl StyleState {
     /// Convert to a ratatui Style
     fn to_style(&self) -> Style {
         let mut style = Style::default();
-        
+
         if let Some(fg) = self.fg_color {
             style = style.fg(fg);
         }
-        
+
         if let Some(bg) = self.bg_color {
             style = style.bg(bg);
         }
-        
+
         if self.bold {
             style = style.add_modifier(Modifier::BOLD);
         }
-        
+
         style
     }
 
@@ -57,10 +57,10 @@ pub fn ansi_to_line(text: &str) -> Line<'static> {
     let mut current_text = String::new();
     let mut current_style = StyleState::new();
     let mut i = 0;
-    
+
     // Convert the string to chars for easier processing
     let chars: Vec<char> = text.chars().collect();
-    
+
     while i < chars.len() {
         // Check for escape sequence start
         if chars[i] == '\x1b' && i + 1 < chars.len() && chars[i + 1] == '[' {
@@ -69,43 +69,46 @@ pub fn ansi_to_line(text: &str) -> Line<'static> {
                 spans.push(Span::styled(current_text.clone(), current_style.to_style()));
                 current_text.clear();
             }
-            
+
             // Find the end of the escape sequence (marked by 'm')
             let mut j = i + 2;
             while j < chars.len() && chars[j] != 'm' {
                 j += 1;
             }
-            
+
             if j < chars.len() {
                 // Extract the escape sequence
                 let escape_seq: String = chars[i..=j].iter().collect();
-                
+
                 // Parse the escape sequence
                 parse_escape_sequence(&escape_seq, &mut current_style);
-                
+
                 // Move past the escape sequence
                 i = j + 1;
                 continue;
             }
         }
-        
+
         // Regular character, add to current text
         current_text.push(chars[i]);
         i += 1;
     }
-    
+
     // Add any remaining text
     if !current_text.is_empty() {
         spans.push(Span::styled(current_text, current_style.to_style()));
     }
-    
+
     Line::from(spans)
 }
 
 /// Parse an ANSI escape sequence and update the style state
 fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
     // Extract the numeric part of the sequence
-    if let Some(code_str) = sequence.strip_prefix("\x1b[").and_then(|s| s.strip_suffix('m')) {
+    if let Some(code_str) = sequence
+        .strip_prefix("\x1b[")
+        .and_then(|s| s.strip_suffix('m'))
+    {
         // Handle different codes
         match code_str {
             "0" => style.reset(),
@@ -161,52 +164,52 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_plain_text() {
         let text = "Hello, world!";
         let line = ansi_to_line(text);
-        
+
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].content, "Hello, world!");
     }
-    
+
     #[test]
     fn test_bold_text() {
         let text = "Hello, \x1b[1mbold\x1b[0m world!";
         let line = ansi_to_line(text);
-        
+
         assert_eq!(line.spans.len(), 3);
         assert_eq!(line.spans[0].content, "Hello, ");
         assert_eq!(line.spans[1].content, "bold");
         assert_eq!(line.spans[2].content, " world!");
-        
+
         // Check that the middle span has bold styling
         assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
     }
-    
+
     #[test]
     fn test_colored_text() {
         let text = "Normal \x1b[31mred\x1b[0m text";
         let line = ansi_to_line(text);
-        
+
         assert_eq!(line.spans.len(), 3);
         assert_eq!(line.spans[0].content, "Normal ");
         assert_eq!(line.spans[1].content, "red");
         assert_eq!(line.spans[2].content, " text");
-        
+
         // Check that the middle span has red color
         assert_eq!(line.spans[1].style.fg, Some(Color::Red));
     }
-    
+
     #[test]
     fn test_multiple_styles() {
         let text = "Normal \x1b[1;31mbold red\x1b[0m text";
         let line = ansi_to_line(text);
-        
+
         assert_eq!(line.spans.len(), 3);
         assert_eq!(line.spans[1].content, "bold red");
-        
+
         // Check that the middle span has red color and bold
         assert_eq!(line.spans[1].style.fg, Some(Color::Red));
         assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
@@ -217,7 +220,7 @@ mod tests {
 ///
 /// This function removes all ANSI escape sequences from a text string, making it
 /// suitable for sending to LLMs or other contexts where formatting should be removed.
-/// 
+///
 /// ANSI escape sequences are used for terminal formatting like colors, bold text,
 /// cursor movement, etc. When sending output to LLMs, these sequences should be
 /// removed to improve readability and reduce token consumption.
@@ -237,10 +240,10 @@ mod tests {
 pub fn strip_ansi_sequences(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut i = 0;
-    
+
     // Convert the string to chars for easier processing
     let chars: Vec<char> = text.chars().collect();
-    
+
     while i < chars.len() {
         // Check for escape sequence start
         if chars[i] == '\x1b' && i + 1 < chars.len() && chars[i + 1] == '[' {
@@ -250,63 +253,63 @@ pub fn strip_ansi_sequences(text: &str) -> String {
             while j < chars.len() && !chars[j].is_alphabetic() {
                 j += 1;
             }
-            
+
             if j < chars.len() {
                 // Skip the entire escape sequence
                 i = j + 1;
                 continue;
             }
         }
-        
+
         // Regular character, add to result
         result.push(chars[i]);
         i += 1;
     }
-    
+
     result
 }
 
 #[cfg(test)]
 mod tests_strip_ansi {
     use super::*;
-    
+
     #[test]
     fn test_strip_plain_text() {
         let text = "Hello, world!";
         let result = strip_ansi_sequences(text);
-        
+
         assert_eq!(result, "Hello, world!");
     }
-    
+
     #[test]
     fn test_strip_bold_text() {
         let text = "Hello, \x1b[1mbold\x1b[0m world!";
         let result = strip_ansi_sequences(text);
-        
+
         assert_eq!(result, "Hello, bold world!");
     }
-    
+
     #[test]
     fn test_strip_colored_text() {
         let text = "Normal \x1b[31mred\x1b[0m text";
         let result = strip_ansi_sequences(text);
-        
+
         assert_eq!(result, "Normal red text");
     }
-    
+
     #[test]
     fn test_strip_multiple_styles() {
         let text = "Normal \x1b[1;31mbold red\x1b[0m text";
         let result = strip_ansi_sequences(text);
-        
+
         assert_eq!(result, "Normal bold red text");
     }
-    
+
     #[test]
     fn test_strip_cursor_movement() {
         let text = "Text with \x1b[2Acursor\x1b[1B movement";
         let result = strip_ansi_sequences(text);
-        
+
         assert_eq!(result, "Text with cursor movement");
     }
 }

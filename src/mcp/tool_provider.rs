@@ -1,108 +1,118 @@
-//! MCP tool provider for agent integration
+//! Tool provider implementation for MCP servers
 
+use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::RwLock;
-use tokio::time::timeout;
+use std::sync::Mutex;
 
 use crate::mcp::client::McpClient;
 use crate::mcp::error::{McpError, McpResult};
-use crate::mcp::protocol::{Tool, ClientInfo};
+use crate::mcp::protocol::Tool;
 
-/// MCP tool provider for integrating MCP tools with the agent system
+/// Tool provider for interacting with MCP servers
+///
+/// This manages a connection to an MCP server and provides
+/// methods for listing and executing tools.
 pub struct McpToolProvider {
-    /// The MCP client
-    client: Arc<McpClient>,
-    
-    /// Cache of available tools
-    tool_cache: RwLock<HashMap<String, Tool>>,
-    
-    /// Server URL
+    /// MCP client for communicating with the server
+    client: McpClient,
+    /// URL of the server
+    #[allow(dead_code)]
     server_url: String,
+    /// Available tools, cached for efficiency
+    tools: Mutex<HashMap<String, Tool>>,
 }
 
-/// Default timeout for tool execution
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-
 impl McpToolProvider {
-    /// Create a new MCP tool provider and connect to the server
-    pub async fn new(server_url: &str) -> McpResult<Self> {
+    /* WebSocket-based connection removed in favor of file-based MCP configuration */
+
+    /// Create a new tool provider for an MCP process
+    pub async fn new_process(name: &str, executable: &str, args: &[&str]) -> McpResult<Self> {
         // Create client
         let client = McpClient::new();
-        
+
+        // Connect to process
+        client.connect_process(name, executable, args).await?;
+
+        // Initialize client
+        client
+            .initialize(crate::mcp::protocol::ClientInfo {
+                name: "Termineer".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            })
+            .await?;
+
         // Create provider
         let provider = Self {
-            client: Arc::new(client),
-            tool_cache: RwLock::new(HashMap::new()),
-            server_url: server_url.to_string(),
+            client,
+            server_url: format!("process://{}", executable),
+            tools: Mutex::new(HashMap::new()),
         };
-        
-        // Connect to server
-        provider.client.connect(server_url).await?;
-        
-        // Initialize client
-        provider.client.initialize(ClientInfo {
-            name: "autoswe".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-        }).await?;
-        
-        // Refresh tool cache
+
+        // Refresh tools
         provider.refresh_tools().await?;
-        
+
         Ok(provider)
     }
-    
-    /// Refresh the tool cache
+
+    /// Refresh the list of available tools
     pub async fn refresh_tools(&self) -> McpResult<()> {
         // List tools
-        let tools = self.client.list_tools(None).await?;
-        
-        // Update cache
-        let mut cache = self.tool_cache.write().await;
-        *cache = tools.into_iter()
-            .map(|t| (t.id.clone(), t))
-            .collect();
-        
+        let tools = self.client.list_tools().await?;
+
+        // Store tools by ID - now using a Mutex
+        let mut tools_map = self.tools.lock().unwrap();
+        tools_map.clear();
+        for tool in tools {
+            tools_map.insert(tool.name.clone(), tool);
+        }
+
         Ok(())
     }
-    
-    /// Get all available tools
+
+    /// List available tools
     pub async fn list_tools(&self) -> Vec<Tool> {
-        let cache = self.tool_cache.read().await;
-        cache.values().cloned().collect()
+        let tools_map = self.tools.lock().unwrap();
+        tools_map.values().cloned().collect()
     }
-    
-    /// Execute a tool call
-    pub async fn execute_tool(&self, tool_id: &str, input: serde_json::Value) -> McpResult<serde_json::Value> {
-        // Check if tool exists
-        {
-            let cache = self.tool_cache.read().await;
-            if !cache.contains_key(tool_id) {
-                return Err(McpError::ToolNotFound(tool_id.to_string()));
-            }
-        }
-        
-        // Execute with timeout
-        match timeout(DEFAULT_TIMEOUT, self.client.call_tool(tool_id, input)).await {
-            Ok(result) => result,
-            Err(_) => Err(McpError::Timeout),
-        }
-    }
-    
+
     /// Get a tool by ID
-    pub async fn get_tool(&self, tool_id: &str) -> Option<Tool> {
-        let cache = self.tool_cache.read().await;
-        cache.get(tool_id).cloned()
+    pub async fn get_tool(&self, id: &str) -> Option<Tool> {
+        let tools_map = self.tools.lock().unwrap();
+        tools_map.get(id).cloned()
     }
-    
-    /// Get the server URL
-    pub fn server_url(&self) -> &str {
-        &self.server_url
+
+    /// Execute a tool with the given arguments
+    pub async fn execute_tool(
+        &self,
+        id: &str,
+        arguments: Value,
+    ) -> McpResult<crate::mcp::protocol::CallToolResult> {
+        // Check if tool exists
+        let tool_exists = {
+            let tools_map = self.tools.lock().unwrap();
+            tools_map.contains_key(id)
+        };
+
+        if !tool_exists {
+            return Err(McpError::ToolNotFound(id.to_string()));
+        }
+
+        // Call tool and return the full result
+        self.client.call_tool(id, arguments).await
     }
-    
-    /// Returns true if connected to the server
-    pub async fn is_connected(&self) -> bool {
-        self.client.is_connected().await
+
+    /// Get content objects from a tool result
+    pub async fn get_tool_content(
+        &self,
+        id: &str,
+        arguments: Value,
+    ) -> McpResult<Vec<crate::mcp::protocol::content::Content>> {
+        // Execute the tool
+        let result = self.execute_tool(id, arguments).await?;
+
+        // Convert to content objects
+        result.to_content_objects().map_err(|e| {
+            McpError::ProtocolError(format!("Failed to parse tool result as content: {}", e))
+        })
     }
 }

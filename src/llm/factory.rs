@@ -34,6 +34,8 @@ struct ModelInfo {
 
 /// Create an LLM backend from configuration, inferring the provider from model name
 pub fn create_backend(config: &Config) -> Result<Box<dyn Backend>, LlmError> {
+    // Create the backend directly using the requested model
+    // No model restrictions based on app mode - all users can access all models
     infer_backend_from_model(&config.model)
 }
 
@@ -100,13 +102,14 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
         }
         Provider::OpenRouter => {
             let api_key = resolve_openrouter_api_key()?;
-            
+
             // Get optional site information for OpenRouter headers
             let site_url = env::var("OPENROUTER_SITE_URL").ok();
             let site_name = env::var("OPENROUTER_SITE_NAME").ok();
-            
-            Ok(Box::new(OpenRouter::new(api_key, model_info.model_name)
-                .with_site_info(site_url, site_name)))
+
+            Ok(Box::new(
+                OpenRouter::new(api_key, model_info.model_name).with_site_info(site_url, site_name),
+            ))
         }
         Provider::Unknown(provider) => {
             let provider_msg = if provider.is_empty() {
@@ -164,6 +167,7 @@ fn resolve_anthropic_api_key() -> Result<String, LlmError> {
 }
 
 /// Resolve Google API key from environment variables
+#[allow(dead_code)]
 fn resolve_google_api_key() -> Result<String, LlmError> {
     env::var("GOOGLE_API_KEY")
         .map_err(|_| LlmError::ConfigError("GOOGLE_API_KEY environment variable not set".into()))
@@ -171,12 +175,7 @@ fn resolve_google_api_key() -> Result<String, LlmError> {
 
 /// Resolve OpenRouter API key from environment variables
 fn resolve_openrouter_api_key() -> Result<String, LlmError> {
-    env::var("OPENROUTER_API_KEY")
-        .map_err(|_| LlmError::ConfigError("OPENROUTER_API_KEY environment variable not set".into()))
-}
-
-/// Create a backend for a specific task with custom model
-pub fn create_backend_for_task(model: Option<&str>) -> Result<Box<dyn Backend>, LlmError> {
-    let model_name = model.unwrap_or("claude-3-7-sonnet-20250219");
-    infer_backend_from_model(model_name)
+    env::var("OPENROUTER_API_KEY").map_err(|_| {
+        LlmError::ConfigError("OPENROUTER_API_KEY environment variable not set".into())
+    })
 }

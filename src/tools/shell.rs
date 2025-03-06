@@ -1,10 +1,10 @@
+use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
+use crate::tools::ToolResult;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
-use crate::tools::ToolResult;
 
 /// Data structure for managing interruption with reason
 pub struct InterruptData {
@@ -91,8 +91,7 @@ pub async fn execute_shell(
     // Print initial status message
     if !silent_mode {
         // Use output buffer for shell status message
-        crate::btool_println!(
-            "shell",
+        bprintln !(tool: "shell",
             "{}🐚 Shell:{} {} (streaming - can be interrupted)",
             FORMAT_BOLD,
             FORMAT_RESET,
@@ -134,7 +133,7 @@ pub async fn execute_shell(
             // Display line if not in silent mode
             if !stdout_silent {
                 // Use output buffer for shell output
-                crate::btool_println!("shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
+                bprintln !(tool: "shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
                 _line_count += 1;
             }
 
@@ -169,7 +168,7 @@ pub async fn execute_shell(
             // Display line if not in silent mode
             if !stderr_silent {
                 // Use output buffer for shell stderr output
-                crate::btool_println!("shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
+                bprintln !(tool: "shell", "{}{}{}", FORMAT_GRAY, line, FORMAT_RESET);
                 _line_count += 1;
             }
 
@@ -204,7 +203,7 @@ pub async fn execute_shell(
         let mut was_interrupted = false;
         let mut interrupt_reason = String::new();
         let mut exit_status = None;
-        
+
         // Add a timestamp for tracking performance
         let start_time = std::time::Instant::now();
 
@@ -238,40 +237,37 @@ pub async fn execute_shell(
                     if is_interrupted {
                         // Log the interrupt
                         if !main_silent_mode {
-                            crate::btool_println!(
-                                "shell",
+                            bprintln !(tool: "shell",
                                 "{}🔴 Interrupt:{} Stopping command execution: {}",
                                 FORMAT_BOLD,
                                 FORMAT_RESET,
                                 interrupt_reason
                             );
                         }
-                        
+
                         // Kill the process and wait for it to terminate
                         was_interrupted = true;
-                        
+
                         // First try a graceful termination
                         match child.kill().await {
                             Ok(_) => {
                                 if !main_silent_mode {
-                                    crate::btool_println!(
-                                        "shell",
+                                    bprintln !(tool: "shell",
                                         "Command process terminated successfully"
                                     );
                                 }
-                            },
+                            }
                             Err(e) => {
                                 // Process might have already exited
                                 if !main_silent_mode {
-                                    crate::btool_println!(
-                                        "shell",
+                                    bprintln !(tool: "shell",
                                         "Note: Could not kill process (it may have already exited): {}",
                                         e
                                     );
                                 }
                             }
                         }
-                        
+
                         // Mark as no longer running
                         *command_running.lock().await = false;
                         break;
@@ -284,8 +280,7 @@ pub async fn execute_shell(
                     // Log error
                     if !main_silent_mode {
                         // Use output buffer for error message
-                        crate::btool_println!(
-                            "shell",
+                        bprintln !(tool: "shell",
                             "{}🐚 Shell:{} Error monitoring process: {}",
                             FORMAT_BOLD,
                             FORMAT_RESET,
@@ -297,7 +292,7 @@ pub async fn execute_shell(
                     let _ = main_sender
                         .send(ShellOutput::Complete(ToolResult::default(
                             false,
-                            format!("Error monitoring process status: {}", e)
+                            format!("Error monitoring process status: {}", e),
                         )))
                         .await;
                     return;
@@ -335,14 +330,13 @@ pub async fn execute_shell(
 
         // Log execution time
         let execution_time = start_time.elapsed();
-        // crate::bprintln!("Shell command execution completed in {:.2}s", execution_time.as_secs_f64());
+        // bprintln !("Shell command execution completed in {:.2}s", execution_time.as_secs_f64());
 
         // Print status message
         if !main_silent_mode {
             // Use output buffer for completion status
             if was_interrupted {
-                crate::btool_println!(
-                    "shell",
+                bprintln !(tool: "shell",
                     "{}🐚 Shell {}interrupted in {:.2}s: {}",
                     FORMAT_BOLD,
                     FORMAT_RESET,
@@ -350,16 +344,14 @@ pub async fn execute_shell(
                     interrupt_reason
                 );
             } else if success {
-                crate::btool_println!(
-                    "shell",
+                bprintln !(tool: "shell",
                     "{}🐚 Shell {}completed successfully in {:.2}s",
                     FORMAT_BOLD,
                     FORMAT_RESET,
                     execution_time.as_secs_f64()
                 );
             } else {
-                crate::btool_println!(
-                    "shell",
+                bprintln !(tool: "shell",
                     "{}🐚 Shell {}completed with error in {:.2}s",
                     FORMAT_BOLD,
                     FORMAT_RESET,
@@ -372,7 +364,7 @@ pub async fn execute_shell(
         let _ = main_sender
             .send(ShellOutput::Complete(ToolResult::default(
                 success,
-                agent_output
+                agent_output,
             )))
             .await;
     });

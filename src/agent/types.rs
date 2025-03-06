@@ -37,7 +37,7 @@ impl fmt::Display for AgentId {
 pub enum AgentMessage {
     /// Regular user input to be processed
     UserInput(String),
-    
+
     /// Message from another agent with source information
     AgentInput {
         /// Content of the message
@@ -47,7 +47,7 @@ pub enum AgentMessage {
         /// Name of the source agent
         source_name: String,
     },
-    
+
     /// Special command for the agent
     Command(AgentCommand),
 
@@ -69,7 +69,7 @@ pub enum AgentCommand {
 
     /// Reset the conversation
     ResetConversation,
-    
+
     /// Set the thinking budget in tokens
     SetThinkingBudget(usize),
 }
@@ -88,7 +88,7 @@ pub enum AgentState {
 
     /// Agent has been terminated
     Terminated,
-    
+
     /// Agent has completed its task (done tool used)
     /// Optionally includes the final response from the agent
     Done(Option<String>),
@@ -112,7 +112,7 @@ impl AgentState {
 pub enum AgentError {
     #[error("Agent not found: {0}")]
     AgentNotFound(AgentId),
-    
+
     #[error("Agent with name not found: {0}")]
     AgentNameNotFound(String),
 

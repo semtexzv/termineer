@@ -1,6 +1,6 @@
-//! AutoSWE Server
+//! Termineer Server
 //!
-//! This is the main entry point for the AutoSWE server.
+//! This is the main entry point for the Termineer server.
 //! It provides authentication, payment processing, and license management.
 
 mod api;
@@ -107,10 +107,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = sqlx::PgPool::connect_with(opts).await?;
 
     // Ensure database schema is up to date by running migrations
-    // In Docker environment, migrations are stored in /etc/autoswe/migrations
+    // In Docker environment, migrations are stored in /etc/termineer/migrations
     // If that directory doesn't exist, use local migrations
-    let migrations_path = if std::path::Path::new("/etc/autoswe/migrations").exists() {
-        "/etc/autoswe/migrations"
+    let migrations_path = if std::path::Path::new("/etc/termineer/migrations").exists() {
+        "/etc/termineer/migrations"
     } else {
         "./migrations"
     };

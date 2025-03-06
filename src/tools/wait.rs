@@ -17,15 +17,14 @@ pub fn execute_wait(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     };
 
     if !silent_mode {
-        crate::btool_println!(
-            "wait",
+        bprintln !(tool: "wait",
             "{}⏸️ Waiting:{} Agent will wait for messages: {}",
             crate::constants::FORMAT_BOLD,
             crate::constants::FORMAT_RESET,
             wait_reason
         );
     }
-    
+
     // Return a tool result that puts the agent in waiting state
     ToolResult::wait(wait_reason)
 }

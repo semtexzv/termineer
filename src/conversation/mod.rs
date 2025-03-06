@@ -11,21 +11,20 @@ mod maintenance;
 mod truncation;
 
 // Re-export all the components
-pub use maintenance::{sanitize_conversation};
-pub use truncation::{truncate_conversation, TruncationConfig};
 use crate::constants::{FORMAT_GRAY, FORMAT_RESET};
 use crate::llm::TokenUsage;
+pub use maintenance::sanitize_conversation;
+pub use truncation::{truncate_conversation, TruncationConfig};
 // Types and structs shared across conversation submodules can be defined here
-
 
 /// Print the assistant's response to the output buffer
 pub fn print_assistant_response(text: &str) {
-    crate::bprintln!("{}", text);
+    bprintln!("{}", text);
 }
 
 /// Print token usage statistics to the output buffer
 pub fn print_token_stats(usage: &TokenUsage) {
-    crate::bprintln!(
+    bprintln!(
         "{}{}[{} in / {} out] ({} read, {} written){}",
         FORMAT_GRAY,
         crate::constants::FORMAT_BOLD,

@@ -16,8 +16,8 @@ pub fn execute_done(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Direct output to console if not in silent mode
     if !silent_mode {
         // Use buffer-based printing directly
-        crate::btool_println!("done", "{}✅ Task Complete{}", FORMAT_BOLD, FORMAT_RESET);
-        crate::bprintln!("{}{}{}", FORMAT_GRAY, summary, FORMAT_RESET);
+        bprintln !(tool: "done", "{}✅ Task Complete{}", FORMAT_BOLD, FORMAT_RESET);
+        bprintln!("{}{}{}", FORMAT_GRAY, summary, FORMAT_RESET);
     }
 
     // Use the done method to mark the agent as completed

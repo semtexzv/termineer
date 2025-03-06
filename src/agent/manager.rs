@@ -2,8 +2,8 @@
 
 use super::agent::Agent;
 use super::types::{
-    AgentError, AgentId, AgentMessage, AgentSender, AgentState, InterruptReceiver,
-    InterruptSender, InterruptSignal, StateReceiver,
+    AgentError, AgentId, AgentMessage, AgentSender, AgentState, InterruptReceiver, InterruptSender,
+    InterruptSignal, StateReceiver,
 };
 use crate::agent::AgentReceiver;
 use crate::config::Config;
@@ -52,7 +52,7 @@ pub struct AgentHandle {
 pub struct AgentManager {
     /// Map of agent ID to agent handle (primary index)
     agents: HashMap<AgentId, AgentHandle>,
-    
+
     /// Map of agent name to agent ID for efficient name lookups (secondary index)
     name_index: HashMap<String, AgentId>,
 
@@ -108,7 +108,7 @@ impl AgentManager {
 
         // Store the name in the index first
         self.name_index.insert(handle.name.clone(), id);
-        
+
         // Then store the agent handle with its ID
         self.agents.insert(id, handle);
 
@@ -135,7 +135,7 @@ impl AgentManager {
             Err(AgentError::AgentNotFound(id))
         }
     }
-    
+
     /// Get the current state of an agent
     pub fn get_agent_state(&self, id: AgentId) -> Result<AgentState, AgentError> {
         if let Some(handle) = self.agents.get(&id) {
@@ -149,12 +149,12 @@ impl AgentManager {
     pub fn get_agent_handle(&self, id: AgentId) -> Option<&AgentHandle> {
         self.agents.get(&id)
     }
-    
+
     /// Get a mutable reference to an agent handle by ID
     pub fn get_agent_handle_mut(&mut self, id: AgentId) -> Option<&mut AgentHandle> {
         self.agents.get_mut(&id)
     }
-    
+
     /// Get a list of all agents with their IDs and names
     pub fn get_agents(&self) -> Vec<(AgentId, String)> {
         self.agents
@@ -162,7 +162,7 @@ impl AgentManager {
             .map(|(id, handle)| (*id, handle.name.clone()))
             .collect()
     }
-    
+
     /// Get an agent ID by name
     /// Returns None if no agent with that name exists
     pub fn get_agent_id_by_name(&self, name: &str) -> Option<AgentId> {
@@ -216,7 +216,7 @@ impl AgentManager {
             // During shutdown, don't wait for the task to complete
             // Just abort it to avoid any issues with buffer access
             handle.join_handle.abort();
-            
+
             // Remove from name index
             self.name_index.remove(&handle.name);
 
@@ -242,7 +242,7 @@ impl AgentManager {
             // Abort the task
             handle.join_handle.abort();
         }
-        
+
         // Clear the name index
         self.name_index.clear();
     }

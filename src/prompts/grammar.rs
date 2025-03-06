@@ -4,12 +4,11 @@
 //! used in prompt generation, such as tag delimiters and markers, and
 //! for parsing structured information from agent output.
 
-use crate::bprintln;
 use crate::constants::{
-    TOOL_ERROR_START_PREFIX,
     PATCH_DELIMITER_AFTER, PATCH_DELIMITER_BEFORE, PATCH_DELIMITER_END, TOOL_END, TOOL_ERROR_END,
-    TOOL_RESULT_END, TOOL_RESULT_START_PREFIX, TOOL_START,
+    TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX, TOOL_START,
 };
+use bprintln;
 
 // Constants for markdown-based grammar
 const MD_TOOL_CALL_START: &str = "```tool_use ";
@@ -46,45 +45,41 @@ pub struct StopSequences {
 pub trait Grammar: Send + Sync + 'static {
     /// Returns the stop sequences for this grammar
     fn stop_sequences(&self) -> StopSequences;
-    
+
     /// Formats an error message with the given tool name, index, and content
     fn format_tool_error(&self, tool_name: &str, index: usize, content: &str) -> String;
-    
+
     /// Formats a tool result message with the given tool name, index, and content
     fn format_tool_result(&self, tool_name: &str, index: usize, content: &str) -> String;
-    
+
     /// Formats a tool call with the given name and content
     fn format_tool_call(&self, name: &str, content: &str) -> String;
 
     fn format_patch(&self, before: &str, after: &str) -> String {
         format!(
             "{}\n{}{}\n{}{}",
-            PATCH_DELIMITER_BEFORE,
-            before,
-            PATCH_DELIMITER_AFTER,
-            after,
-            PATCH_DELIMITER_END,
+            PATCH_DELIMITER_BEFORE, before, PATCH_DELIMITER_AFTER, after, PATCH_DELIMITER_END,
         )
     }
-    
+
     /// Parses a response from the assistant
     fn parse_response(&self, response: &str) -> ParsedResponse;
-    
+
     /// Returns the tool start tag for this grammar
     fn tool_start_tag(&self) -> &str;
-    
+
     /// Returns the tool end tag for this grammar
     fn tool_end_tag(&self) -> &str;
-    
+
     /// Returns the tool result start tag for this grammar with the given index
     fn tool_result_start_tag(&self, index: usize) -> String;
-    
+
     /// Returns the tool result end tag for this grammar
     fn tool_result_end_tag(&self) -> &str;
-    
+
     /// Returns the tool error start tag for this grammar with the given index
     fn tool_error_start_tag(&self, index: usize) -> String;
-    
+
     /// Returns the tool error end tag for this grammar
     fn tool_error_end_tag(&self) -> &str;
 }
@@ -100,23 +95,29 @@ impl Grammar for XmlGrammar {
             error_stop_sequence: TOOL_ERROR_START_PREFIX,
         }
     }
-    
+
     fn format_tool_error(&self, tool_name: &str, index: usize, content: &str) -> String {
         let tool_attribute = format!(" tool=\"{}\"", tool_name);
-        let tag = format!("{} index=\"{}\"{}>", TOOL_ERROR_START_PREFIX, index, tool_attribute);
+        let tag = format!(
+            "{} index=\"{}\"{}>",
+            TOOL_ERROR_START_PREFIX, index, tool_attribute
+        );
         let separator = "\n";
         format!(
             "{}{}{}{}",
             tag,
-            content.trim_end(),  // Use the original content with preserved newlines
+            content.trim_end(), // Use the original content with preserved newlines
             separator,
             TOOL_ERROR_END
         )
     }
-    
+
     fn format_tool_result(&self, tool_name: &str, index: usize, content: &str) -> String {
         let tool_attribute = format!(" tool=\"{}\"", tool_name);
-        let tag = format!("{} index=\"{}\"{}>", TOOL_RESULT_START_PREFIX, index, tool_attribute);
+        let tag = format!(
+            "{} index=\"{}\"{}>",
+            TOOL_RESULT_START_PREFIX, index, tool_attribute
+        );
         let separator = "\n";
         format!(
             "{}{}{}{}",
@@ -126,20 +127,19 @@ impl Grammar for XmlGrammar {
             TOOL_RESULT_END
         )
     }
-    
+
     fn format_tool_call(&self, name: &str, content: &str) -> String {
         let trimmed_content = content.trim();
-        
+
         // If content is empty or just whitespace, don't add a space
         if trimmed_content.is_empty() {
             return format!("{}{}{}", TOOL_START, name, TOOL_END);
         }
-        
-        
+
         // For simple single-line content, just add a space
         format!("{}{} {}{}", TOOL_START, name, trimmed_content, TOOL_END)
     }
-    
+
     fn parse_response(&self, response: &str) -> ParsedResponse {
         // Direct implementation of parsing logic to avoid circular dependency
         if !response.contains(TOOL_START) {
@@ -188,34 +188,34 @@ impl Grammar for XmlGrammar {
                 };
             }
         }
-        
+
         // If we reach here, no proper tool invocation was found
         ParsedResponse {
             prefix: response.to_string(),
             tool: None,
         }
     }
-    
+
     fn tool_start_tag(&self) -> &str {
         TOOL_START
     }
-    
+
     fn tool_end_tag(&self) -> &str {
         TOOL_END
     }
-    
+
     fn tool_result_start_tag(&self, index: usize) -> String {
         format!("{} index=\"{}\">", TOOL_RESULT_START_PREFIX, index)
     }
-    
+
     fn tool_result_end_tag(&self) -> &str {
         TOOL_RESULT_END
     }
-    
+
     fn tool_error_start_tag(&self, index: usize) -> String {
         format!("{} index=\"{}\">", TOOL_ERROR_START_PREFIX, index)
     }
-    
+
     fn tool_error_end_tag(&self) -> &str {
         TOOL_ERROR_END
     }
@@ -223,27 +223,26 @@ impl Grammar for XmlGrammar {
 
 /// Module for handling different grammar implementations
 pub mod formats {
-    use std::sync::Arc;
     use super::*;
+    use std::sync::Arc;
 
     /// Enum for the available grammar types
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum GrammarType {
         /// Traditional XML-based tags
         XmlTags,
-        
+
         /// Markdown code blocks
         MarkdownBlocks,
     }
 
     /// Get a grammar implementation by type
-    pub fn get_grammar(grammar_type: GrammarType) -> Arc<dyn Grammar> {
+    pub fn get_grammar_by_type(grammar_type: GrammarType) -> Arc<dyn Grammar> {
         match grammar_type {
             GrammarType::XmlTags => Arc::new(XmlGrammar),
             GrammarType::MarkdownBlocks => Arc::new(MarkdownGrammar),
         }
     }
-
 }
 
 /// Markdown-based grammar using code blocks
@@ -272,7 +271,7 @@ impl Grammar for MarkdownGrammar {
             error_stop_sequence: MD_TOOL_ERROR_START, // Reverting to original - this is correct
         }
     }
-    
+
     fn format_tool_error(&self, _tool_name: &str, index: usize, content: &str) -> String {
         // Format: ```tool_error[index]
         //         error content
@@ -285,7 +284,7 @@ impl Grammar for MarkdownGrammar {
             MD_CODE_END
         )
     }
-    
+
     fn format_tool_result(&self, _tool_name: &str, index: usize, content: &str) -> String {
         // Format: ```tool_result[index]
         //         result content
@@ -298,32 +297,33 @@ impl Grammar for MarkdownGrammar {
             MD_CODE_END
         )
     }
-    
+
     fn format_tool_call(&self, name: &str, content: &str) -> String {
         // Format: ```tool_call <name> [args]
         //         [body content if any]
         //         ```
         let trimmed_content = content.trim();
-        
+
         if trimmed_content.is_empty() {
             // No content, just the tool name
             return format!("{}{}\n{}", MD_TOOL_CALL_START, name, MD_CODE_END);
         }
-        
+
         // If content has newlines, format accordingly
         if trimmed_content.contains('\n') {
-            return format!("{}{}\n{}\n{}", 
-                MD_TOOL_CALL_START, 
-                name, 
-                trimmed_content,
-                MD_CODE_END
+            return format!(
+                "{}{}\n{}\n{}",
+                MD_TOOL_CALL_START, name, trimmed_content, MD_CODE_END
             );
         }
-        
+
         // For simple single-line content
-        format!("{}{} {}\n{}", MD_TOOL_CALL_START, name, trimmed_content, MD_CODE_END)
+        format!(
+            "{}{} {}\n{}",
+            MD_TOOL_CALL_START, name, trimmed_content, MD_CODE_END
+        )
     }
-    
+
     fn parse_response(&self, response: &str) -> ParsedResponse {
         bprintln!("Parsing markdown response: {}\n\n", response);
         // Defensive programming - return early if response is empty or too short
@@ -333,7 +333,7 @@ impl Grammar for MarkdownGrammar {
                 tool: None,
             };
         }
-        
+
         // Check for markdown tool call pattern
         if !response.contains(MD_TOOL_CALL_START) {
             // No tool invocation found
@@ -356,9 +356,8 @@ impl Grammar for MarkdownGrammar {
                     };
                 }
             };
-            
-            if let Some(code_end_relative_idx) = after_tool_start.find(MD_CODE_END) {
 
+            if let Some(code_end_relative_idx) = after_tool_start.find(MD_CODE_END) {
                 let code_end_idx = tool_start_idx + code_end_relative_idx;
 
                 // Get the text before the tool invocation (safely)
@@ -395,13 +394,13 @@ impl Grammar for MarkdownGrammar {
                         let (h, b) = trimmed_block.split_at(newline_pos);
                         // Skip the newline character when returning body
                         (h, if b.len() > 1 { &b[1..] } else { "" })
-                    },
+                    }
                     None => (trimmed_block, ""),
                 };
 
                 // Parse the tool name and args from the header
                 let mut args = header.trim().split_whitespace().collect::<Vec<&str>>();
-                
+
                 if args.is_empty() {
                     // No tool name found - return the original text
                     return ParsedResponse {
@@ -422,34 +421,34 @@ impl Grammar for MarkdownGrammar {
                 };
             }
         }
-        
+
         // If we reach here, no proper tool invocation was found
         ParsedResponse {
             prefix: response.to_string(),
             tool: None,
         }
     }
-    
+
     fn tool_start_tag(&self) -> &str {
         MD_TOOL_CALL_START
     }
-    
+
     fn tool_end_tag(&self) -> &str {
         MD_CODE_END
     }
-    
+
     fn tool_result_start_tag(&self, index: usize) -> String {
         format!("{}{}]", MD_TOOL_RESULT_START, index)
     }
-    
+
     fn tool_result_end_tag(&self) -> &str {
         MD_CODE_END
     }
-    
+
     fn tool_error_start_tag(&self, index: usize) -> String {
         format!("{}{}]", MD_TOOL_ERROR_START, index)
     }
-    
+
     fn tool_error_end_tag(&self) -> &str {
         MD_CODE_END
     }

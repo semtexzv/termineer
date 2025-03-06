@@ -3,8 +3,8 @@
 //! This module provides structures and functions for coordinating interrupt
 //! signals between shell tools and the main agent processing loop.
 
-use std::future::Future;
 use crate::agent::types::{InterruptReceiver, InterruptSender, InterruptSignal};
+use std::future::Future;
 // Removed unused imports
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -35,10 +35,10 @@ impl InterruptCoordinator {
     }
 
     /// Handle an interrupt based on current state
-    pub fn handle_interrupt(&self) -> impl Future<Output=()> + Send + 'static {
+    pub fn handle_interrupt(&self) -> impl Future<Output = ()> + Send + 'static {
         let data = { self.interrupt_data.lock().unwrap().clone() };
         let agent_tx = self.agent_interrupt_tx.clone();
-        
+
         async move {
             // Shell has priority - interrupt shell if running
             if let Some(interrupt) = data {
@@ -50,21 +50,24 @@ impl InterruptCoordinator {
                     .await
                 {
                     Ok(_) => {
-                        crate::bprintln!("{}{}{} by user signal{}",
+                        bprintln!(
+                            "{}{}{} by user signal{}",
                             crate::constants::FORMAT_BOLD,
                             crate::constants::FORMAT_BLUE,
                             "Shell interrupted",
-                            crate::constants::FORMAT_RESET);
-                    },
+                            crate::constants::FORMAT_RESET
+                        );
+                    }
                     Err(e) => {
                         // Channel error - shell might have completed just before interrupt
-                        crate::berror_println!("Failed to interrupt shell: {}", e);
-                        
+                        bprintln !(error:"Failed to interrupt shell: {}", e);
+
                         // Fall back to agent interrupt if shell interrupt fails
                         if let Err(e) = agent_tx.try_send(()) {
-                            crate::berror_println!("Failed to interrupt agent after shell interrupt failure: {}", e);
+                            bprintln !(error:"Failed to interrupt agent after shell interrupt failure: {}", e);
                         } else {
-                            crate::bprintln!("{}{}{} to agent interrupt{}",
+                            // Only show internal fallback mechanism details in debug builds
+                            bprintln !(dev: "{}{}{} to agent interrupt{}",
                                 crate::constants::FORMAT_BOLD,
                                 crate::constants::FORMAT_BLUE,
                                 "Falling back",
@@ -75,7 +78,7 @@ impl InterruptCoordinator {
             } else {
                 // No shell running - interrupt agent processing
                 if let Err(e) = agent_tx.try_send(()) {
-                    crate::berror_println!("Failed to interrupt agent: {}", e);
+                    bprintln !(error:"Failed to interrupt agent: {}", e);
                 }
             }
         }
