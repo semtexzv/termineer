@@ -1,5 +1,12 @@
 name: Build NPM Package
 
+# This workflow builds cross-platform binaries and creates an NPM package
+# 
+# Triggering:
+# 1. Any tag starting with 'v' (e.g., v0.1.0) - Builds the package and uploads as artifact
+# 2. Any tag ending with '-publish' (e.g., v0.1.0-publish) - Builds AND publishes to NPM
+# 3. Manual trigger with version input - For testing without tagging
+
 on:
   workflow_dispatch:  # Manual trigger
     inputs:
@@ -98,7 +105,10 @@ jobs:
       - name: Set version from tag
         if: github.event_name == 'push'
         run: |
-          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+          # Extract the version, removing the v prefix and -publish suffix if present
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          VERSION="${VERSION%-publish}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
       
       - name: Set version from input
         if: github.event_name == 'workflow_dispatch'
@@ -290,3 +300,25 @@ jobs:
           path: |
             termineer-npm-package.tgz
             npm-package/
+            
+  # Publish to NPM automatically when the tag ends with -publish
+  publish-to-npm:
+    needs: prepare-npm-package
+    if: startsWith(github.ref, 'refs/tags/') && endsWith(github.ref, '-publish')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download NPM package
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+          
+      - name: Publish to NPM
+        run: npm publish ./termineer-npm-package.tgz
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
