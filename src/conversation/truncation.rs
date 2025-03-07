@@ -299,7 +299,6 @@ mod tests {
 
     #[test]
     fn test_should_truncate() {
-        let config = TruncationConfig::default();
         let safe_limit = 1000;
 
         // Below threshold
