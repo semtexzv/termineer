@@ -36,11 +36,19 @@
         }
         
         .code-block {
-            @apply bg-gray-800 text-white rounded-md px-4 py-0 font-mono text-sm relative overflow-x-auto whitespace-pre;
+            @apply bg-gray-800 text-white rounded-md px-4 font-mono text-sm relative overflow-x-auto;
+            line-height: 1.4;
         }
         
         .code-block code {
             @apply block py-2 whitespace-pre-wrap;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+
+        .code-block::before,
+        .code-block::after {
+            content: none;
         }
         
         .copy-button {
