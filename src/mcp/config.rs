@@ -103,7 +103,7 @@ mod tests {
     async fn test_mcp_config_loading() {
         // Create a temporary test directory
         let temp_dir = PathBuf::from("./target/test_mcp_config");
-        let term_dir = temp_dir.join(".term");
+        let term_dir = temp_dir.join(".termineer");
         fs::create_dir_all(&term_dir).unwrap();
 
         // Write a test config file
