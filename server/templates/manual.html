@@ -46,8 +46,7 @@
                             Termineer supports loading configuration from .env files. Create a .env file in your project directory with your API keys:
                         </p>
                         <div class="code-block mt-2 mb-2">
-                            <code>
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+                            <code>ANTHROPIC_API_KEY=sk-ant-your-key-here
 GOOGLE_API_KEY=your-google-key-here
                             </code>
                         </div>
@@ -226,7 +225,12 @@ The project follows a standard MVC architecture...</code>
                     Termineer provides a rich Terminal User Interface (TUI) in interactive mode with keyboard shortcuts, command history, and special commands.
                 </p>
                 
-                <h3 class="text-xl font-medium text-gray-900 mb-3">Slash Commands</h3>
+                <h3 class="text-xl font-medium text-gray-900 mb-3">Command Modes</h3>
+                <p class="text-gray-700 mb-4">
+                    Termineer offers special command modes triggered by prefix characters:
+                </p>
+                
+                <h4 class="font-medium text-gray-900 mb-2">Slash Commands Mode</h4>
                 <p class="text-gray-700 text-sm mb-2">
                     Type a slash (/) followed by a command to perform special actions:
                 </p>
@@ -275,7 +279,7 @@ The project follows a standard MVC architecture...</code>
                     </table>
                 </div>
                 
-                <h3 class="text-xl font-medium text-gray-900 mb-3">Agent Selection</h3>
+                <h4 class="font-medium text-gray-900 mb-2">Agent Selection Mode</h4>
                 <p class="text-gray-700 text-sm mb-2">
                     Use the pound symbol (#) to switch between agents:
                 </p>
@@ -286,38 +290,15 @@ The project follows a standard MVC architecture...</code>
                     </ul>
                 </div>
                 
-                <h3 class="text-xl font-medium text-gray-900 mb-3">Keyboard Navigation</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <h4 class="font-medium text-gray-900 mb-2">Basic Navigation</h4>
-                        <ul class="list-disc list-inside text-gray-700 text-sm space-y-1">
-                            <li><strong>↑/↓</strong> - Navigate command history</li>
-                            <li><strong>Tab</strong> - Autocomplete commands</li>
-                            <li><strong>Esc</strong> - Clear input or dismiss popups</li>
-                            <li><strong>Enter</strong> - Send message/execute command</li>
-                            <li><strong>Shift+Enter</strong> - Insert newline in input</li>
-                        </ul>
-                    </div>
-                    <div>
-                        <h4 class="font-medium text-gray-900 mb-2">Scrolling</h4>
-                        <ul class="list-disc list-inside text-gray-700 text-sm space-y-1">
-                            <li><strong>Shift+↑/↓</strong> - Scroll conversation by line</li>
-                            <li><strong>PageUp/PageDown</strong> - Scroll conversation by page</li>
-                            <li><strong>Mouse wheel</strong> - Scroll conversation</li>
-                            <li><strong>Shift+Home</strong> - Scroll to oldest messages</li>
-                            <li><strong>Shift+End</strong> - Scroll to newest messages</li>
-                        </ul>
-                    </div>
-                </div>
-                
-                <h3 class="text-xl font-medium text-gray-900 mt-6 mb-3">Special Key Combinations</h3>
+                <h3 class="text-xl font-medium text-gray-900 mb-3">Interrupting Operations</h3>
+                <p class="text-gray-700 text-sm mb-2">
+                    Termineer provides a multi-level interrupt system:
+                </p>
                 <div class="bg-gray-50 rounded-lg p-4">
                     <ul class="list-disc list-inside text-gray-700 text-sm space-y-1">
-                        <li><strong>Ctrl+C</strong> - Interrupt current operation</li>
-                        <li><strong>Ctrl+C</strong> (twice within 3 seconds) - Exit application</li>
-                        <li><strong>Home/End</strong> - Move to start/end of input</li>
-                        <li><strong>Alt+←/→</strong> or <strong>Option+←/→</strong> - Move by word in input</li>
-                        <li><strong>Command+←/→</strong> (macOS) - Move to start/end of input line</li>
+                        <li><strong>Ctrl+C</strong> - Interrupt the current operation (tool execution or agent processing)</li>
+                        <li><strong>Ctrl+C</strong> (pressed twice within 3 seconds) - Exit the application</li>
+                        <li><strong>/interrupt</strong> - Command to explicitly interrupt the current agent</li>
                     </ul>
                 </div>
             </div>
