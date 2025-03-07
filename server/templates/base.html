@@ -36,7 +36,11 @@
         }
         
         .code-block {
-            @apply bg-gray-800 text-white rounded-md px-4 py-2 font-mono text-sm relative overflow-x-auto whitespace-pre-wrap;
+            @apply bg-gray-800 text-white rounded-md px-4 py-0 font-mono text-sm relative overflow-x-auto whitespace-pre;
+        }
+        
+        .code-block code {
+            @apply block py-2 whitespace-pre-wrap;
         }
         
         .copy-button {
