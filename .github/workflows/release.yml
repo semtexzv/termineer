@@ -1,5 +1,26 @@
 name: Release
 
+# ===================================================================
+# IMPORTANT: BUNDLED BINARIES PACKAGING APPROACH
+# ===================================================================
+# This workflow uses a bundled-binaries approach for NPM packaging.
+# 
+# Instead of downloading binaries at install time (which won't work 
+# with a private repository), we:
+#
+# 1. Bundle all platform binaries directly in the NPM package
+# 2. Use a setup.js script to select the right binary at install time
+# 3. Copy the appropriate binary to the bin directory based on platform
+#
+# File structure:
+# - bin/platform/{linux-x64,darwin-x64,darwin-arm64,win32-x64}/
+# - bin/setup.js (selects and installs correct binary)
+# - bin/termineer.js (launcher script)
+# 
+# DO NOT REVERT TO URL-BASED DOWNLOADING without ensuring the URLs
+# are publicly accessible.
+# ===================================================================
+
 # This workflow handles releases for NPM and Homebrew
 # Triggered by version tags with optional suffixes to control release targets
 
@@ -154,10 +175,21 @@ jobs:
       # Create NPM package structure
       - name: Create NPM package
         run: |
-          # Create required directories with debug
-          mkdir -p npm-package/bin
+          # Create required directories for platform-specific binaries
+          mkdir -p npm-package/bin/platform/{linux-x64,darwin-x64,darwin-arm64,win32-x64}
           echo "Directory structure created"
           ls -la npm-package
+          
+          # Copy the binaries to respective platform directories
+          cp prebuilds/termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu npm-package/bin/platform/linux-x64/termineer
+          cp prebuilds/termineer-x86_64-apple-darwin/termineer-x86_64-apple-darwin npm-package/bin/platform/darwin-x64/termineer
+          cp prebuilds/termineer-aarch64-apple-darwin/termineer-aarch64-apple-darwin npm-package/bin/platform/darwin-arm64/termineer
+          cp prebuilds/termineer-x86_64-windows-msvc/termineer-x86_64-windows-msvc npm-package/bin/platform/win32-x64/termineer.exe
+          
+          # Set executable permissions
+          chmod +x npm-package/bin/platform/linux-x64/termineer
+          chmod +x npm-package/bin/platform/darwin-x64/termineer
+          chmod +x npm-package/bin/platform/darwin-arm64/termineer
           
           # Create package.json
           cat > npm-package/package.json << EOF
@@ -170,10 +202,7 @@ jobs:
               "termineer": "bin/termineer.js"
             },
             "scripts": {
-              "postinstall": "node bin/download.js"
-            },
-            "dependencies": {
-              "node-fetch": "^2.6.9"
+              "postinstall": "node bin/setup.js"
             },
             "engines": {
               "node": ">=14.0.0"
@@ -183,81 +212,64 @@ jobs:
           }
           EOF
           
-          # Create download.js file (used at install time)
-          cat > npm-package/bin/download.js << 'EOF'
+          # Create setup.js file (used at install time to select the right binary)
+          cat > npm-package/bin/setup.js << 'EOF'
           #!/usr/bin/env node
           
           const os = require('os');
           const fs = require('fs');
           const path = require('path');
-          const fetch = require('node-fetch');
-          const { execFileSync } = require('child_process');
-          
-          // Get version from package.json
-          const packageJson = require('../package.json');
-          const VERSION = packageJson.version;
           
           // Determine platform and architecture
           const platform = os.platform();
           const arch = os.arch();
+          let sourceBinaryPath = '';
           let targetFile = '';
-          let downloadURL = '';
           
-          // Map to correct binary name and URL based on platform/arch
+          console.log(`Setting up Termineer for ${platform}-${arch}`);
+          
+          // Map platform to correct binary path
           if (platform === 'darwin') {
             if (arch === 'arm64') {
+              sourceBinaryPath = path.join(__dirname, 'platform', 'darwin-arm64', 'termineer');
               targetFile = 'termineer';
-              downloadURL = `https://github.com/semtexzv/termineer/releases/download/v${VERSION}/termineer-aarch64-apple-darwin`;
             } else {
+              sourceBinaryPath = path.join(__dirname, 'platform', 'darwin-x64', 'termineer');
               targetFile = 'termineer';
-              downloadURL = `https://github.com/semtexzv/termineer/releases/download/v${VERSION}/termineer-x86_64-apple-darwin`;
             }
           } else if (platform === 'linux') {
+            sourceBinaryPath = path.join(__dirname, 'platform', 'linux-x64', 'termineer');
             targetFile = 'termineer';
-            downloadURL = `https://github.com/semtexzv/termineer/releases/download/v${VERSION}/termineer-x86_64-linux-gnu`;
           } else if (platform === 'win32') {
+            sourceBinaryPath = path.join(__dirname, 'platform', 'win32-x64', 'termineer.exe');
             targetFile = 'termineer.exe';
-            downloadURL = `https://github.com/semtexzv/termineer/releases/download/v${VERSION}/termineer-x86_64-windows-msvc`;
           } else {
             console.error(`Unsupported platform: ${platform}-${arch}`);
             process.exit(1);
           }
           
-          // Create the bin directory if it doesn't exist
-          const binPath = path.join(__dirname);
-          const binFile = path.join(binPath, targetFile);
+          // Get target path
+          const targetPath = path.join(__dirname, targetFile);
           
-          async function download() {
-            try {
-              console.log(`Downloading Termineer v${VERSION} for ${platform}-${arch}`);
-              console.log(`URL: ${downloadURL}`);
-              
-              const response = await fetch(downloadURL);
-              if (!response.ok) {
-                throw new Error(`Download failed with status ${response.status}: ${response.statusText}`);
-              }
-              
-              const fileStream = fs.createWriteStream(binFile);
-              await new Promise((resolve, reject) => {
-                response.body.pipe(fileStream);
-                response.body.on('error', reject);
-                fileStream.on('finish', resolve);
-              });
-              
-              // Make the file executable on non-Windows platforms
-              if (platform !== 'win32') {
-                fs.chmodSync(binFile, 0o755);
-              }
-              
-              console.log('Termineer downloaded successfully!');
-            } catch (error) {
-              console.error(`Error downloading Termineer: ${error.message}`);
-              process.exit(1);
+          try {
+            // Check if source binary exists
+            if (!fs.existsSync(sourceBinaryPath)) {
+              throw new Error(`Binary not found at ${sourceBinaryPath}`);
             }
+            
+            // Copy the binary to the target location
+            fs.copyFileSync(sourceBinaryPath, targetPath);
+            
+            // Make the file executable on non-Windows platforms
+            if (platform !== 'win32') {
+              fs.chmodSync(targetPath, 0o755);
+            }
+            
+            console.log(`Termineer setup complete. Binary installed at: ${targetPath}`);
+          } catch (error) {
+            console.error(`Error setting up Termineer: ${error.message}`);
+            process.exit(1);
           }
-          
-          // Perform the download
-          download();
           EOF
           
           # Create termineer.js
@@ -276,11 +288,24 @@ jobs:
           // Path to the binary file
           const binaryPath = path.join(__dirname, binaryName);
           
-          // Check if binary exists, if not offer help
+          // Check if binary exists, if not try running setup
           if (!fs.existsSync(binaryPath)) {
-            console.error(`Termineer binary not found at ${binaryPath}`);
-            console.error('Try running: npm install -g termineer');
-            process.exit(1);
+            console.log('Binary not found, running setup...');
+            try {
+              // Run the setup script
+              require('./setup');
+              
+              // Check again
+              if (!fs.existsSync(binaryPath)) {
+                console.error(`Termineer binary still not found at ${binaryPath}`);
+                console.error('Try reinstalling: npm install -g termineer');
+                process.exit(1);
+              }
+            } catch (setupError) {
+              console.error(`Setup failed: ${setupError.message}`);
+              console.error('Try reinstalling: npm install -g termineer');
+              process.exit(1);
+            }
           }
           
           // Execute the binary
@@ -297,11 +322,14 @@ jobs:
           }
           EOF
           
-          # Debug file creation
-          echo "Checking created files:"
+          # Debug all created files and make executable
+          echo "Checking files in bin directory:"
           ls -la npm-package/bin/
           
-          # Make files executable with error checking
+          echo "Checking bundled binaries:"
+          ls -la npm-package/bin/platform/*/
+          
+          # Make JavaScript files executable
           if [ -f npm-package/bin/termineer.js ]; then
             chmod +x npm-package/bin/termineer.js
             echo "Made termineer.js executable"
@@ -309,11 +337,11 @@ jobs:
             echo "ERROR: termineer.js not found"
           fi
           
-          if [ -f npm-package/bin/download.js ]; then
-            chmod +x npm-package/bin/download.js
-            echo "Made download.js executable"
+          if [ -f npm-package/bin/setup.js ]; then
+            chmod +x npm-package/bin/setup.js
+            echo "Made setup.js executable"
           else
-            echo "ERROR: download.js not found"
+            echo "ERROR: setup.js not found"
           fi
           
           # Create README.md
@@ -349,8 +377,7 @@ jobs:
       - name: Create NPM package
         run: |
           cd npm-package
-          # Install dependencies needed for packaging
-          npm install --no-save node-fetch@2.6.9
+          # No external dependencies needed anymore
           npm pack
           mv termineer-${{ needs.prepare-version.outputs.version }}.tgz ../termineer-npm-package.tgz
       
