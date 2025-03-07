@@ -154,8 +154,10 @@ jobs:
       # Create NPM package structure
       - name: Create NPM package
         run: |
-          # Create required directories
-          mkdir -p npm-package/{bin}
+          # Create required directories with debug
+          mkdir -p npm-package/bin
+          echo "Directory structure created"
+          ls -la npm-package
           
           # Create package.json
           cat > npm-package/package.json << EOF
@@ -295,8 +297,24 @@ jobs:
           }
           EOF
           
-          # Make files executable
-          chmod +x npm-package/bin/termineer.js npm-package/bin/download.js
+          # Debug file creation
+          echo "Checking created files:"
+          ls -la npm-package/bin/
+          
+          # Make files executable with error checking
+          if [ -f npm-package/bin/termineer.js ]; then
+            chmod +x npm-package/bin/termineer.js
+            echo "Made termineer.js executable"
+          else
+            echo "ERROR: termineer.js not found"
+          fi
+          
+          if [ -f npm-package/bin/download.js ]; then
+            chmod +x npm-package/bin/download.js
+            echo "Made download.js executable"
+          else
+            echo "ERROR: download.js not found"
+          fi
           
           # Create README.md
           cat > npm-package/README.md << 'EOF'
