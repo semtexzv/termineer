@@ -87,6 +87,9 @@ impl ProcessConnection {
             .map_err(|e| McpError::ConnectionError(format!("Failed to start process: {}", e)))?;
 
         let name = name.to_string();
+        // Make a clone for the async closure
+        let name_for_stderr = name.clone();
+        
         // Capture stderr for logging MCP output to the user
         if let Some(Ok(stderr)) = child
             .stderr
@@ -101,7 +104,7 @@ impl ProcessConnection {
                     bprintln!(
                         "{}MCP[{}]:{} {}",
                         crate::constants::FORMAT_CYAN,
-                        name,
+                        name_for_stderr,
                         crate::constants::FORMAT_RESET,
                         line
                     );

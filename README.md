@@ -42,30 +42,12 @@ Termineer creates a seamless bridge between the terminal environment and state-o
      ```
      # For Claude models
      ANTHROPIC_API_KEY=your_anthropic_api_key
-     
-     # For Google Gemini models
-     GOOGLE_API_KEY=your_google_api_key
-     
-     # For OpenRouter models (optional)
-     OPENROUTER_API_KEY=your_openrouter_api_key
-     
-     # Optional OpenRouter site information
-     OPENROUTER_SITE_URL=https://your-site-url.com
-     OPENROUTER_SITE_NAME=Your Site Name
      ```
    
    - Or set as environment variables:
      ```
      # For Claude models
      export ANTHROPIC_API_KEY=your_anthropic_api_key
-     
-     # For Google Gemini models
-     export GOOGLE_API_KEY=your_google_api_key
-     
-     # For OpenRouter models
-     export OPENROUTER_API_KEY=your_openrouter_api_key
-     export OPENROUTER_SITE_URL=https://your-site-url.com
-     export OPENROUTER_SITE_NAME="Your Site Name"
      ```
 
 ## Usage

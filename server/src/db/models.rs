@@ -4,7 +4,7 @@ use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
 /// User model representing a registered user
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
 pub struct User {
     pub id: Uuid,
     pub email: String,
@@ -15,6 +15,9 @@ pub struct User {
     pub has_subscription: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub google_access_token: Option<String>,
+    pub google_refresh_token: Option<String>,
+    pub token_expires_at: Option<DateTime<Utc>>,
 }
 
 /// Subscription model representing a user's subscription

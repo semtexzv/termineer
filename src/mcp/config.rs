@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// MCP server configuration structure matching the .term/config.json format
+/// MCP server configuration structure matching the .termineer/config.json format
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McpServerConfig {
     /// Command to execute for this MCP server
@@ -45,7 +45,7 @@ impl McpConfig {
         }
     }
     
-    /// Load MCP configuration from .term/config.json and ~/.termineer/mcp/config.json
+    /// Load MCP configuration from .termineer/config.json and ~/.termineer/mcp/config.json
     pub fn load() -> Result<Option<Self>> {
         let mut result = None;
         

@@ -2,7 +2,14 @@
     {% when Some with (user_info) %}
         <!-- Logged in state -->
         <div class="flex items-center space-x-4">
-            <span class="text-gray-700 font-medium">{{ user_info.email }}</span>
+            <a href="/account" class="text-gray-700 hover:text-indigo-600 font-medium transition-colors">
+                {% match user_info.name %}
+                    {% when Some with (name) %}
+                        {{ name }}
+                    {% when None %}
+                        {{ user_info.email }}
+                {% endmatch %}
+            </a>
             <div class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-medium">
                 {% match user_info.subscription %}
                     {% when Some with (sub) %}

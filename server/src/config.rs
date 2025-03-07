@@ -2,59 +2,35 @@ use serde::Deserialize;
 use std::env;
 use config::{Config as ConfigLib, ConfigError, Environment, File};
 
+/// Application configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// Current environment (development, production)
     pub environment: String,
+    /// Server host
     pub host: String,
+    /// Server port
     pub port: u16,
+    /// Database connection URL
     pub database_url: String,
-    
-    // OAuth configuration
-    pub google_client_id: String,
-    pub google_client_secret: String,
-    pub oauth_redirect_url: String,
-    
-    // Stripe configuration
-    pub stripe_secret_key: String,
-    pub stripe_webhook_secret: String,
-    
-    // JWT configuration
-    pub jwt_secret: String,
-    pub jwt_expiry: i64,
-    
-    // Application URLs
-    pub frontend_url: String,
-    pub success_redirect_url: String,
-    pub cancel_redirect_url: String,
 }
 
 impl Config {
+    /// Load configuration from environment variables and config files
     pub fn from_env() -> Result<Self, ConfigError> {
         let mut builder = ConfigLib::builder()
-            // Start with default values
+            // Set default values
             .set_default("environment", "development")?
             .set_default("host", "127.0.0.1")?
             .set_default("port", 8080)?
-            .set_default("jwt_expiry", 86400)?
-            // Set default values for SQLite
-            .set_default("database_url", "sqlite:data/termineer.db")?
-            // For test/development, use mock values
-            .set_default("google_client_id", "mock_client_id")?
-            .set_default("google_client_secret", "mock_client_secret")?
-            .set_default("oauth_redirect_url", "http://localhost:3000/auth/google/callback")?
-            .set_default("jwt_secret", "development_jwt_secret_key")?
-            .set_default("stripe_secret_key", "mock_stripe_key")?
-            .set_default("stripe_webhook_secret", "mock_webhook_secret")?
-            .set_default("frontend_url", "http://localhost:8732")?
-            .set_default("success_redirect_url", "http://localhost:8732/payment/success")?
-            .set_default("cancel_redirect_url", "http://localhost:8732/payment/cancel")?;
+            .set_default("database_url", "postgres://termineer:development@localhost:5432/termineer")?;
             
-        // Layer on the environment-specific values
+        // Layer on the environment-specific values from config files if available
         if let Ok(env) = env::var("ENVIRONMENT") {
             builder = builder.add_source(File::with_name(&format!("config/{}", env)).required(false));
         }
         
-        // Add in settings from environment variables
+        // Add settings from environment variables
         builder = builder.add_source(Environment::default().separator("__"));
         
         // Build and deserialize the config
@@ -63,10 +39,12 @@ impl Config {
         config.try_deserialize()
     }
     
+    /// Check if running in development environment
     pub fn is_development(&self) -> bool {
         self.environment == "development"
     }
     
+    /// Check if running in production environment
     pub fn is_production(&self) -> bool {
         self.environment == "production"
     }

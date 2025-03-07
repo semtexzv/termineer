@@ -190,6 +190,15 @@ impl Agent {
                 bprintln !(error:"Failed to initialize MCP connections: {}", e);
             }
         }
+        
+        // Load project information and autoinclude files at startup for every agent
+        if let Err(e) = self.load_project_info(None, false).await {
+            bprintln !(error:"Failed to load project information: {}", e);
+        }
+        
+        if let Err(e) = self.load_autoinclude_files(false).await {
+            bprintln !(error:"Failed to load autoinclude files: {}", e);
+        }
 
         // Main agent loop
         'main: loop {
@@ -1005,10 +1014,9 @@ impl Agent {
                 .push(Message::text("user", content, MessageInfo::User));
 
             bprintln!(
-                "{}Loaded project information from {} file{}",
-                crate::constants::FORMAT_CYAN,
+                info:
+                "Loaded project information from {} file",
                 path,
-                crate::constants::FORMAT_RESET
             );
 
             return Ok(true);
@@ -1017,14 +1025,155 @@ impl Agent {
         Ok(false)
     }
 
+    /// Load files specified by glob patterns in .termineer/autoinclude
+    /// 
+    /// # Returns
+    /// * `Ok(n)` where n is the number of files included
+    /// * `Err(...)` if an error occurred while processing
+    async fn load_autoinclude_files(
+        &mut self,
+        force: bool,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        // Check if we should add autoinclude files (either conversation is empty or force=true)
+        if self.conversation.is_empty() && !force {
+            return Ok(0);
+        }
+        
+        // Path to autoinclude file
+        let autoinclude_path = ".termineer/autoinclude";
+
+        // Check if autoinclude file exists
+        if !tokio::fs::try_exists(autoinclude_path).await? {
+            bprintln!(info: "Autoinclude directory doesn't exist, skipping");
+            return Ok(0);
+        }
+        
+        // Read the autoinclude file
+        let autoinclude_content = tokio::fs::read_to_string(autoinclude_path).await?;
+        
+        // Constants for limits
+        const MAX_TOTAL_SIZE: usize = 100_000;  // Maximum total content size (chars)
+        
+        // Process each line as a glob pattern
+        let mut included_count = 0;
+        let mut total_content_size = 0;
+        
+        for pattern in autoinclude_content.lines().filter(|line| !line.trim().is_empty()) {
+            // Skip comments
+            if pattern.trim().starts_with('#') {
+                continue;
+            }
+            
+            // Use glob to find all matching files
+            let matches = glob::glob(pattern).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput, 
+                    format!("Invalid glob pattern '{}': {}", pattern, e)
+                )
+            })?;
+            
+            // Process each matched file
+            for entry in matches {
+                match entry {
+                    Ok(path) => {
+                        // Skip if it's not a file
+                        if !path.is_file() {
+                            continue;
+                        }
+                        
+                        // Skip some known binary file extensions
+                        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ["exe", "bin", "o", "a", "so", "dylib", "dll", "class", "jar", "war", "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "bmp", "ico"].contains(&extension) {
+                            bprintln!(
+                                "{}Skipping binary file: {}{}",
+                                crate::constants::FORMAT_YELLOW,
+                                path.display(),
+                                crate::constants::FORMAT_RESET
+                            );
+                            continue;
+                        }
+                        
+                        // Try to read file content
+                        let file_content = match tokio::fs::read_to_string(&path).await {
+                            Ok(content) => content,
+                            Err(e) => {
+                                // Log error and skip this file
+                                bprintln!(
+                                    "{}Error reading file '{}': {}{}",
+                                    crate::constants::FORMAT_RED,
+                                    path.display(),
+                                    e,
+                                    crate::constants::FORMAT_RESET
+                                );
+                                continue;
+                            }
+                        };
+                        
+                        // Update total content size
+                        total_content_size += file_content.len();
+                        
+                        // Format message with file path and content
+                        let message = format!(
+                            "# File: {}\n```\n{}\n```",
+                            path.display(),
+                            file_content
+                        );
+                        
+                        // Add to conversation
+                        self.conversation.push(Message::text(
+                            "user", 
+                            message, 
+                            MessageInfo::User
+                        ));
+                        
+                        included_count += 1;
+                    },
+                    Err(e) => {
+                        // Just log errors for individual files but continue processing
+                        bprintln!(
+                            "{}Error processing glob match: {}{}",
+                            crate::constants::FORMAT_RED,
+                            e,
+                            crate::constants::FORMAT_RESET
+                        );
+                    }
+                }
+            }
+        }
+        
+        // If we included any files, let the user know the total count with a prominent message
+        if included_count > 0 {
+            // Print a very prominent message to the buffer
+            bprintln!(
+                "\n{}📚 AUTOINCLUDED {} FILES:{} {} files (total size: {} KB) from patterns in .termineer/autoinclude\n",
+                format!("{}{}", crate::constants::FORMAT_BOLD, crate::constants::FORMAT_CYAN),
+                included_count,
+                crate::constants::FORMAT_RESET,
+                included_count,
+                total_content_size / 1024
+            );
+            
+            // Also add a message directly to the conversation context
+            self.conversation.push(Message::text(
+                "user",
+                format!("📚 *Automatically included {} files (total size: {} KB) from patterns in .termineer/autoinclude*", 
+                    included_count, 
+                    total_content_size / 1024
+                ),
+                MessageInfo::System
+            ));
+        }
+        
+        Ok(included_count)
+    }
+
     /// Send a message to the LLM backend and process the response
     pub async fn send_message(
         &mut self,
         interrupt_coordinator: &InterruptCoordinator,
     ) -> Result<MessageResult, Box<dyn std::error::Error + Send + Sync>> {
-        // Load project information from .termineer file if needed
-        // Using default path (.termineer) and only loading if conversation is empty
-        self.load_project_info(None, false).await?;
+        // Project information and autoinclude files are now loaded at startup
+        // for all agents in the run method, so we don't need to do it here.
 
         // Get necessary values for token counting
         let thinking_budget = Some(self.config.thinking_budget);

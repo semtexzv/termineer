@@ -902,7 +902,7 @@ impl TuiInterface {
 
             // If no events were processed, wait a bit to avoid busy-waiting
             if !events_processed {
-                event::poll(Duration::from_millis(16))?;
+                event::poll(Duration::from_millis(32))?;
             }
         }
 

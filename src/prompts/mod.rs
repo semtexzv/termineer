@@ -20,13 +20,19 @@ include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "read", "write", "patch", "fetch", "search", "mcp", "task", "done", "agent", "wait",
+    "shell", "read", "write", "patch", "fetch", "search", "mcp", "task", "done", "wait",
 ];
+
+/// List of tools available to Plus/Pro users only
+pub const PLUS_TOOLS: &[&str] = &["agent"];
 
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
-    "shell", "read", "fetch", "search", "mcp", "done", "agent", "wait",
+    "shell", "read", "fetch", "search", "mcp", "done", "wait",
 ];
+
+/// List of read-only tools for Plus/Pro users
+pub const READONLY_PLUS_TOOLS: &[&str] = &["agent"];
 
 /// Check if a kind name is available in the compiled templates
 pub fn is_valid_kind(kind_name: &str) -> bool {
@@ -85,7 +91,7 @@ pub fn render_template(
         Ok(servers) => servers,
         Err(_) => Vec::new(), // Empty list if there's an error
     };
-
+    
     // Load all templates to ensure partials are available
     match template_manager.load_all_templates() {
         Ok(_) => {
@@ -154,8 +160,63 @@ pub fn generate_system_prompt(
 
     let kind = format!("kind/{}", kind);
 
-    // Render the template
-    match render_template(&kind, enabled_tools, grammar) {
+    // Determine if we're using read-only tools
+    let using_readonly = {
+        let readonly_set: std::collections::HashSet<&str> = READONLY_TOOLS.iter().copied().collect();
+        let enabled_set: std::collections::HashSet<&str> = enabled_tools.iter().copied().collect();
+        readonly_set == enabled_set
+    };
+    
+    // Get the current app mode
+    let app_mode = crate::config::get_app_mode();
+    
+    // Determine if the user has Plus or Pro subscription
+    let has_plus = matches!(
+        app_mode,
+        crate::config::AppMode::Plus | crate::config::AppMode::Pro
+    );
+    
+    // Create a set of premium tools for filtering
+    let premium_tools: std::collections::HashSet<&str> = PLUS_TOOLS.iter().copied().collect();
+    
+    // Combine standard tools with appropriate Plus tools based on subscription and read-only mode
+    let mut combined_tools = Vec::with_capacity(
+        enabled_tools.len() + 
+        if has_plus { 
+            if using_readonly { READONLY_PLUS_TOOLS.len() } else { PLUS_TOOLS.len() } 
+        } else { 0 }
+    );
+    
+    // Add standard tools, filtering out premium tools for free users
+    for tool in enabled_tools {
+        // For Free users, skip premium tools even if they're passed in enabled_tools
+        if !has_plus && premium_tools.contains(tool) {
+            continue;
+        }
+        combined_tools.push(*tool);
+    }
+    
+    // If user has Plus/Pro, add appropriate Plus-only tools
+    if has_plus {
+        if using_readonly {
+            for tool in READONLY_PLUS_TOOLS {
+                // Avoid adding duplicates
+                if !combined_tools.contains(tool) {
+                    combined_tools.push(*tool);
+                }
+            }
+        } else {
+            for tool in PLUS_TOOLS {
+                // Avoid adding duplicates
+                if !combined_tools.contains(tool) {
+                    combined_tools.push(*tool);
+                }
+            }
+        }
+    }
+
+    // Render the template with the complete tool list
+    match render_template(&kind, &combined_tools, grammar) {
         Ok(prompt) => Ok(prompt),
         Err(e) => {
             bail!("Failed to render template '{}': {}", kind, e);

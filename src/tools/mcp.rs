@@ -5,7 +5,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
+use crate::mcp::protocol::content;
+use crate::mcp::protocol::content::TextContent;
 use crate::mcp::tool_provider::McpToolProvider;
 use crate::tools::{AgentStateChange, ToolResult};
 
@@ -103,7 +104,53 @@ pub async fn execute_list_by_name(server_name: &str, silent_mode: bool) -> ToolR
     // List tools
     let tools = provider.list_tools().await;
 
-    // Format tool list
+    // Use consistent tool formatting with bold invocation and gray content
+    if !silent_mode {
+        // Bold invocation message
+        bprintln!(tool: "mcp",
+            "{}🔌 MCP:{} Listing tools on server {}",
+            crate::constants::FORMAT_BOLD,
+            crate::constants::FORMAT_RESET,
+            server_name
+        );
+        
+        // Gray content
+        if !tools.is_empty() {
+            let preview_count = std::cmp::min(5, tools.len());
+            
+            // Format tool info
+            let tool_lines = tools.iter().take(preview_count)
+                .map(|t| format!("- {}: {}", t.name, t.description))
+                .collect::<Vec<_>>();
+                
+            // Show total count info
+            let count_info = format!("Found {} tools total", tools.len());
+                
+            // Add truncation notice if needed
+            let truncation_notice = if tools.len() > preview_count {
+                format!("[+ {} more tools not shown]", tools.len() - preview_count)
+            } else {
+                String::new()
+            };
+            
+            // Build the preview with everything in gray
+            let preview = format!("{}{}{}{}{}{}",
+                crate::constants::FORMAT_GRAY,
+                count_info,
+                if !tool_lines.is_empty() { "\n" } else { "" },
+                tool_lines.join("\n"),
+                if !truncation_notice.is_empty() { "\n" } else { "" },
+                truncation_notice
+            );
+            
+            bprintln!("{}{}", preview, crate::constants::FORMAT_RESET);
+        } else {
+            bprintln!("{}No tools available{}", 
+                crate::constants::FORMAT_GRAY, 
+                crate::constants::FORMAT_RESET
+            );
+        }
+    }
     let mut output = format!("Tools available from MCP server '{}':\n\n", server_name);
 
     if tools.is_empty() {
@@ -190,43 +237,143 @@ pub async fn execute_call_by_name(
         .map(|t| format!("{} ({})", t.name, t.description))
         .unwrap_or_else(|| tool_id.to_string());
 
-    // Call tool
+    // We don't need this with our simplified logging approach
+
+    // Log the call with better formatting to match other tools
     if !silent_mode {
+        // Bold invocation message
         bprintln !(tool: "mcp",
-            "Calling tool {} on MCP server: {}",
+            "{}🔌 MCP:{} Calling {} on server {}",
+            crate::constants::FORMAT_BOLD,
+            crate::constants::FORMAT_RESET,
             tool_id,
             server_name
         );
+        
+        // Show argument summary in gray if available
+        if arguments.is_object() && !arguments.as_object().unwrap().is_empty() {
+            let arg_keys = arguments.as_object().unwrap().keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+                
+            bprintln!("{}Arguments: {}{}", 
+                crate::constants::FORMAT_GRAY,
+                arg_keys,
+                crate::constants::FORMAT_RESET
+            );
+        }
     }
 
     // Execute the tool and get content objects
     match provider.get_tool_content(tool_id, arguments).await {
         Ok(contents) => {
-            // Format a summary for the user
-            let output = format!(
-                "Tool call successful: {} on {}\nReturned {} content items that will be added to the conversation.",
-                tool_id,
-                server_name,
-                contents.len()
-            );
+            // Get preview of the actual content
+            let preview = if !contents.is_empty() {
+                let mut preview_text = format!("Received {} content item(s):\n", contents.len());
+                
+                // Try to preview up to 3 content items
+                let mut items_previewed = 0;
+                
+                for content_item in contents.iter().take(3) {
+                    match content_item {
+                        content::Content::Text(TextContent { text, .. }) => {
+                            // Add separator between items if needed
+                            if items_previewed > 0 {
+                                preview_text.push_str("\n---\n");
+                            }
+                            
+                            // Get up to 10 lines for preview
+                            let lines: Vec<&str> = text.lines().take(10).collect();
+                            if !lines.is_empty() {
+                                preview_text.push_str(&lines.join("\n"));
+                                
+                                // Indicate if content was truncated
+                                let line_count = text.lines().count();
+                                if line_count > 10 {
+                                    preview_text.push_str(&format!("\n[...truncated, {} more lines]", line_count - 10));
+                                }
+                                
+                                items_previewed += 1;
+                            }
+                        },
+                        content::Content::Image(_) => {
+                            // Just note image content without trying to display
+                            if items_previewed > 0 {
+                                preview_text.push_str("\n---\n");
+                            }
+                            preview_text.push_str("[Image content]");
+                            items_previewed += 1;
+                        },
+                        content::Content::Resource(_) => {
+                            // Just note resource content without trying to display
+                            if items_previewed > 0 {
+                                preview_text.push_str("\n---\n");
+                            }
+                            preview_text.push_str("[Resource content]");
+                            items_previewed += 1;
+                        }
+                    }
+                }
+                
+                // If there are more items than we previewed, indicate them
+                if contents.len() > 3 {
+                    preview_text.push_str(&format!("\n[+ {} additional content items not shown]", contents.len() - 3));
+                }
+                
+                format!("{}{}{}", 
+                    crate::constants::FORMAT_GRAY,
+                    preview_text,
+                    crate::constants::FORMAT_RESET
+                )
+            } else {
+                format!("{}No content available{}", 
+                    crate::constants::FORMAT_GRAY,
+                    crate::constants::FORMAT_RESET
+                )
+            };
 
             if !silent_mode {
+                // Bold completion message
                 bprintln !(tool: "mcp",
-                    "Tool call successful: {} on {}",
+                    "{}🔌 MCP completed:{} {} on {}",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
                     tool_id,
                     server_name
                 );
-                bprintln!("{}", output);
+
+                // Show preview in gray (preview already has gray formatting)
+                if !preview.is_empty() {
+                    bprintln!("{}", preview);
+                }
             }
+
+            // No need to create a variable for output that's not used
 
             // Return success with the MCP content objects
             ToolResult::success_from_mcp(contents)
         }
         Err(err) => {
-            let error_msg = format!("Tool execution failed: {}", err);
+            // Format error message for the agent
+            let error_msg = format!("MCP call failed: {} on {} - {}", tool_id, server_name, err);
 
             if !silent_mode {
-                bprintln !(error:"{}", error_msg);
+                // Bold error message header
+                bprintln !(tool: "mcp",
+                    "{}🔌 MCP error:{} {} on {}",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    tool_id,
+                    server_name
+                );
+                
+                // Error details in gray
+                bprintln!("{}Error: {}{}", 
+                    crate::constants::FORMAT_GRAY,
+                    err,
+                    crate::constants::FORMAT_RESET
+                );
             }
 
             ToolResult::error(error_msg)

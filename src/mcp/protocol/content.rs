@@ -39,10 +39,6 @@ impl McpContent for Content {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextContent {
-    /// The type identifier (always "text")
-    #[serde(rename = "type")]
-    pub type_id: String,
-
     /// The text content
     pub text: String,
 
@@ -63,10 +59,6 @@ impl McpContent for TextContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageContent {
-    /// The type identifier (always "image")
-    #[serde(rename = "type")]
-    pub type_id: String,
-
     /// The base64-encoded image data
     pub data: String,
 
@@ -133,10 +125,6 @@ pub struct BlobResourceContents {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddedResource {
-    /// The type identifier (always "resource")
-    #[serde(rename = "type")]
-    pub type_id: String,
-
     /// The resource contents
     pub resource: ResourceContents,
 

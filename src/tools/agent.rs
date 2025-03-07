@@ -19,6 +19,22 @@ pub async fn execute_agent_tool(
     silent_mode: bool,
     source_agent_id: Option<AgentId>,
 ) -> ToolResult {
+    // Check if user has Plus or Pro subscription for multi-agent capabilities
+    let app_mode = crate::config::get_app_mode();
+    let has_required_subscription = matches!(
+        app_mode,
+        crate::config::AppMode::Plus | crate::config::AppMode::Pro
+    );
+
+    // If user does not have required subscription, return error with upgrade message
+    if !has_required_subscription {
+        let error_msg = "Multi-agent capabilities require a Plus or Pro subscription.\nRun 'termineer login' to authenticate with your account.".to_string();
+        if !silent_mode {
+            bprintln !(error:"{}", error_msg);
+        }
+        return ToolResult::error(error_msg);
+    }
+
     // Get access to the agent manager (either provided or global)
     let agent_manager = GLOBAL_AGENT_MANAGER.clone();
 

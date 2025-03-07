@@ -16,7 +16,6 @@ This is a Rust application that provides a command-line interface for interactin
 - **llm/**: LLM client implementations
   - **mod.rs**: Common interface for LLM backends
   - **anthropic.rs**: Anthropic Claude API integration
-  - **openrouter.rs**: OpenRouter API for accessing multiple models
   - **factory.rs**: Factory for creating appropriate LLM clients
   - **types.rs**: Type definitions for LLM interactions
 - **macros.rs**: Unified buffer printing macros (bprintln)
@@ -58,7 +57,7 @@ This is a Rust application that provides a command-line interface for interactin
 - Project info loading with directory-specific context
 
 ## Configuration
-- API keys for Anthropic, Google, and OpenRouter
+- API keys for Anthropic 
 - Model selection with automatic tier-appropriate suggestions
 - Custom system prompts and agent kinds
 - Environment variable configuration via .env files

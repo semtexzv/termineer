@@ -51,6 +51,7 @@ impl CallToolResult {
         let mut contents = Vec::new();
 
         for item in &self.content {
+            bprintln!(dev: "ITEM: {:#?}", item);
             // Try to parse as Content enum first
             if let Ok(content) = serde_json::from_value::<super::content::Content>(item.clone()) {
                 contents.push(content);
@@ -61,16 +62,14 @@ impl CallToolResult {
             if let Some(text) = item.as_str() {
                 // Create a text content object
                 contents.push(super::content::Content::Text(super::content::TextContent {
-                    type_id: "text".to_string(),
                     text: text.to_string(),
                     annotations: None,
                 }));
                 continue;
             }
-
+            bprintln!(warn: "Unknown content type: {:#?}", item.get("type"));
             // Otherwise, convert to string and make it text content
             contents.push(super::content::Content::Text(super::content::TextContent {
-                type_id: "text".to_string(),
                 text: serde_json::to_string_pretty(item)?,
                 annotations: None,
             }));

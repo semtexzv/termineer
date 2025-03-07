@@ -1,5 +1,4 @@
-# Keep the autoswe- terminology here, do not recreate the resources
-# fly.toml app configuration file generated for autoswe-database
+# fly.toml app configuration file generated for autoswe-database on 2025-03-07T09:49:18+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #

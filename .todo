@@ -8,15 +8,7 @@
 - Whenever user is working in the directory save the session periodically or after every model output to a file
 - This file should be called .session.
 
-# Name change
-- If we're going public, we have to come up with a name: what about Termineer - Terminal Engineer
-- Invoked by `termineer --model=claude-3.7`
-- https://www.namecheap.com/domains/registration/results/?domain=termineer.io
-
-# Generate the kind list during compiletime
-- Generate rust file containing obfstr constant of the bundled prompts
-
 # Bugs:
-- Remove internal logging (Eg interruption except when the interrupt is occuring), ad bdevprintln that will only be compiled in in debug mode
 - Wrapping logic is not correct in the input box, multiline text the cursor is one character behind per line
-- Tools template needs to specify that write will overwrite entire file contents
+- Tools template needs to specify that write tool will overwrite entire file contents
+- --help doesnt show list-tools.

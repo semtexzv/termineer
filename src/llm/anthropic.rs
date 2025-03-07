@@ -153,27 +153,38 @@ impl Anthropic {
         }
     }
 
-    /// Send a request to the Anthropic API with retry logic
+    /// Send a request to the Anthropic API with improved timeout and retry logic
     async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
         // Retry configuration
         let mut attempts = 0;
-        let max_attempts = 3;
+        let max_attempts = 5; // Increased for better reliability
         let base_retry_delay_ms = 1000; // 1 second initial retry delay
+        let max_retry_delay_ms = 30000; // Maximum 30 second retry delay as per TODO
+        let request_timeout = Duration::from_secs(180); // 3 minutes timeout (longer as per TODO)
 
         loop {
-            let response = self
+            // Log the retry attempt if not the first attempt
+            if attempts > 0 {
+                bprintln!(dev: "🔄 Retry attempt {} of {} for LLM API call", 
+                          attempts, max_attempts);
+            }
+
+            // Build the request with timeout
+            let request = self
                 .client
                 .post(&*API_URL)
+                .timeout(request_timeout)
                 .header("Content-Type", "application/json")
                 .header("X-Api-Key", &self.api_key)
                 .header("anthropic-version", &*ANTHROPIC_VERSION)
                 .header("anthropic-beta", "output-128k-2025-02-19")
-                .json(&request_json)
-                .send()
-                .await;
+                .json(&request_json);
+            
+            // Send the request
+            let response = request.send().await;
 
             match response {
                 Ok(res) => {
@@ -185,32 +196,63 @@ impl Anthropic {
                         // Handle rate limiting (429 Too Many Requests)
                         attempts += 1;
                         if attempts >= max_attempts {
-                            return Err(LlmError::ApiError(format!(
-                                "Max retry attempts reached for rate limiting: {}",
-                                res.status()
-                            )));
+                            return Err(LlmError::RateLimitError { 
+                                retry_after: None 
+                            });
                         }
 
-                        // Try to get retry-after header, default to exponential backoff if not present
+                        // Try to get retry-after header, default to linear backoff if not present
                         let retry_after = match res
                             .headers()
                             .get("retry-after")
                             .and_then(|v| v.to_str().ok())
                             .and_then(|v| v.parse::<u64>().ok())
                         {
-                            Some(value) => value * 1000,
+                            Some(value) => {
+                                let delay_ms = value * 1000;
+                                bprintln!("⏱️ Rate limit exceeded. Server requested retry after {} seconds", value);
+                                delay_ms
+                            },
                             None => {
-                                // Exponential backoff with jitter
-                                let exponential_delay =
-                                    base_retry_delay_ms * 2u64.pow(attempts as u32);
-                                exponential_delay
+                                // Linear backoff with multiplier
+                                let linear_delay = base_retry_delay_ms * (attempts as u64);
+                                // Cap at max delay
+                                let capped_delay = linear_delay.min(max_retry_delay_ms);
+                                bprintln!("⏱️ Rate limit exceeded. Retrying in {} seconds", capped_delay / 1000);
+                                capped_delay
                             }
                         };
 
                         // Sleep for the retry duration
                         sleep(Duration::from_millis(retry_after)).await;
                         continue;
+                    } else if res.status().is_server_error() {
+                        // Handle server errors (500, 502, 503, etc.)
+                        attempts += 1;
+                        if attempts >= max_attempts {
+                            let status = res.status();
+                            let error_text = res
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown server error".to_string());
+                                
+                            return Err(LlmError::ApiError(format!(
+                                "Max retries reached. Server error {}: {}",
+                                status, error_text
+                            )));
+                        }
+                        
+                        // Linear backoff for server errors
+                        let linear_delay = base_retry_delay_ms * (attempts as u64);
+                        let capped_delay = linear_delay.min(max_retry_delay_ms);
+                        
+                        bprintln!("⚠️ LLM API server error {}. Retrying in {} seconds (attempt {}/{})", 
+                                 res.status(), capped_delay / 1000, attempts, max_attempts);
+                        
+                        sleep(Duration::from_millis(capped_delay)).await;
+                        continue;
                     } else {
+                        // Other HTTP errors (4xx client errors except 429)
                         let status = res.status();
                         let error_text = res
                             .text()
@@ -224,7 +266,33 @@ impl Anthropic {
                     }
                 }
                 Err(err) => {
-                    return Err(LlmError::ApiError(format!("HTTP request error: {}", err)));
+                    // Network-related errors (timeouts, connection issues)
+                    attempts += 1;
+                    
+                    if attempts >= max_attempts {
+                        return Err(LlmError::ApiError(format!(
+                            "Max retries reached. Network error: {}", 
+                            err
+                        )));
+                    }
+                    
+                    // Check if it's a timeout error
+                    let is_timeout = err.is_timeout();
+                    
+                    // Linear backoff
+                    let linear_delay = base_retry_delay_ms * (attempts as u64);
+                    let capped_delay = linear_delay.min(max_retry_delay_ms);
+                    
+                    if is_timeout {
+                        bprintln!("⏱️ LLM API request timed out. Retrying in {} seconds (attempt {}/{})",
+                                 capped_delay / 1000, attempts, max_attempts);
+                    } else {
+                        bprintln!("🌐 Network error: {}. Retrying in {} seconds (attempt {}/{})",
+                                 err, capped_delay / 1000, attempts, max_attempts);
+                    }
+                    
+                    sleep(Duration::from_millis(capped_delay)).await;
+                    continue;
                 }
             }
         }
@@ -321,29 +389,77 @@ impl Backend for Anthropic {
             LlmError::ApiError(format!("Failed to process token count request: {}", e))
         })?;
 
-        // Send the request to the count_tokens endpoint
-        let client_response = self
-            .client
-            .post(&*COUNT_TOKENS_URL)
-            .header("Content-Type", "application/json")
-            .header("X-Api-Key", &self.api_key)
-            .header("anthropic-version", &*ANTHROPIC_VERSION)
-            .json(&json)
-            .send()
-            .await
-            .map_err(|e| LlmError::ApiError(format!("Token count request failed: {}", e)))?;
-
-        let response: CountTokensResponse = client_response.json().await.map_err(|e| {
-            LlmError::ApiError(format!("Failed to parse token count response: {}", e))
-        })?;
-
-        // Create TokenUsage from the response
-        // Note: count_tokens only provides input tokens, output tokens will be 0
-        Ok(TokenUsage {
-            input_tokens: response.input_tokens,
-            output_tokens: 0, // No output for token counting
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
+        // Reuse the same improved timeout and retry logic for token counting
+        // by calling send_api_request with the token counting URL
+        let timeout = Duration::from_secs(60); // Shorter timeout for token counting
+        let mut attempts = 0;
+        let max_attempts = 3; // Fewer retries for token counting as it's less critical
+        let base_retry_delay_ms = 1000;
+        let max_retry_delay_ms = 10000; // 10 seconds max retry for token counting
+        
+        while attempts < max_attempts {
+            if attempts > 0 {
+                // Only log retries after the first attempt
+                bprintln!(dev: "🔄 Retry attempt {} of {} for token counting", 
+                          attempts, max_attempts);
+                
+                // Linear backoff
+                let linear_delay = base_retry_delay_ms * (attempts as u64);
+                let capped_delay = linear_delay.min(max_retry_delay_ms);
+                sleep(Duration::from_millis(capped_delay)).await;
+            }
+            
+            let result = self
+                .client
+                .post(&*COUNT_TOKENS_URL)
+                .timeout(timeout)
+                .header("Content-Type", "application/json")
+                .header("X-Api-Key", &self.api_key)
+                .header("anthropic-version", &*ANTHROPIC_VERSION)
+                .json(&json)
+                .send()
+                .await;
+                
+            match result {
+                Ok(res) => {
+                    if res.status().is_success() {
+                        let response: CountTokensResponse = res.json().await.map_err(|e| {
+                            LlmError::ApiError(format!("Failed to parse token count response: {}", e))
+                        })?;
+                        
+                        // Create TokenUsage from the response
+                        // Note: count_tokens only provides input tokens, output tokens will be 0
+                        return Ok(TokenUsage {
+                            input_tokens: response.input_tokens,
+                            output_tokens: 0, // No output for token counting
+                            cache_creation_input_tokens: 0,
+                            cache_read_input_tokens: 0,
+                        });
+                    } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS || 
+                              res.status().is_server_error() {
+                        // Handle rate limiting or server error - retry
+                        attempts += 1;
+                        continue;
+                    } else {
+                        // Other errors - don't retry
+                        return Err(LlmError::ApiError(format!(
+                            "Token count HTTP error {}: {}", 
+                            res.status(), 
+                            res.text().await.unwrap_or_else(|_| "Unknown error".to_string())
+                        )));
+                    }
+                },
+                Err(e) => {
+                    // Network error - retry
+                    attempts += 1;
+                    if attempts >= max_attempts {
+                        return Err(LlmError::ApiError(format!("Token count request failed after {} attempts: {}", max_attempts, e)));
+                    }
+                }
+            }
+        }
+        
+        // If we've exhausted all retries
+        Err(LlmError::ApiError("Max retries reached for token counting".to_string()))
     }
 }

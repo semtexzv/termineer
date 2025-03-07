@@ -155,9 +155,19 @@ impl Config {
     ) -> Result<ArgResult, Box<dyn std::error::Error + Send + Sync>> {
         let total_args = args.len();
 
-        // Check for login command first (termineer login)
-        if total_args > 1 && args[1].to_lowercase() == "login" {
-            return Ok(ArgResult::Login);
+        // Check for subcommands first (termineer login, termineer list-kinds)
+        if total_args > 1 {
+            let command = args[1].to_lowercase();
+            
+            // Handle login command
+            if command == "login" {
+                return Ok(ArgResult::Login);
+            }
+            
+            // Handle list-kinds command (similar to login command)
+            if command == "list-kinds" {
+                return Ok(ArgResult::ListKinds);
+            }
         }
 
         let mut query = None;
@@ -172,58 +182,78 @@ impl Config {
         while i < total_args {
             let current_arg = &args[i];
 
+            // Helper function to extract parameter value from --param=value format
+            let extract_param_value = |arg: &str, param_name: &str| -> Option<String> {
+                if arg.starts_with(&format!("{}=", param_name)) {
+                    arg.splitn(2, '=').nth(1).map(String::from)
+                } else {
+                    None
+                }
+            };
+
             // Grammar option - obfuscated parameter name only
-            if current_arg == obfstr!("--grammar") {
+            if current_arg == obfstr!("--grammar") || current_arg.starts_with(obfstr!("--grammar=")) {
                 explicit_grammar_set = true;
-                if i + 1 < total_args {
-                    let grammar_type = args[i + 1].to_lowercase();
-                    if grammar_type == obfstr!("xml") {
-                        self.grammar_type = Some(GrammarType::XmlTags);
-                    } else if grammar_type == obfstr!("markdown") || grammar_type == obfstr!("md") {
-                        self.grammar_type = Some(GrammarType::MarkdownBlocks);
-                    } else if grammar_type == obfstr!("auto") || grammar_type == obfstr!("default")
-                    {
-                        self.grammar_type = None;
-                        explicit_grammar_set = false;
-                    } else {
-                        return Err(format!(
-                            "Unknown grammar type: {}. Valid options are: xml, markdown, auto",
-                            args[i + 1]
-                        )
-                        .into());
-                    }
-                    i += 2;
+                
+                // Check if using --grammar=value format
+                let grammar_type = if let Some(value) = extract_param_value(current_arg, obfstr!("--grammar")) {
+                    value.to_lowercase()
+                } else if i + 1 < total_args {
+                    // Traditional space-separated format
+                    let value = args[i + 1].to_lowercase();
+                    i += 1; // Advance index for space-separated format
+                    value
                 } else {
                     return Err(obfstr!("Error: Grammar parameter requires a TYPE value").into());
+                };
+                
+                if grammar_type == obfstr!("xml") {
+                    self.grammar_type = Some(GrammarType::XmlTags);
+                } else if grammar_type == obfstr!("markdown") || grammar_type == obfstr!("md") {
+                    self.grammar_type = Some(GrammarType::MarkdownBlocks);
+                } else if grammar_type == obfstr!("auto") || grammar_type == obfstr!("default") {
+                    self.grammar_type = None;
+                    explicit_grammar_set = false;
+                } else {
+                    return Err(format!(
+                        "Unknown grammar type: {}. Valid options are: xml, markdown, auto",
+                        grammar_type
+                    ).into());
                 }
+                i += 1;
                 continue;
             }
 
             // Model option - obfuscated parameter name only
-            if current_arg == obfstr!("--model") {
-                if i + 1 < total_args {
+            if current_arg == obfstr!("--model") || current_arg.starts_with(obfstr!("--model=")) {
+                // Check if using --model=value format
+                if let Some(value) = extract_param_value(current_arg, obfstr!("--model")) {
+                    self.model = value;
+                } else if i + 1 < total_args {
+                    // Traditional space-separated format
                     self.model = args[i + 1].clone();
-                    i += 2;
+                    i += 1; // Advance index for value
                 } else {
                     return Err(obfstr!("Error: Model parameter requires a name value").into());
                 }
+                i += 1;
                 continue;
             }
 
             // Kind option - obfuscated parameter name only
-            if current_arg == obfstr!("--kind") {
-                if i + 1 < total_args {
+            if current_arg == obfstr!("--kind") || current_arg.starts_with(obfstr!("--kind=")) {
+                // Check if using --kind=value format
+                if let Some(value) = extract_param_value(current_arg, obfstr!("--kind")) {
+                    self.kind = Some(value);
+                } else if i + 1 < total_args {
+                    // Traditional space-separated format
                     self.kind = Some(args[i + 1].clone());
-                    i += 2;
+                    i += 1; // Advance index for value
                 } else {
                     return Err(obfstr!("Error: Kind parameter requires a name value").into());
                 }
+                i += 1;
                 continue;
-            }
-
-            // List kinds option - obfuscated parameter name only
-            if current_arg == obfstr!("--list-kinds") {
-                return Ok(ArgResult::ListKinds);
             }
 
             // No tools option - obfuscated parameter name only
@@ -241,23 +271,32 @@ impl Config {
             }
 
             // Thinking budget option - obfuscated parameter name only
-            if current_arg == obfstr!("--thinking-budget") {
-                if i + 1 < total_args {
-                    if let Ok(value) = args[i + 1].parse::<usize>() {
-                        self.thinking_budget = value;
-                    } else {
-                        eprintln!(
-                            "{}",
-                            obfstr!("Error: Thinking budget parameter requires a number")
-                        );
-                    }
-                    i += 2;
+            if current_arg == obfstr!("--thinking-budget") || current_arg.starts_with(obfstr!("--thinking-budget=")) {
+                let budget_str = if let Some(value) = extract_param_value(current_arg, obfstr!("--thinking-budget")) {
+                    // Using --thinking-budget=value format
+                    value
+                } else if i + 1 < total_args {
+                    // Traditional space-separated format
+                    let value = args[i + 1].clone();
+                    i += 1; // Advance index for value
+                    value
                 } else {
                     return Err(obfstr!(
                         "Error: Thinking budget parameter requires a number value"
                     )
                     .into());
+                };
+                
+                // Parse the budget value
+                if let Ok(value) = budget_str.parse::<usize>() {
+                    self.thinking_budget = value;
+                } else {
+                    eprintln!(
+                        "{}",
+                        obfstr!("Error: Thinking budget parameter requires a number")
+                    );
                 }
+                i += 1;
                 continue;
             }
 

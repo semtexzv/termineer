@@ -1,4 +1,4 @@
-# Keep the autoswe- terminology here, do not recreate the resources
+# Simplified Termineer server deployment without auth/payment
 
 app = "autoswe-server"
 primary_region = "sjc"
@@ -9,7 +9,6 @@ dockerfile = "Dockerfile.prod"
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]
@@ -17,9 +16,10 @@ dockerfile = "Dockerfile.prod"
 [env]
   PORT = "8080"
   ENVIRONMENT = "production"
-  FRONTEND_URL = "https://autoswe-server.fly.dev"
-  SUCCESS_REDIRECT_URL = "https://autoswe-server.fly.dev/payment/success"
-  CANCEL_REDIRECT_URL = "https://autoswe-server.fly.dev/payment/cancel"
+  HOST = "termineer.io"
+  RUST_LOG = "info,sqlx=warn"
+  # We're using a dummy DATABASE_URL in our app now, but it's good to set this to something valid
+  # Fly will automatically set DATABASE_URL if we attach a database later
 
 [[mounts]]
   source = "autoswe_data"

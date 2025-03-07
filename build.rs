@@ -170,7 +170,7 @@ fn generate_encrypted_prompts_module(
     // Create the content for the available kinds string
     let mut kinds_content = String::new();
 
-    // Separate templates into different categories
+    // Separate agent kinds into different categories
     let mut standard_templates = Vec::new();
     let mut plus_templates = Vec::new();
     let mut other_templates = Vec::new();
@@ -181,17 +181,17 @@ fn generate_encrypted_prompts_module(
         } else if kind.starts_with("kind/") {
             standard_templates.push(kind.replace("kind/", ""));
         } else {
-            // Templates not in the kind directory go to other_templates
+            // Agent kinds not in the kind directory go to other_templates
             other_templates.push(kind.clone());
         }
     }
 
-    // Sort templates for consistent output
+    // Sort agent kinds for consistent output
     standard_templates.sort();
     plus_templates.sort();
     other_templates.sort();
 
-    // Find the longest template name to determine proper alignment
+    // Find the longest agent kind name to determine proper alignment
     let longest_standard = standard_templates
         .iter()
         .map(|s| s.len())
@@ -200,8 +200,8 @@ fn generate_encrypted_prompts_module(
     let longest_plus = plus_templates.iter().map(|s| s.len()).max().unwrap_or(0);
     let column_width = std::cmp::max(longest_standard, longest_plus) + 4; // Add some padding
 
-    // Add standard templates with aligned descriptions
-    kinds_content.push_str("Standard templates:\n");
+    // Add standard agent kinds with aligned descriptions
+    kinds_content.push_str("Standard agent kinds:\n");
     for template in &standard_templates {
         let full_path = format!("kind/{}", template);
         let description = descriptions
@@ -214,8 +214,8 @@ fn generate_encrypted_prompts_module(
         kinds_content.push_str(&format!("- {}{}  │  {}\n", template, spaces, description));
     }
 
-    // Add plus templates with aligned descriptions
-    kinds_content.push_str("\nPlus templates:\n");
+    // Add plus agent kinds with aligned descriptions
+    kinds_content.push_str("\nPlus agent kinds:\n");
     for template in &plus_templates {
         let full_path = format!("kind/plus/{}", template);
         let description = descriptions

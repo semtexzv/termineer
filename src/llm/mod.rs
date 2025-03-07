@@ -1,13 +1,12 @@
 //! LLM provider abstraction layer
 //!
 //! This module defines traits and types for interacting with
-//! different LLM providers (Anthropic, Google, OpenRouter, etc.)
+//! different LLM providers (Anthropic, etc.)
 
 pub use async_trait::async_trait;
 
 pub mod anthropic;
 pub mod factory;
-pub mod openrouter;
 mod types;
 
 pub use self::factory::create_backend;

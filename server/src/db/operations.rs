@@ -49,6 +49,9 @@ impl UserOps {
         name: Option<String>,
         auth_provider: String,
         auth_provider_id: Option<String>,
+        google_access_token: Option<String>,
+        google_refresh_token: Option<String>,
+        token_expires_at: Option<chrono::DateTime<Utc>>,
     ) -> Result<User, ServerError> {
         let now = Utc::now();
         
@@ -56,9 +59,10 @@ impl UserOps {
             r#"
             INSERT INTO users (
                 id, email, name, auth_provider, auth_provider_id, 
-                is_active, has_subscription, created_at, updated_at
+                is_active, has_subscription, created_at, updated_at,
+                google_access_token, google_refresh_token, token_expires_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
             "#
         )
@@ -71,6 +75,9 @@ impl UserOps {
         .bind(false) // has_subscription
         .bind(now)
         .bind(now)
+        .bind(google_access_token)
+        .bind(google_refresh_token)
+        .bind(token_expires_at)
         .fetch_one(pool)
         .await
         .map_err(|e| {
@@ -82,24 +89,112 @@ impl UserOps {
         Ok(user)
     }
     
+    /// Update user's Google OAuth tokens
+    pub async fn update_google_tokens(
+        pool: &PgPool,
+        user_id: Uuid,
+        access_token: String,
+        refresh_token: Option<String>,
+        expires_at: Option<chrono::DateTime<Utc>>,
+    ) -> Result<User, ServerError> {
+        let now = Utc::now();
+        
+        let mut query = sqlx::QueryBuilder::new(
+            "UPDATE users SET updated_at = "
+        );
+        
+        query.push_bind(now);
+        
+        // Always update access token
+        query.push(", google_access_token = ");
+        query.push_bind(access_token);
+        
+        // Only update refresh token if provided
+        if let Some(rt) = &refresh_token {
+            query.push(", google_refresh_token = ");
+            query.push_bind(rt);
+        }
+        
+        // Only update expiry if provided
+        if let Some(exp) = expires_at {
+            query.push(", token_expires_at = ");
+            query.push_bind(exp);
+        }
+        
+        // Add the WHERE clause
+        query.push(" WHERE id = ");
+        query.push_bind(user_id);
+        query.push(" RETURNING *");
+        
+        let sql = query.build();
+        
+        // Execute the update
+        sql.execute(pool)
+            .await
+            .map_err(|e| {
+                error!("Database error updating Google tokens: {}", e);
+                ServerError::Database(e.to_string())
+            })?;
+        
+        // Fetch the updated user using query_as without compile-time verification
+        let user = sqlx::query_as::<_, User>(
+                "SELECT * FROM users WHERE id = $1"
+            )
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                error!("Database error retrieving user after token update: {}", e);
+                ServerError::Database(e.to_string())
+            })?;
+        
+        info!("Updated Google tokens for user: {}", user_id);
+        Ok(user)
+    }
+    
     /// Find or create a user from OAuth authentication
     pub async fn find_or_create_from_oauth(
         pool: &PgPool,
         email: &str,
         name: Option<String>,
         auth_provider: String,
+        auth_provider_id: Option<String>,
+        google_access_token: Option<String>,
+        google_refresh_token: Option<String>,
+        token_expires_at: Option<chrono::DateTime<Utc>>,
     ) -> Result<User, ServerError> {
         // Try to find an existing user
         if let Some(user) = Self::find_by_email(pool, email).await? {
+            // If this is a Google OAuth login and we have tokens, update them
+            if auth_provider == "google" && google_access_token.is_some() {
+                return Self::update_google_tokens(
+                    pool, 
+                    user.id,
+                    google_access_token.unwrap(),
+                    google_refresh_token,
+                    token_expires_at
+                ).await;
+            }
+            
             // Update the user's auth provider if needed
             if user.auth_provider != auth_provider {
                 return Self::update_auth_provider(pool, user.id, auth_provider).await;
             }
+            
             return Ok(user);
         }
         
         // Create a new user if not found
-        Self::create(pool, email, name, auth_provider, None).await
+        Self::create(
+            pool, 
+            email, 
+            name, 
+            auth_provider, 
+            auth_provider_id,
+            google_access_token,
+            google_refresh_token,
+            token_expires_at
+        ).await
     }
     
     /// Find or create a user from email only (for payment processing)
@@ -114,7 +209,16 @@ impl UserOps {
         }
         
         // Create a new user if not found - use "stripe" as auth provider
-        Self::create(pool, email, name, "stripe".to_string(), None).await
+        Self::create(
+            pool, 
+            email, 
+            name, 
+            "stripe".to_string(), 
+            None,
+            None, // google_access_token
+            None, // google_refresh_token
+            None  // token_expires_at
+        ).await
     }
     
     /// Update a user's authentication provider

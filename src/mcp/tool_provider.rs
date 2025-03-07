@@ -87,17 +87,15 @@ impl McpToolProvider {
         id: &str,
         arguments: Value,
     ) -> McpResult<crate::mcp::protocol::CallToolResult> {
-        // Check if tool exists
-        let tool_exists = {
+        // Get the tool info or return an error if not found
+        {
             let tools_map = self.tools.lock().unwrap();
-            tools_map.contains_key(id)
+            if !tools_map.contains_key(id) {
+                return Err(McpError::ToolNotFound(id.to_string()));
+            }
         };
 
-        if !tool_exists {
-            return Err(McpError::ToolNotFound(id.to_string()));
-        }
-
-        // Call tool and return the full result
+        // Call tool and return the full result - removed verbose logging
         self.client.call_tool(id, arguments).await
     }
 
@@ -109,6 +107,8 @@ impl McpToolProvider {
     ) -> McpResult<Vec<crate::mcp::protocol::content::Content>> {
         // Execute the tool
         let result = self.execute_tool(id, arguments).await?;
+        
+        // Removed verbose result logging
 
         // Convert to content objects
         result.to_content_objects().map_err(|e| {

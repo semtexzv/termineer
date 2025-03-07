@@ -184,6 +184,9 @@ impl McpClient {
 
         // Create request message
         let params_value = serde_json::to_value(params)?;
+        
+        // Remove protocol-level logging completely
+        
         let message = JsonRpcMessage {
             jsonrpc: "2.0".to_string(),
             id: Some(serde_json::Value::Number(serde_json::Number::from(id))),
@@ -201,15 +204,18 @@ impl McpClient {
 
         // Send request and get response
         let response = conn.send_message(message).await?;
+        
         // Parse response
         match response.content {
             MessageContent::Response(resp) => {
+                // Remove protocol-level logging completely
+                
                 // Parse result
                 let result: R = serde_json::from_value(resp.result).unwrap();
                 Ok(result)
             }
             MessageContent::Error(err) => {
-                bprintln!(error: "Connection closed with error: {:?}", err);
+                bprintln!(error: "MCP Error ({}): {:?}", method, err);
                 Err(McpError::JsonRpcError(err.error))
             }
             _ => Err(McpError::ProtocolError(format!(
