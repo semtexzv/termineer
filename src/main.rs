@@ -8,6 +8,7 @@ mod macros;
 
 mod agent;
 mod ansi_converter;
+mod auth;
 mod config;
 mod constants;
 mod conversation;
@@ -18,7 +19,6 @@ mod mcp;
 mod output;
 mod prompts;
 pub mod serde_utils;
-mod server_auth;
 // Session module temporarily disabled until needed
 // mod session;
 mod tools;
@@ -68,37 +68,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Handle different argument outcomes
     match arg_result {
         ArgResult::Login => {
-            // Only attempt authentication for explicit login command
-            match authenticate_user(&mut config).await {
-                Ok(_) => {
-                    // Authentication successful
-                    execute!(
-                        io::stdout(),
-                        SetForegroundColor(Color::Green),
-                        Print(format!(
-                            "✅ Successfully logged in - You now have {} access",
-                            config.app_mode
-                        )),
-                        ResetColor,
-                        cursor::MoveToNextLine(1),
-                    )
-                    .unwrap();
-                    println!("Your login has been saved and will be used for future sessions.");
-                    return Ok(());
-                }
-                Err(e) => {
-                    // Authentication failed
-                    execute!(
-                        io::stderr(),
-                        SetForegroundColor(Color::Red),
-                        Print(format!("❌ Login failed: {}", e)),
-                        ResetColor,
-                        cursor::MoveToNextLine(1),
-                    )
-                    .unwrap();
-                    return Err(e);
-                }
-            }
+            // Authentication is currently disabled
+            execute!(
+                io::stdout(),
+                SetForegroundColor(Color::Blue),
+                Print("ℹ️ Authentication is temporarily disabled"),
+                ResetColor,
+                cursor::MoveToNextLine(1),
+            )
+            .unwrap();
+            println!("All functionality is currently available.");
+            return Ok(());
         }
         ArgResult::ShowHelp => {
             // Display help information and exit
@@ -116,64 +96,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             return Ok(());
         }
         ArgResult::Query(query) => {
-            // For normal usage, default to free mode until user logs in
-            if config.skip_auth {
-                // Skip authentication entirely if requested (dev mode)
-            } else {
-                // Check if we have cached authentication from previous login
-                if let Err(_) = attempt_cached_auth(&mut config).await {
-                    // No valid cached auth, use free mode
-                    config::set_app_mode(config::AppMode::Free);
-                    config.app_mode = config::AppMode::Free;
-
-                    // Show free mode banner
-                    execute!(
-                        io::stdout(),
-                        SetForegroundColor(Color::Blue),
-                        Print("🆓 Running in FREE mode - Some features are restricted"),
-                        ResetColor,
-                        cursor::MoveToNextLine(1),
-                    )
-                    .unwrap();
-
-                    // Only show this hint occasionally (roughly 20% of the time)
-                    if rand::random::<bool>() && rand::random::<bool>() {
-                        println!("Tip: Run 'termineer login' to unlock premium features");
-                    }
-                }
-            }
+            // *** Authentication temporarily disabled - always run in Free mode ***
+            config::set_app_mode(config::AppMode::Free);
+            config.app_mode = config::AppMode::Free;
 
             // Run in single query mode
             run_single_query_mode(agent_manager, config, query).await?;
             return Ok(());
         }
         ArgResult::Interactive => {
-            // For normal usage, default to free mode until user logs in
-            if config.skip_auth {
-                // Skip authentication entirely if requested (dev mode)
-            } else {
-                // Check if we have cached authentication from previous login
-                if let Err(_) = attempt_cached_auth(&mut config).await {
-                    // No valid cached auth, use free mode
-                    config::set_app_mode(config::AppMode::Free);
-                    config.app_mode = config::AppMode::Free;
-
-                    // Show free mode banner
-                    execute!(
-                        io::stdout(),
-                        SetForegroundColor(Color::Blue),
-                        Print("🆓 Running in FREE mode - Some features are restricted"),
-                        ResetColor,
-                        cursor::MoveToNextLine(1),
-                    )
-                    .unwrap();
-
-                    // Only show this hint occasionally (roughly 33% of the time)
-                    if rand::random::<bool>() {
-                        println!("Tip: Run 'termineer login' to unlock premium features");
-                    }
-                }
-            }
+            // *** Authentication temporarily disabled - always run in Free mode ***
+            config::set_app_mode(config::AppMode::Free);
+            config.app_mode = config::AppMode::Free;
 
             // Continue to interactive mode
             run_interactive_mode(agent_manager, config).await?;
@@ -188,47 +122,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 async fn attempt_cached_auth(
     config: &mut Config,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Use the server_auth module to attempt cached authentication
-    use server_auth::{get_app_mode_from_subscription, is_subscription_expired, AuthClient};
-
-    // Try to load saved credentials (this will need to be implemented in server_auth)
-    let auth_client = AuthClient::new("https://autoswe-server.fly.dev".to_string());
-
-    // Try to get user info from saved credentials
-    match auth_client.get_cached_user_info().await {
-        Ok(user_info) => {
-            // Check if subscription is expired
-            if is_subscription_expired(&user_info) {
-                return Err("Your subscription has expired. Please log in again.".into());
-            }
-
-            // Authentication successful, set user information
-            config.user_email = Some(user_info.email.clone());
-            if let Some(subscription) = user_info.subscription_type.clone() {
-                config.subscription_type = Some(subscription);
-            }
-
-            // Set app mode based on subscription type
-            let app_mode = get_app_mode_from_subscription(user_info.subscription_type.as_deref());
-
-            // Update both the config and global app mode
-            config::set_app_mode(app_mode.clone());
-            config.app_mode = app_mode;
-
-            // Quietly indicate the mode (no big banners)
-            println!(
-                "✓ Authenticated as {} ({})",
-                user_info.email,
-                config::get_app_mode()
-            );
-
-            Ok(())
-        }
-        Err(e) => {
-            // No valid cached credentials found
-            Err(format!("No valid saved credentials: {}", e).into())
-        }
+    // Create an AuthConfig from our application Config
+    let mut auth_config = auth::AuthConfig {
+        user_email: config.user_email.clone(),
+        subscription_type: config.subscription_type.clone(),
+        app_mode: config.app_mode.to_string(),
+    };
+    
+    // Callback for setting app mode
+    let set_app_mode_callback = |app_mode_str: String| {
+        // Convert the string to a config::AppMode
+        let app_mode = match app_mode_str.to_lowercase().as_str() {
+            "pro" => config::AppMode::Pro,
+            "plus" => config::AppMode::Plus,
+            _ => config::AppMode::Free,
+        };
+        config::set_app_mode(app_mode);
+    };
+    
+    // Call the auth module function
+    let result = auth::attempt_cached_auth(&mut auth_config, set_app_mode_callback).await;
+    
+    // Update our config with the values from auth_config
+    if result.is_ok() {
+        config.user_email = auth_config.user_email;
+        config.subscription_type = auth_config.subscription_type;
+        
+        // Convert string app mode to config::AppMode
+        config.app_mode = match auth_config.app_mode.to_lowercase().as_str() {
+            "pro" => config::AppMode::Pro,
+            "plus" => config::AppMode::Plus,
+            _ => config::AppMode::Free,
+        };
     }
+    
+    result
 }
 
 /// Display help information
@@ -241,15 +169,23 @@ Usage: Termineer [OPTIONS] [QUERY]
 If QUERY is provided, runs in non-interactive mode and outputs only the response.
 If QUERY is not provided, starts an interactive console session.
 
+Commands:
+  login                  Authenticate to unlock premium features
+  list-kinds             List available agent kinds/templates
+  
 Options:
   --model MODEL_NAME     Specify the model to use
                          (default: claude-3-7-sonnet-20250219)
   --grammar TYPE         Specify the grammar type to use (xml, markdown)
                          (default: xml for most models, markdown for Gemini)
-  --system TEMPLATE      Specify which template to use (basic, minimal, researcher)
+  --kind KIND_NAME       Use a specific agent kind/template
   --no-tools             Disable tools
   --thinking-budget N    Set the thinking budget in tokens
   --help                 Display this help message
+
+Note: Options that take values can use either:
+  --option value         Space-separated format
+  --option=value         Equals-sign format
 
 Environment Variables:
   ANTHROPIC_API_KEY      Your Anthropic API key (required for Claude models)
@@ -261,7 +197,9 @@ Subscription Tiers:
 
 Example:
   Termineer --model claude-3-haiku-20240307 "What is the capital of France?"
-  Termineer --model google/gemini-1.5-flash "Explain quantum computing.""#
+  Termineer --model=google/gemini-1.5-flash "Explain quantum computing."
+  Termineer login                           # Authenticate for premium features
+  Termineer list-kinds                      # See available agent templates"#
     );
     println!("{}", help_text);
 }
@@ -291,92 +229,41 @@ For advanced templates: --kind plus/researcher"#
 async fn authenticate_user(
     config: &mut Config,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Use the real implementation for OAuth authentication
-    use crossterm::{
-        cursor::MoveToNextLine,
-        execute,
-        style::{Color, ResetColor, SetForegroundColor},
+    // Create an AuthConfig from our application Config
+    let mut auth_config = auth::AuthConfig {
+        user_email: config.user_email.clone(),
+        subscription_type: config.subscription_type.clone(),
+        app_mode: config.app_mode.to_string(),
     };
-    use server_auth::{is_subscription_expired, AuthClient};
-    use std::io::stdout;
-
-    // Initialize auth client
-    let auth_client = AuthClient::new("https://autoswe-server.fly.dev".to_string());
-
-    // Start OAuth flow
-    println!(
-        "{}",
-        obfstr::obfstring!(
-            r#"Starting authentication flow...
-This will open your browser to authenticate with your account.
-If you don't have an account, you can create one during this process."#
-        )
-    );
-
-    // Perform OAuth authentication
-    let user_info = match auth_client.authenticate().await {
-        Ok(info) => info,
-        Err(e) => {
-            // Print error in red
-            execute!(stdout(), SetForegroundColor(Color::Red), MoveToNextLine(1),).ok();
-            println!("❌ Authentication failed: {}", e);
-            execute!(stdout(), ResetColor).ok();
-
-            return Err(format!("Authentication error: {}", e).into());
-        }
+    
+    // Callback for setting app mode
+    let set_app_mode_callback = |app_mode_str: String| {
+        // Convert the string to a config::AppMode
+        let app_mode = match app_mode_str.to_lowercase().as_str() {
+            "pro" => config::AppMode::Pro,
+            "plus" => config::AppMode::Plus,
+            _ => config::AppMode::Free,
+        };
+        config::set_app_mode(app_mode);
     };
-
-    // Check if subscription is expired
-    if is_subscription_expired(&user_info) {
-        // Print error in yellow
-        execute!(
-            stdout(),
-            SetForegroundColor(Color::Yellow),
-            MoveToNextLine(1),
-        )
-        .ok();
-        println!("⚠️ Your subscription has expired. Please renew your subscription.");
-        execute!(stdout(), ResetColor).ok();
-
-        return Err("Your subscription has expired. Please renew your subscription.".into());
+    
+    // Call the auth module function
+    let result = auth::authenticate_user(&mut auth_config, set_app_mode_callback).await;
+    
+    // Update our config with the values from auth_config
+    if result.is_ok() {
+        config.user_email = auth_config.user_email;
+        config.subscription_type = auth_config.subscription_type;
+        
+        // Convert string app mode to config::AppMode
+        config.app_mode = match auth_config.app_mode.to_lowercase().as_str() {
+            "pro" => config::AppMode::Pro,
+            "plus" => config::AppMode::Plus,
+            _ => config::AppMode::Free,
+        };
     }
-
-    // Log successful authentication with green text
-    execute!(
-        stdout(),
-        SetForegroundColor(Color::Green),
-        MoveToNextLine(1),
-    )
-    .ok();
-    println!("✅ Authentication successful for: {}", user_info.email);
-
-    if let Some(subscription) = &user_info.subscription_type {
-        println!("📋 Subscription: {}", subscription);
-    }
-
-    execute!(stdout(), ResetColor).ok();
-
-    // Save user information for future use
-    config.user_email = Some(user_info.email.clone());
-    if let Some(subscription) = user_info.subscription_type.clone() {
-        config.subscription_type = Some(subscription.clone());
-    }
-
-    // Set app mode based on subscription type using our helper function
-    let app_mode =
-        server_auth::get_app_mode_from_subscription(user_info.subscription_type.as_deref());
-
-    // Update both the config and global app mode
-    config::set_app_mode(app_mode.clone());
-    config.app_mode = app_mode;
-
-    // Display the mode
-    println!("🔑 Access Level: {}", config::get_app_mode());
-
-    // Optional: Add a small delay to ensure the user sees the verification message
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-    Ok(())
+    
+    result
 }
 
 /// Run the application in interactive mode with TUI

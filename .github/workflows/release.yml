@@ -125,11 +125,6 @@ jobs:
             
             ## Installation
             
-            ### Homebrew
-            ```
-            brew install semtexzv/tap/termineer
-            ```
-            
             ### NPM
             ```
             npm install -g termineer
