@@ -47,8 +47,7 @@
                         </p>
                         <div class="code-block mt-2 mb-2">
                             <code>ANTHROPIC_API_KEY=sk-ant-your-key-here
-GOOGLE_API_KEY=your-google-key-here
-                            </code>
+GOOGLE_API_KEY=your-google-key-here</code>
                         </div>
                         <p class="text-gray-700 text-sm mt-1">
                             Termineer checks the following locations for .env files:
@@ -135,11 +134,20 @@ The project follows a standard MVC architecture...</code>
         "@modelcontextprotocol/server-filesystem",
         "/Users/username/Desktop",
         "/Users/username/Downloads"
-      ]
+      ],
+      "env": {
+        "NODE_ENV": "production",
+        "DEBUG": "mcp:*",
+        "API_KEY": "your-secret-key-here"
+      }
     }
   }
 }</code>
                     </div>
+                    <p class="text-gray-700 text-sm mt-3">
+                      <strong>Environment Variables:</strong> You can specify environment variables to be passed to MCP servers using the <code>env</code> field.
+                      This is useful for setting API keys, debug modes, or other configuration without exposing them in command arguments.
+                    </p>
                 </div>
             </div>
         </section>
