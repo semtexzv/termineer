@@ -27,11 +27,21 @@ impl McpToolProvider {
 
     /// Create a new tool provider for an MCP process
     pub async fn new_process(name: &str, executable: &str, args: &[&str]) -> McpResult<Self> {
+        Self::new_process_with_env(name, executable, args, &HashMap::new()).await
+    }
+    
+    /// Create a new tool provider for an MCP process with environment variables
+    pub async fn new_process_with_env(
+        name: &str, 
+        executable: &str, 
+        args: &[&str],
+        env: &HashMap<String, String>
+    ) -> McpResult<Self> {
         // Create client
         let client = McpClient::new();
 
-        // Connect to process
-        client.connect_process(name, executable, args).await?;
+        // Connect to process with environment variables
+        client.connect_process_with_env(name, executable, args, env).await?;
 
         // Initialize client
         client

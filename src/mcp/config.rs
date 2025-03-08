@@ -14,6 +14,10 @@ pub struct McpServerConfig {
 
     /// Arguments for the command
     pub args: Vec<String>,
+    
+    /// Environment variables to set for the command
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 /// Complete MCP configuration structure
@@ -112,7 +116,11 @@ mod tests {
           "mcpServers": {
             "test-server": {
               "command": "echo",
-              "args": ["MCP server test"]
+              "args": ["MCP server test"],
+              "env": {
+                "TEST_VAR": "test_value",
+                "ANOTHER_VAR": "another_value"
+              }
             }
           }
         }"#;
@@ -150,12 +158,17 @@ mod tests {
             mcp_servers: HashMap::new(),
         };
         
-        // Add server to base config
+        // Add server to base config with environment variables
+        let mut env_vars1 = HashMap::new();
+        env_vars1.insert("ENV1".to_string(), "value1".to_string());
+        env_vars1.insert("COMMON".to_string(), "base_value".to_string());
+        
         base_config.mcp_servers.insert(
             "server1".to_string(),
             McpServerConfig {
                 command: "cmd1".to_string(),
                 args: vec!["arg1".to_string()],
+                env: env_vars1,
             },
         );
         
@@ -164,21 +177,27 @@ mod tests {
             mcp_servers: HashMap::new(),
         };
         
-        // Add unique server to other config
+        // Add unique server to other config (with empty env map to test default)
         other_config.mcp_servers.insert(
             "server2".to_string(),
             McpServerConfig {
                 command: "cmd2".to_string(),
                 args: vec!["arg2".to_string()],
+                env: HashMap::new(),
             },
         );
         
-        // Add overlapping server with different config
+        // Add overlapping server with different config and env vars
+        let mut env_vars2 = HashMap::new();
+        env_vars2.insert("ENV2".to_string(), "value2".to_string());
+        env_vars2.insert("COMMON".to_string(), "override_value".to_string());
+        
         other_config.mcp_servers.insert(
             "server1".to_string(),
             McpServerConfig {
                 command: "different".to_string(),
                 args: vec!["different-arg".to_string()],
+                env: env_vars2,
             },
         );
         
@@ -192,11 +211,15 @@ mod tests {
         let server1 = base_config.mcp_servers.get("server1").unwrap();
         assert_eq!(server1.command, "cmd1", "server1 command should remain from base");
         assert_eq!(server1.args[0], "arg1", "server1 args should remain from base");
+        assert_eq!(server1.env.get("ENV1").unwrap(), "value1", "server1 env var ENV1 should remain from base");
+        assert_eq!(server1.env.get("COMMON").unwrap(), "base_value", "server1 env var COMMON should remain from base");
+        assert!(!server1.env.contains_key("ENV2"), "server1 should not have ENV2 from other config");
         
         // Check that server2 was added
         let server2 = base_config.mcp_servers.get("server2").unwrap();
         assert_eq!(server2.command, "cmd2", "server2 should be added from other");
         assert_eq!(server2.args[0], "arg2", "server2 args should be added from other");
+        assert!(server2.env.is_empty(), "server2 env vars should be empty");
     }
 }
 
@@ -245,6 +268,15 @@ async fn initialize_mcp_server(
     // Extract command and arguments
     let executable = &config.command;
     let args_slice: Vec<&str> = config.args.iter().map(|s| s.as_str()).collect();
+    
+    // Log environment variables if present
+    if !config.env.is_empty() && !silent_mode {
+        bprintln!(
+            "🌐 Setting {} environment variables for MCP server '{}'",
+            config.env.len(),
+            server_name
+        );
+    }
 
     // Check if already connected
     {
@@ -263,8 +295,8 @@ async fn initialize_mcp_server(
         }
     }
 
-    // Create provider
-    match McpToolProvider::new_process(server_name, executable, &args_slice).await {
+    // Create provider with environment variables
+    match McpToolProvider::new_process_with_env(server_name, executable, &args_slice, &config.env).await {
         Ok(provider) => {
             let provider: Arc<McpToolProvider> = Arc::new(provider);
 

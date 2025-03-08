@@ -10,6 +10,7 @@ use crate::mcp::protocol::{
 use crate::mcp::Connection;
 use serde::Serialize;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -65,8 +66,20 @@ impl McpClient {
         executable: &str,
         args: &[&str],
     ) -> McpResult<()> {
-        // Create process connection
-        let proc_conn = ProcessConnection::spawn(name, executable, args).await?;
+        // Connect using empty environment variables
+        self.connect_process_with_env(name, executable, args, &HashMap::new()).await
+    }
+    
+    /// Connect to an MCP server using a subprocess with custom environment variables
+    pub async fn connect_process_with_env(
+        &self,
+        name: &str,
+        executable: &str,
+        args: &[&str],
+        env: &HashMap<String, String>,
+    ) -> McpResult<()> {
+        // Create process connection with environment variables
+        let proc_conn = ProcessConnection::spawn_with_env(name, executable, args, env).await?;
 
         // Store the connection
         let mut conn_guard = self.connection.lock().await;

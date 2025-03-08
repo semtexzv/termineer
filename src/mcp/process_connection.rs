@@ -61,13 +61,30 @@ pub struct ProcessConnection {
 impl ProcessConnection {
     /// Create a new process connection with the given command
     pub async fn spawn(name: &str, executable: &str, args: &[&str]) -> McpResult<Self> {
+        Self::spawn_with_env(name, executable, args, &std::collections::HashMap::new()).await
+    }
+    
+    /// Create a new process connection with the given command and environment variables
+    pub async fn spawn_with_env(
+        name: &str, 
+        executable: &str, 
+        args: &[&str],
+        env: &std::collections::HashMap<String, String>
+    ) -> McpResult<Self> {
+        // Create command with executable and args
+        let mut cmd = Command::new(executable);
+        cmd.args(args)
+           .stdin(Stdio::piped())
+           .stdout(Stdio::piped())
+           .stderr(Stdio::piped());
+           
+        // Add any environment variables
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
+        
         // Start the child process
-        let mut child = Command::new(executable)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut child = cmd.spawn()
             .map_err(|e| {
                 bprintln !(error:"Failed to start MCP process: {}", e);
                 McpError::ConnectionError(format!("Failed to start process: {}", e))
