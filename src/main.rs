@@ -77,7 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 cursor::MoveToNextLine(1),
             )
             .unwrap();
-            println!("All functionality is currently available.");
+            println!("Pro/Plus subscription modes are currently being worked on.");
+            println!("All functionality is available in Free mode for now.");
             return Ok(());
         }
         ArgResult::ShowHelp => {
