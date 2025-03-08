@@ -35,14 +35,12 @@ on:
         required: true
         default: ''
       target:
-        description: 'Release target (npm, brew, both)'
+        description: 'Release target (npm)'
         required: true
-        default: 'both'
+        default: 'npm'
         type: choice
         options:
           - npm
-          - brew
-          - both
 
 jobs:
   prepare-version:
@@ -50,7 +48,6 @@ jobs:
     outputs:
       version: ${{ steps.set-version.outputs.version }}
       publish_npm: ${{ steps.set-targets.outputs.publish_npm }}
-      publish_brew: ${{ steps.set-targets.outputs.publish_brew }}
     steps:
       - name: Set version from tag or input
         id: set-version
@@ -59,7 +56,6 @@ jobs:
             # From tag - remove v prefix and any release targets
             VERSION="${GITHUB_REF#refs/tags/v}"
             VERSION="${VERSION%-npm}"
-            VERSION="${VERSION%-brew}"
             VERSION="${VERSION%-publish}"
           else
             # From workflow dispatch
@@ -81,37 +77,23 @@ jobs:
               PUBLISH_NPM="false"
             fi
             
-            if [[ "$TAG" == *"-brew"* ]]; then
-              PUBLISH_BREW="true"
-            else
-              PUBLISH_BREW="false"
-            fi
-            
             # Special case: no suffix means build artifacts only
             if [[ "$TAG" == v* && "$TAG" != *"-"* ]]; then
               PUBLISH_NPM="false"
-              PUBLISH_BREW="false"
             fi
           else
             # From workflow dispatch input
             TARGET="${{ github.event.inputs.target }}"
             
-            if [[ "$TARGET" == "npm" || "$TARGET" == "both" ]]; then
+            if [[ "$TARGET" == "npm" ]]; then
               PUBLISH_NPM="true"
             else
               PUBLISH_NPM="false"
             fi
-            
-            if [[ "$TARGET" == "brew" || "$TARGET" == "both" ]]; then
-              PUBLISH_BREW="true"
-            else
-              PUBLISH_BREW="false"
-            fi
           fi
           
           echo "publish_npm=$PUBLISH_NPM" >> $GITHUB_OUTPUT
-          echo "publish_brew=$PUBLISH_BREW" >> $GITHUB_OUTPUT
-          echo "NPM: $PUBLISH_NPM, Brew: $PUBLISH_BREW"
+          echo "NPM: $PUBLISH_NPM"
 
   # Call the build workflow to build all binaries
   build:
@@ -146,13 +128,11 @@ jobs:
             
             ## Installation
             
-            ### NPM
             ```
             npm install -g termineer
             ```
             
-            ### Manual
-            Download the appropriate binary for your platform below.
+            The package includes binaries for Linux, macOS (Intel & Apple Silicon), and Windows.
           files: |
             **/termineer-*
         env:
@@ -160,7 +140,7 @@ jobs:
 
   # Build and publish NPM package
   npm-package:
-    needs: [prepare-version, build]
+    needs: [prepare-version, build, github-release]
     if: needs.prepare-version.outputs.publish_npm == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -396,88 +376,4 @@ jobs:
           token: ${{ secrets.NPM_TOKEN }}
           package: ./termineer-npm-package.tgz
 
-  # Create and update Homebrew formula
-  homebrew-formula:
-    needs: [prepare-version, build, github-release]
-    if: needs.prepare-version.outputs.publish_brew == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      # Download artifacts to get checksums
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-      
-      # Calculate SHA256 checksums
-      - name: Get SHA256 checksums
-        id: checksums
-        run: |
-          MACOS_INTEL_SHA=$(cat termineer-x86_64-apple-darwin/termineer-x86_64-apple-darwin.sha256)
-          MACOS_ARM_SHA=$(cat termineer-aarch64-apple-darwin/termineer-aarch64-apple-darwin.sha256)
-          LINUX_SHA=$(cat termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu.sha256)
-          
-          echo "MACOS_INTEL_SHA=$MACOS_INTEL_SHA" >> $GITHUB_ENV
-          echo "MACOS_ARM_SHA=$MACOS_ARM_SHA" >> $GITHUB_ENV
-          echo "LINUX_SHA=$LINUX_SHA" >> $GITHUB_ENV
-          
-          REPO_OWNER="semtexzv"
-          REPO_NAME="termineer"
-          echo "DOWNLOAD_URL=https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/v${{ needs.prepare-version.outputs.version }}" >> $GITHUB_ENV
-      
-      # Generate Homebrew formula
-      - name: Generate Formula
-        run: |
-          cat > termineer.rb << EOL
-          class Termineer < Formula
-            desc "AI Agent Console Interface for your terminal"
-            homepage "https://termineer.io"
-            version "${{ needs.prepare-version.outputs.version }}"
-            license "MIT"
-            
-            on_macos do
-              on_arm do
-                url "${{ env.DOWNLOAD_URL }}/termineer-aarch64-apple-darwin"
-                sha256 "${{ env.MACOS_ARM_SHA }}"
-              end
-              
-              on_intel do
-                url "${{ env.DOWNLOAD_URL }}/termineer-x86_64-apple-darwin"
-                sha256 "${{ env.MACOS_INTEL_SHA }}"
-              end
-            end
-            
-            on_linux do
-              url "${{ env.DOWNLOAD_URL }}/termineer-x86_64-linux-gnu"
-              sha256 "${{ env.LINUX_SHA }}"
-            end
-            
-            def install
-              bin.install Dir["*"].first => "termineer"
-            end
-            
-            test do
-              system "#{bin}/termineer", "--help"
-            end
-          end
-          EOL
-      
-      # Setup Git for Homebrew tap updates
-      - name: Setup Git
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-      
-      # Clone the tap repository
-      - name: Clone tap repository
-        run: |
-          git clone https://x-access-token:${{ secrets.TAP_REPO_TOKEN }}@github.com/semtexzv/homebrew-tap.git
-      
-      # Update the formula
-      - name: Update formula
-        run: |
-          mkdir -p homebrew-tap/Formula
-          cp termineer.rb homebrew-tap/Formula/
-          cd homebrew-tap
-          git add Formula/termineer.rb
-          git commit -m "Update termineer to v${{ needs.prepare-version.outputs.version }}"
-          git push
+  # Homebrew installation method has been removed
