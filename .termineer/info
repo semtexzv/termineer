@@ -1,71 +1,192 @@
 # Termineer - AI Agent Console Interface
 
-## Project Overview
-This is a Rust application that provides a command-line interface for interacting with AI models through various APIs. It features a comprehensive agent system with tools, authentication modes, and conversation management.
+## Project Structure
 
-## Core Components
-- **main.rs**: Application entry point, command-line handling, and authentication flow
-- **agent/**: Directory containing agent implementation
-  - **agent.rs**: Core agent implementation with tool execution and conversation handling
-  - **manager.rs**: Manages multiple agent instances
-  - **types.rs**: Type definitions for agent communication
-  - **interrupt.rs**: Handles user and LLM-based interruption of long-running operations
-- **config.rs**: Configuration management including app modes (Free/Plus/Pro)
-- **constants.rs**: Project-wide constants and formatting settings
-- **conversation.rs**: Manages conversation history and message formatting
-- **llm/**: LLM client implementations
-  - **mod.rs**: Common interface for LLM backends
-  - **anthropic.rs**: Anthropic Claude API integration
-  - **factory.rs**: Factory for creating appropriate LLM clients
-  - **types.rs**: Type definitions for LLM interactions
-- **macros.rs**: Unified buffer printing macros (bprintln)
-- **mcp/**: Model Context Protocol server implementation
-- **prompts/**: System prompt templates with grammar support
-- **tools/**: Tool implementations
-  - **shell.rs**: Execute shell commands with streaming output
-  - **read.rs**: Read file contents (single and multiple files)
-  - **write.rs**: Write content to files
-  - **patch.rs**: Make targeted changes to files
-  - **fetch.rs**: Retrieve content from URLs
-  - **search.rs**: Perform web searches
-  - **mcp.rs**: Interact with MCP servers
-  - **task.rs**: Execute subtasks
-  - **agent.rs**: Create and communicate with other agents
-  - **wait.rs**: Pause execution until resumed
-  - **done.rs**: Signal task completion
+### Core Application
+- **src/main.rs**: Entry point for the application. Handles command-line parsing, authentication flow, and sets up interactive/non-interactive modes.
+- **src/lib.rs**: Library exports for external use.
+- **src/config.rs**: Configuration management including app modes (Free/Plus/Pro), command-line arguments, and model selection.
+- **src/constants.rs**: Project-wide constants and formatting settings.
+- **src/macros.rs**: Unified buffer printing macros (bprintln) for consistent output formatting.
+- **src/session.rs**: Session management for persistent state.
+- **src/ui_interface.rs**: Terminal UI implementation using crossterm and ratatui.
+- **src/ansi_converter.rs**: Utility for stripping ANSI sequences from text.
+- **src/jsonpath.rs**: JSONPath implementation for extracting data from JSON structures.
 
-## Authentication System
-- **Free Mode**: Available without authentication, limited to basic agent kinds
-- **Plus Mode**: Authenticated users with Plus subscription
-- **Pro Mode**: Authenticated users with Pro subscription, full feature access
-- OAuth-based authentication flow via server_auth.rs
-- Persistent authentication with token caching
+### Agent System
+- **src/agent/mod.rs**: Exports agent-related components.
+- **src/agent/agent.rs**: Core Agent implementation handling conversation management, tool execution, and LLM interaction.
+- **src/agent/manager.rs**: Manages multiple agent instances with creation, communication, and lifecycle handling.
+- **src/agent/types.rs**: Defines agent communication types including messages, commands, and state.
+- **src/agent/interrupt.rs**: Handles user and LLM-based interruption mechanisms for long-running operations.
+
+### Conversation Management
+- **src/conversation/mod.rs**: Top-level module for conversation handling with utility functions.
+- **src/conversation/maintenance.rs**: Sanitizes conversation history (removes empty messages, etc.).
+- **src/conversation/truncation.rs**: Intelligently truncates conversation history to stay within token limits.
+
+### LLM Integration
+- **src/llm/mod.rs**: Common interface for LLM backends.
+- **src/llm/anthropic.rs**: Implementation for Anthropic Claude API.
+- **src/llm/factory.rs**: Factory for creating appropriate LLM clients based on configuration.
+- **src/llm/types.rs**: Type definitions for messages, content, and token usage.
+
+### Tools Implementation
+- **src/tools/mod.rs**: Core tool definitions and ToolExecutor implementation.
+- **src/tools/shell.rs**: Execute shell commands with streaming output and interrupt capability.
+- **src/tools/read.rs**: Read file contents with offset/limit support and directory listing.
+- **src/tools/write.rs**: Write content to files with permission checking.
+- **src/tools/patch.rs**: Make targeted changes to files using a before/after pattern.
+- **src/tools/fetch.rs**: Retrieve content from URLs with HTML-to-text conversion.
+- **src/tools/search.rs**: Perform web searches using Google Search API.
+- **src/tools/mcp.rs**: Interface with Model Context Protocol servers.
+- **src/tools/task.rs**: Create and execute subtasks with specific agent kinds.
+- **src/tools/agent.rs**: Create and communicate with other agents.
+- **src/tools/wait.rs**: Pause execution until resumed with optional reason.
+- **src/tools/done.rs**: Signal task completion with optional summary.
+- **src/tools/path_utils.rs**: Utilities for safe path handling and validation.
+
+### Model Context Protocol (MCP)
+- **src/mcp/mod.rs**: MCP module exports.
+- **src/mcp/client.rs**: Client implementation for connecting to MCP servers.
+- **src/mcp/config.rs**: Configuration for MCP connections.
+- **src/mcp/connection.rs**: Manages active MCP connections.
+- **src/mcp/connection_trait.rs**: Trait definitions for MCP connections.
+- **src/mcp/error.rs**: Error handling for MCP operations.
+- **src/mcp/process_connection.rs**: Process connections to MCP servers.
+- **src/mcp/tool_provider.rs**: Provides tools via MCP.
+- **src/mcp/protocol/**: Protocol definition including messages, content types, and tool specifications.
+  - **src/mcp/protocol/common.rs**: Common protocol definitions and utilities.
+  - **src/mcp/protocol/content.rs**: Content type definitions for MCP.
+  - **src/mcp/protocol/messages.rs**: Message format definitions.
+  - **src/mcp/protocol/mod.rs**: Module exports.
+  - **src/mcp/protocol/tools.rs**: Tool specifications for the MCP protocol.
+
+### Prompts and Grammar
+- **src/prompts/mod.rs**: Manages system prompts and templates.
+- **src/prompts/grammar.rs**: Grammar definitions for parsing tool invocations.
+- **src/prompts/handlebars.rs**: Template rendering using Handlebars.
+- **src/prompts/protected.rs**: Protected prompt management with encryption.
+
+### Authentication
+- **src/auth/mod.rs**: Authentication module exports.
+- **src/auth/client.rs**: Client implementation for authentication APIs.
+- **src/auth/functions.rs**: Functions for user authentication flows.
+
+### Output Formatting
+- **src/output/mod.rs**: Output formatting and display utilities.
+
+### Serialization Utilities
+- **src/serde_utils/mod.rs**: Serialization utility exports.
+- **src/serde_utils/element_array.rs**: Utilities for array serialization.
+- **src/serde_utils/string_or_number.rs**: Handles mixed string/number types in JSON.
+
+### Server Component
+- **server/**: Backend server implementation for authentication, subscription management and API services.
+  - **server/src/**: Server source code.
+    - **server/src/api/**: API endpoints and route handlers.
+      - Provides REST endpoints for user authentication
+      - Handles OAuth flows with third-party providers
+      - Implements subscription management endpoints
+      - Provides status endpoints for client health checks
+      - Processes webhook callbacks from payment providers
+    - **server/src/db/**: Database integration and ORM.
+      - User account storage and retrieval
+      - Subscription status tracking
+      - API key management
+      - Usage statistics and quotas
+  - **server/migrations/**: SQL migrations for database schema management.
+    - Uses a versioned approach for incremental database schema changes
+    - Supports both up and down migrations for version control
+  - **server/examples/**: Example code for server usage and extensions.
+    - Demonstrates API client implementations
+    - Shows webhook integration examples
+    - Provides sample authentication flows
+  - **server/templates/**: Handlebars templates for HTML rendering.
+    - **server/templates/components/**: Reusable template components.
+    - User authentication screens
+    - Account management interfaces
+    - Subscription management pages
+    - Error and notification templates
+  - **server/static/**: Static assets for the web interface.
+    - **server/static/js/**: JavaScript files for client-side functionality.
+    - CSS styling for web interfaces
+    - Image assets and icons
+    - Client-side validation scripts
+    - Interactive subscription management UI
+
+#### Server Technology Stack
+- **Rust-based**: Implemented in Rust for performance and safety
+- **Async-based**: Uses async/await patterns for efficient handling of concurrent requests
+- **Database**: SQL database with SQLx for type-safe queries
+- **Authentication**: OAuth 2.0 flow with support for multiple providers
+- **Payment Integration**: Stripe integration for subscription management
+- **API Security**: JWT-based authentication with role-based access control
+- **Web Framework**: Likely using Actix-web or Axum for HTTP routing
+- **Template Engine**: Handlebars for server-side rendering
+
+#### Server Functionality
+- **User Authentication**: Complete OAuth flow for secure user authentication
+- **Subscription Management**: Handles user subscriptions with tiered plans (Free/Plus/Pro)
+- **API Key Management**: Securely stores and validates API keys for models
+- **Usage Tracking**: Monitors and limits API usage based on subscription tier
+- **Updates and Notifications**: Provides notifications about new features and version updates
+- **Health Monitoring**: Endpoints for monitoring server health and status
+
+### Project Configuration
+- **.termineer/**: Project-specific configuration directory.
+- **.termineer/info**: This file, containing project documentation.
+- **.termineer/autoinclude**: Optional file listing glob patterns for files to automatically include in agent context.
+- **.env**: Environment variables for local development.
+- **.env.example**: Example environment file with required variables.
+
+### Database
+- **database/**: Database files and configuration.
+  - Contains SQLite database for local development
+  - Migration scripts and schema definitions
+  - Backup and recovery tools
 
 ## Features
-- Interactive TUI with conversation history and tool output
-- Single query mode for scripting and command-line use
-- Support for multiple agent kinds (templates) with tiered access
-- Unified buffer printing system with various message types
-- Tool integrations allowing agents to:
-  - Execute shell commands with real-time streaming
-  - Read/write/modify files
-  - Fetch remote content and perform web searches
-  - Create sub-agents and subtasks
-  - Wait for events and signal completion
-- MCP (Model Context Protocol) integration for advanced capabilities
-- Intelligent LLM-based interruption of long-running processes
-- Project info loading with directory-specific context
+- **Interactive TUI**: Rich terminal interface with conversation history and tool output display.
+- **Single Query Mode**: Non-interactive mode for use in scripts and command-line pipelines.
+- **Tiered Access**: Free/Plus/Pro subscription modes with different feature sets.
+- **Tool System**: Comprehensive tool suite allowing agents to interact with the environment.
+- **Intelligent Interruption**: LLM-based decision-making for interrupting long-running operations.
+- **Conversation Management**: Advanced truncation and maintenance to optimize token usage.
+- **MCP Integration**: Model Context Protocol support for extending agent capabilities.
+- **Project Context**: Automatic loading of project information from configuration files.
+- **Authentication**: OAuth-based authentication system with persistent token storage.
+- **File Operations**: Comprehensive file reading, writing, and modification capabilities.
+- **Web Integration**: Built-in support for fetching web content and performing searches.
+- **Multi-Agent Collaboration**: Support for creating and coordinating multiple agents.
+- **Task Management**: Subtask creation and execution with specialized agent kinds.
 
-## Configuration
-- API keys for Anthropic 
-- Model selection with automatic tier-appropriate suggestions
-- Custom system prompts and agent kinds
-- Environment variable configuration via .env files
+## Subscription Tiers
+- **Free Mode**: Available without authentication
+  - Basic agent templates
+  - Limited to smaller models
+  - Core tools only
+- **Plus Mode**: Requires authentication with Plus subscription
+  - Additional agent templates
+  - Access to intermediate-sized models
+  - Full tool suite
+- **Pro Mode**: Requires authentication with Pro subscription
+  - All agent templates including specialized ones
+  - Access to largest, most capable models
+  - Complete feature set with no limitations
+  - Priority support and updates
 
-## Project Dependencies
-- tokio: Asynchronous runtime
-- serde: For serialization/deserialization
-- reqwest: For HTTP requests
-- crossterm & ratatui: For terminal UI
-- lazy_static: For global state management (app mode)
-- dirs: For managing config directories
+## Dependencies
+- **tokio**: Asynchronous runtime
+- **serde**: Serialization/deserialization
+- **reqwest**: HTTP client
+- **crossterm & ratatui**: Terminal UI framework
+- **lazy_static**: Global state management
+- **dirs**: Config directory management
+- **async-stripe**: Integration with Stripe payment system
+- **handlebars**: Template rendering
+- **sqlx**: SQL database access with compile-time checked queries
+- **oauth2**: OAuth 2.0 client implementation
+- **jwt**: JSON Web Token implementation for authentication
+- **glob**: File pattern matching
+- **html2text**: HTML to plaintext conversion for web content

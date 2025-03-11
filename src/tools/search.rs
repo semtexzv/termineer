@@ -2,9 +2,12 @@
 
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
+use lazy_static::lazy_static;
 use reqwest::Client;
 use serde::Deserialize;
 use std::env;
+use std::time::Instant;
+use scraper::{Html, Selector};
 
 // Google Search API response structures
 // Uses non-snake-case to match Google API response format
@@ -38,25 +41,231 @@ struct SearchInformation {
     formattedTotalResults: Option<String>,
 }
 
+/// Execute DuckDuckGo search by scraping their HTML search results
+async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult {
+    let start_time = Instant::now();
+    
+    if !silent_mode {
+        bprintln!(
+            "{}🔍 Search:{} Searching for \"{}\" via DuckDuckGo...",
+            FORMAT_BOLD,
+            FORMAT_RESET,
+            query
+        );
+    }
+    
+    // URL encode the query
+    let encoded_query = urlencoding::encode(query);
+    let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
+    
+    // Send the request
+    let client = Client::new();
+    let response = match client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+        .send()
+        .await {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let error_msg = format!("Error: DuckDuckGo search returned status code {}", status);
+                    
+                    if !silent_mode {
+                        eprintln!("{}", error_msg);
+                    }
+                    
+                    return ToolResult::error(error_msg);
+                }
+                response
+            },
+            Err(err) => {
+                let error_msg = format!("Error connecting to DuckDuckGo: {}", err);
+                
+                if !silent_mode {
+                    eprintln!("{}", error_msg);
+                }
+                
+                return ToolResult::error(error_msg);
+            }
+        };
+    
+    // Get the HTML response
+    let html = match response.text().await {
+        Ok(text) => text,
+        Err(err) => {
+            let error_msg = format!("Error reading DuckDuckGo response: {}", err);
+            
+            if !silent_mode {
+                eprintln!("{}", error_msg);
+            }
+            
+            return ToolResult::error(error_msg);
+        }
+    };
+    
+    // Parse the HTML
+    let document = Html::parse_document(&html);
+    
+    // Define selectors for the search results
+    let results_selector = match Selector::parse(".result") {
+        Ok(selector) => selector,
+        Err(err) => {
+            let error_msg = format!("Error creating DuckDuckGo results selector: {}", err);
+            
+            if !silent_mode {
+                eprintln!("{}", error_msg);
+            }
+            
+            return ToolResult::error(error_msg);
+        }
+    };
+    
+    let title_selector = match Selector::parse(".result__title a") {
+        Ok(selector) => selector,
+        Err(err) => {
+            let error_msg = format!("Error creating DuckDuckGo title selector: {}", err);
+            
+            if !silent_mode {
+                eprintln!("{}", error_msg);
+            }
+            
+            return ToolResult::error(error_msg);
+        }
+    };
+    
+    let snippet_selector = match Selector::parse(".result__snippet") {
+        Ok(selector) => selector,
+        Err(err) => {
+            let error_msg = format!("Error creating DuckDuckGo snippet selector: {}", err);
+            
+            if !silent_mode {
+                eprintln!("{}", error_msg);
+            }
+            
+            return ToolResult::error(error_msg);
+        }
+    };
+    
+    // Format the results for output
+    let mut formatted_results = format!("Search results for \"{}\" (via DuckDuckGo):\n\n", query);
+    
+    // Extract search results
+    let mut result_count = 0;
+    
+    for (i, result) in document.select(&results_selector).enumerate() {
+        if i >= 10 {  // Limit to top 10 results
+            break;
+        }
+        
+        result_count += 1;
+        
+        // Extract title
+        let title = match result.select(&title_selector).next() {
+            Some(el) => {
+                let mut title = String::new();
+                for text in el.text() {
+                    title.push_str(text);
+                }
+                title.trim().to_string()
+            },
+            None => "No title".to_string()
+        };
+        
+        // Extract URL
+        let url = match result.select(&title_selector).next() {
+            Some(el) => el.value().attr("href").unwrap_or("No URL"),
+            None => "No URL"
+        };
+        
+        // Clean up the URL (DuckDuckGo uses redirects)
+        let url = if url.contains("/l/?uddg=") {
+            // Extract the actual URL from the redirect
+            let parts: Vec<&str> = url.split("uddg=").collect();
+            if parts.len() > 1 {
+                let encoded_url = parts[1].split('&').next().unwrap_or(parts[1]);
+                match urlencoding::decode(encoded_url) {
+                    Ok(decoded) => decoded.to_string(),
+                    Err(_) => encoded_url.to_string()
+                }
+            } else {
+                url.to_string()
+            }
+        } else if url.starts_with("/") {
+            format!("https://duckduckgo.com{}", url)
+        } else {
+            url.to_string()
+        };
+        
+        // Extract snippet
+        let snippet = match result.select(&snippet_selector).next() {
+            Some(el) => {
+                let mut snippet = String::new();
+                for text in el.text() {
+                    snippet.push_str(text);
+                }
+                snippet.trim().to_string()
+            },
+            None => "No description".to_string()
+        };
+        
+        // Add formatted result to output
+        formatted_results.push_str(&format!(
+            "{}{}. {}{}\n",
+            FORMAT_GRAY,
+            i + 1,
+            title,
+            FORMAT_RESET
+        ));
+        formatted_results.push_str(&format!(
+            "{}   URL: {}{}\n",
+            FORMAT_GRAY, url, FORMAT_RESET
+        ));
+        formatted_results.push_str(&format!(
+            "{}   {}{}\n\n",
+            FORMAT_GRAY, snippet, FORMAT_RESET
+        ));
+    }
+    
+    if result_count == 0 {
+        formatted_results.push_str("No results found.\n");
+    }
+    
+    let elapsed = start_time.elapsed();
+    
+    if !silent_mode {
+        bprintln!(tool: "search",
+            "Found {} results for \"{}\" via DuckDuckGo (in {:.2}ms)",
+            result_count,
+            query,
+            elapsed.as_millis()
+        );
+        bprintln!("{}", formatted_results);
+    }
+    
+    ToolResult::success(formatted_results)
+}
+
 /// Execute the search tool using Google Custom Search API
+/// Falls back to DuckDuckGo search if Google API key is not available
 pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
     // Get the Google API key from environment
     let api_key = match env::var("GOOGLE_API_KEY") {
         Ok(key) => key,
         Err(_) => {
-            let error_msg = "Error: GOOGLE_API_KEY environment variable not set. Please add your Google API key to the .env file.".to_string();
-
             if !silent_mode {
-                bprintln !(error:"{}", error_msg);
+                bprintln!(info: "GOOGLE_API_KEY not found, falling back to DuckDuckGo search");
             }
-
-            return ToolResult::error(error_msg);
+            
+            // Fall back to DuckDuckGo search
+            return execute_duckduckgo_search(args.trim(), silent_mode).await;
         }
     };
 
     // Set a default search engine ID - using a programmable search engine for general web search
     // This is the publicly available search engine ID that works with Google API keys
-    const SEARCH_ENGINE_ID: &str = "77f98042a073d4c0e";
+    lazy_static! {
+        static ref SEARCH_ENGINE_ID: String = obfstr::obfstring!("77f98042a073d4c0e").to_string();
+    }
 
     // Check if a search query is provided
     let query = args.trim();
@@ -83,7 +292,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
     let encoded_query = urlencoding::encode(query);
     let url = format!(
         "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}",
-        api_key, SEARCH_ENGINE_ID, encoded_query
+        api_key, &*SEARCH_ENGINE_ID, encoded_query
     );
 
     // Execute the search request

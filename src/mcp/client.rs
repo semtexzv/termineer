@@ -2,6 +2,7 @@
 
 use crate::mcp::error::{McpError, McpResult};
 use crate::mcp::process_connection::ProcessConnection;
+use lazy_static::lazy_static;
 use crate::mcp::protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, InitializeParams,
     InitializeResult, JsonRpcMessage, ListToolsResult, MessageContent, Request, RootsCapabilities,
@@ -31,7 +32,9 @@ pub struct McpClient {
 }
 
 /// Current MCP protocol version
-const PROTOCOL_VERSION: &str = "2024-11-05";
+lazy_static! {
+    static ref PROTOCOL_VERSION: String = obfstr::obfstring!("2024-11-05").to_string();
+}
 
 impl McpClient {
     /// Create a new unconnected MCP client
@@ -102,7 +105,7 @@ impl McpClient {
 
         // Create initialize parameters
         let params = InitializeParams {
-            protocol_version: PROTOCOL_VERSION.to_string(),
+            protocol_version: PROTOCOL_VERSION.clone(),
             capabilities: ClientCapabilities {
                 roots: RootsCapabilities { list_changed: true },
             },

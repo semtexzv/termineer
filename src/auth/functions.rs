@@ -29,7 +29,7 @@ pub async fn attempt_cached_auth(
     set_app_mode: SetAppModeCallback,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create the auth client with the server URL
-    let auth_client = AuthClient::new("https://termineer.io".to_string());
+    let auth_client = AuthClient::new(obfstr::obfstring!("https://termineer.io").to_string());
 
     // Debug info for token loading
     println!("Attempting to load cached auth token...");
@@ -83,7 +83,7 @@ pub async fn authenticate_user(
     set_app_mode: SetAppModeCallback,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize auth client
-    let auth_client = AuthClient::new("https://termineer.io".to_string());
+    let auth_client = AuthClient::new(obfstr::obfstring!("https://termineer.io").to_string());
 
     // Start OAuth flow
     println!("Starting authentication flow...");

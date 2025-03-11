@@ -3,7 +3,7 @@ members = [".", "server"]
 
 [package]
 name = "termineer"
-version = "0.1.11"
+version = "0.1.15"
 edition = "2021"
 license = "MIT"
 
@@ -33,6 +33,7 @@ webbrowser = "0.8.11"  # For opening browser in OAuth flow
 axum = "0.7.4"         # For creating local OAuth callback server
 base64 = "0.13.0"      # For encoding/decoding base64 in OAuth flow
 glob = "0.3.1"         # For glob pattern matching in autoinclude feature
+scraper = "0.23.1"
 
 [build-dependencies]
 aes-gcm = "0.10.3"     # AES-GCM encryption

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
 // Configuration constants
-const LOCAL_PORT: u16 = 3030;
+const LOCAL_PORT: u16 = 3030; // Not obfuscating numeric port values as they have minimal security impact
 
 /// User information returned from the server
 #[derive(Debug, Deserialize, Serialize, Clone)]
