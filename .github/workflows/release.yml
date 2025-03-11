@@ -28,23 +28,23 @@ on:
   push:
     tags:
       - 'v*'  # All version tags
-
-# Add explicit permissions needed for creating releases
-permissions:
-  contents: write
   workflow_dispatch:
     inputs:
       version:
         description: 'Version number (e.g., 0.1.0)'
         required: true
-        default: ''
+        type: string
       target:
-        description: 'Release target (npm)'
+        description: 'Release target'
         required: true
-        default: 'npm'
         type: choice
+        default: 'npm'
         options:
           - npm
+
+# Add explicit permissions needed for creating releases
+permissions:
+  contents: write
 
 jobs:
   prepare-version:
