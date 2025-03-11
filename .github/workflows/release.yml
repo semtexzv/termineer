@@ -28,6 +28,10 @@ on:
   push:
     tags:
       - 'v*'  # All version tags
+
+# Add explicit permissions needed for creating releases
+permissions:
+  contents: write
   workflow_dispatch:
     inputs:
       version:
