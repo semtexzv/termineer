@@ -4,6 +4,6 @@
 
 mod google;
 mod routes;
-mod session;
+pub mod session;
 
 pub use routes::auth_routes;

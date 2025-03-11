@@ -1,3 +1,9 @@
+//! API module
+//!
+//! Handles API endpoints for the application.
+
+pub mod auth;
+
 use sqlx::PgPool;
 use crate::config::Config;
 

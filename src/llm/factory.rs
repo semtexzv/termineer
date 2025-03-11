@@ -83,9 +83,9 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
             Ok(Box::new(Anthropic::new(api_key, model_info.model_name)))
         }
         Provider::Google => {
-            Err(LlmError::ConfigError(
-                "Google provider is not implemented in this version".into(),
-            ))
+            let api_key = resolve_google_api_key()?;
+            // Pass model name directly without translation
+            Ok(Box::new(crate::llm::gemini::GeminiBackend::new(api_key, model_info.model_name)))
         }
         Provider::OpenAI => {
             Err(LlmError::ConfigError(

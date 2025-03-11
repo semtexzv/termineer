@@ -89,9 +89,9 @@ pub fn create_session(
     .map_err(|e| e.to_string())?;
 
     // Create cookie
-    let cookie = Cookie::build(SESSION_COOKIE, token)
+    let cookie = Cookie::build((SESSION_COOKIE, token))
         .path("/")
-        .max_age(time::Duration::new(SESSION_DURATION, 0))
+        .max_age(time::Duration::new(SESSION_DURATION as i64, 0))
         .http_only(true)
         .secure(false) // Set to true in production with HTTPS
         .finish();
@@ -127,7 +127,7 @@ pub fn get_user_from_session(cookies: &Cookies) -> Option<UserInfo> {
 
 /// Clear session cookie
 pub fn clear_session(cookies: &Cookies) {
-    let cookie = Cookie::build(SESSION_COOKIE, "")
+    let cookie = Cookie::build((SESSION_COOKIE, ""))
         .path("/")
         .max_age(time::Duration::new(0, 0))
         .http_only(true)
@@ -146,16 +146,15 @@ pub struct SessionData {
 
 /// Middleware to extract session data
 pub async fn session_data_middleware(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     cookies: Cookies,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let user = get_user_from_session(&cookies);
     let session_data = SessionData { user };
 
     // Store session data in request extensions
-    let mut request = request;
     request.extensions_mut().insert(session_data);
 
     next.run(request).await

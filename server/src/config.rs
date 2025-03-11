@@ -2,6 +2,17 @@ use serde::Deserialize;
 use std::env;
 use config::{Config as ConfigLib, ConfigError, Environment, File};
 
+/// OAuth configuration
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct OAuthConfig {
+    /// Google OAuth client ID
+    pub google_client_id: Option<String>,
+    /// Google OAuth client secret
+    pub google_client_secret: Option<String>,
+    /// Google OAuth redirect URI (optional, will be derived if not specified)
+    pub google_redirect_uri: Option<String>,
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -13,6 +24,9 @@ pub struct Config {
     pub port: u16,
     /// Database connection URL
     pub database_url: String,
+    /// OAuth configuration
+    #[serde(default)]
+    pub oauth: OAuthConfig,
 }
 
 impl Config {
@@ -23,7 +37,10 @@ impl Config {
             .set_default("environment", "development")?
             .set_default("host", "127.0.0.1")?
             .set_default("port", 8080)?
-            .set_default("database_url", "postgres://termineer:development@localhost:5432/termineer")?;
+            .set_default("database_url", "postgres://termineer:development@localhost:5432/termineer")?
+            // OAuth defaults (these will be overridden by environment variables if provided)
+            .set_default("oauth.google_client_id", "")?
+            .set_default("oauth.google_client_secret", "")?;
             
         // Layer on the environment-specific values from config files if available
         if let Ok(env) = env::var("ENVIRONMENT") {

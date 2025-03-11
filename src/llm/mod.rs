@@ -7,6 +7,7 @@ pub use async_trait::async_trait;
 
 pub mod anthropic;
 pub mod factory;
+pub mod gemini;
 mod types;
 
 pub use self::factory::create_backend;

@@ -6,6 +6,8 @@
     <title>{% block title %}Termineer - Your Terminal AI Assistant{% endblock %}</title>
     <!-- Include Tailwind directly via CDN for simplicity -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Auth JS -->
+    <script src="/static/js/auth.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -109,10 +111,15 @@
                 </svg>
                 <span class="text-2xl font-bold">Termineer</span>
             </a>
-            <div class="flex space-x-6">
+            <div class="flex items-center space-x-6">
                 <a href="/manual" class="text-gray-600 hover:text-primary-600 transition-colors font-medium">
                     User Manual
                 </a>
+                
+                <!-- Authentication Menu -->
+                <div class="relative" id="auth-container">
+                    <!-- This will be populated by auth.js -->
+                </div>
             </div>
         </div>
     </header>
@@ -154,6 +161,33 @@
                 });
             });
         }
+        
+        // User dropdown menu functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const userMenuButton = document.getElementById('user-menu-button');
+            const userDropdown = document.getElementById('user-dropdown');
+            
+            // Only set up event handlers if the elements exist (user is logged in)
+            if (userMenuButton && userDropdown) {
+                // Toggle dropdown when clicking the button
+                userMenuButton.addEventListener('click', function(event) {
+                    event.stopPropagation();
+                    userDropdown.classList.toggle('hidden');
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', function() {
+                    if (!userDropdown.classList.contains('hidden')) {
+                        userDropdown.classList.add('hidden');
+                    }
+                });
+                
+                // Prevent dropdown from closing when clicking inside it
+                userDropdown.addEventListener('click', function(event) {
+                    event.stopPropagation();
+                });
+            }
+        });
     </script>
 </body>
 </html>

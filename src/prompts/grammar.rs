@@ -328,6 +328,7 @@ impl Grammar for MarkdownGrammar {
         bprintln!("Parsing markdown response: {}\n\n", response);
         // Defensive programming - return early if response is empty or too short
         if response.is_empty() || response.len() < MD_TOOL_CALL_START.len() + 3 {
+            bprintln!("Too short response length");
             return ParsedResponse {
                 prefix: response.to_string(),
                 tool: None,
@@ -357,9 +358,9 @@ impl Grammar for MarkdownGrammar {
                 }
             };
 
-            if let Some(code_end_relative_idx) = after_tool_start.find(MD_CODE_END) {
-                let code_end_idx = tool_start_idx + code_end_relative_idx;
+            if let Some(code_end_relative_idx) = after_tool_start[MD_TOOL_CALL_START.len() .. ].find(MD_CODE_END) {
 
+                let code_end_idx = tool_start_idx + MD_TOOL_CALL_START.len() + code_end_relative_idx;
                 // Get the text before the tool invocation (safely)
                 let text_before_tool = if tool_start_idx > 0 {
                     response[0..tool_start_idx].trim().to_string()

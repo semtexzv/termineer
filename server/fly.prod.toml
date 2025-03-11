@@ -1,0 +1,26 @@
+# Simplified Termineer server deployment without auth/payment
+
+app = "autoswe-server"
+primary_region = "sjc"
+
+[build]
+dockerfile = "Dockerfile.prod"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[env]
+  PORT = "8080"
+  ENVIRONMENT = "production"
+  HOST = "termineer.io"
+  RUST_LOG = "info,sqlx=warn"
+  # We're using a dummy DATABASE_URL in our app now, but it's good to set this to something valid
+  # Fly will automatically set DATABASE_URL if we attach a database later
+
+[[mounts]]
+  source = "autoswe_data"
+  destination = "/data"

@@ -11,9 +11,9 @@ use crate::auth::session::SessionData;
 
 /// Get current user authentication status
 pub async fn get_status(
-    session: Extension<SessionData>,
+    extension: Extension<SessionData>,
 ) -> Json<Value> {
-    let response = if let Some(user) = &session.user {
+    let response = if let Some(user) = &extension.user {
         json!({
             "authenticated": true,
             "user": {

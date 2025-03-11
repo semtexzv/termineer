@@ -3,7 +3,7 @@
 //! Handles OAuth authentication flows and session management.
 
 use crate::auth::google::{create_oauth_client, exchange_code_and_get_user_info, generate_auth_url};
-use crate::auth::session::{create_session, clear_session, SessionData};
+use crate::auth::session::{create_session, clear_session};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
@@ -12,7 +12,6 @@ use axum::{
     Router,
 };
 use oauth2::AuthorizationCode;
-use oauth2::CsrfToken;
 use serde::Deserialize;
 use std::sync::Arc;
 use tower_cookies::Cookies;
@@ -26,8 +25,9 @@ pub fn auth_routes() -> Router<Arc<AppState>> {
         .route("/auth/logout", get(logout))
 }
 
+#[axum::debug_handler]
 /// Handler for Google login
-pub async fn google_login(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn google_login(State(state): State<Arc<AppState>>) -> Redirect {
     info!("Starting Google OAuth login flow");
 
     // Create OAuth client
@@ -35,12 +35,12 @@ pub async fn google_login(State(state): State<Arc<AppState>>) -> impl IntoRespon
         Ok(client) => client,
         Err(e) => {
             error!("Failed to create OAuth client: {}", e);
-            return Redirect::to("/").into_response();
+            return Redirect::to("/");
         }
     };
 
     // Generate authorization URL
-    let (auth_url, csrf_token, pkce_verifier) = generate_auth_url(&client);
+    let (auth_url, _csrf_token, _pkce_verifier) = generate_auth_url(&client);
 
     // Store CSRF token and PKCE verifier in session
     // In a real application, you would store these in a database or Redis
@@ -48,7 +48,7 @@ pub async fn google_login(State(state): State<Arc<AppState>>) -> impl IntoRespon
     // This is not secure for production use
     
     // Redirect to authorization URL
-    Redirect::to(&auth_url).into_response()
+    Redirect::to(&auth_url)
 }
 
 /// Google OAuth callback parameters
@@ -60,16 +60,17 @@ pub struct CallbackParams {
     error: Option<String>,
 }
 
+#[axum::debug_handler]
 /// Handler for Google callback
 pub async fn google_callback(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CallbackParams>,
     cookies: Cookies,
-) -> impl IntoResponse {
+) -> Redirect {
     // Check for error
     if let Some(error) = params.error {
         error!("OAuth callback error: {}", error);
-        return Redirect::to("/").into_response();
+        return Redirect::to("/");
     }
 
     info!("Received OAuth callback");
@@ -79,7 +80,7 @@ pub async fn google_callback(
         Ok(client) => client,
         Err(e) => {
             error!("Failed to create OAuth client: {}", e);
-            return Redirect::to("/").into_response();
+            return Redirect::to("/");
         }
     };
 
@@ -95,7 +96,7 @@ pub async fn google_callback(
         Ok(user_info) => user_info,
         Err(e) => {
             error!("Failed to exchange code for token: {}", e);
-            return Redirect::to("/").into_response();
+            return Redirect::to("/");
         }
     };
 
@@ -108,20 +109,21 @@ pub async fn google_callback(
         user_info.picture.as_deref(),
     ) {
         error!("Failed to create session: {}", e);
-        return Redirect::to("/").into_response();
+        return Redirect::to("/");
     }
 
     // Redirect to home page
-    Redirect::to("/").into_response()
+    Redirect::to("/")
 }
 
+#[axum::debug_handler]
 /// Handler for logout
-pub async fn logout(cookies: Cookies) -> impl IntoResponse {
+pub async fn logout(cookies: Cookies) -> Redirect {
     info!("User logged out");
     
     // Clear session
     clear_session(&cookies);
     
     // Redirect to home page
-    Redirect::to("/").into_response()
+    Redirect::to("/")
 }

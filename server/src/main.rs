@@ -4,6 +4,7 @@
 //! Provides HTTP endpoints for the Termineer web interface.
 
 mod api;
+mod auth;
 mod config;
 mod db;
 mod errors;
@@ -66,6 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Frontend routes
         .route("/", get(index_handler))
         .route("/manual", get(manual_handler))
+        // Auth routes
+        .merge(auth::auth_routes())
+        // API routes
+        .route("/api/auth/status", get(api::auth::get_status))
         // Serve static files
         .nest_service("/static", ServeDir::new(static_dir))
         // Health check
@@ -85,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start the server
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app.into_make_service()).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
