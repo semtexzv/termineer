@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod done;
 pub mod fetch;
+pub mod input;
 pub mod mcp;
 pub mod patch;
 pub mod path_utils;
@@ -17,6 +18,7 @@ pub mod write;
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
 pub use fetch::execute_fetch;
+pub use input::execute_input;
 pub use mcp::execute_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
@@ -212,6 +214,7 @@ impl ToolExecutor {
             "fetch" => execute_fetch(args, body, self.silent_mode).await,
             "search" => execute_search(args, body, self.silent_mode).await,
             "screenshot" => execute_screenshot(args, body, self.silent_mode).await,
+            "input" => execute_input(args, body, self.silent_mode).await,
             "mcp" => execute_mcp_tool(args, body, self.silent_mode).await,
             "done" => execute_done(args, body, self.silent_mode),
             "task" => execute_task(args, body, self.silent_mode).await,
@@ -285,6 +288,7 @@ impl ToolExecutor {
                 | "agent"
                 | "wait"
                 | "computer"
+                // Note: input is NOT read-only as it modifies application state
         )
     }
 }

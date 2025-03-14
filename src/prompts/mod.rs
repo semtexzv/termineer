@@ -20,7 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "read", "write", "patch", "fetch", "search", "screenshot", "screendump", "mcp", "task", "done", "wait",
+    "shell", "read", "write", "patch", "fetch", "search", "screenshot", "screendump", "input", "mcp", "task", "done", "wait",
 ];
 
 /// List of tools available to Plus/Pro users only
@@ -29,6 +29,7 @@ pub const PLUS_TOOLS: &[&str] = &["agent"];
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
     "shell", "read", "fetch", "search", "screenshot", "screendump", "mcp", "done", "wait",
+    // Note: 'input' is not included as it modifies application state
 ];
 
 /// List of read-only tools for Plus/Pro users
