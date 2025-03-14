@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Google Gemini API integration for Termineer
 //! 
 //! Implementation of the LLM provider for Google's Gemini models.
@@ -7,7 +8,7 @@
 use crate::llm::{Backend, Content, LlmError, LlmResponse, Message, TokenUsage};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json;
 use std::collections::BTreeSet;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -54,15 +55,15 @@ struct GeminiRequest {
 
 #[derive(Debug, Serialize)]
 struct GeminiGenerationConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "maxOutputTokens")]
     max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "topP")]
     top_p: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "topK")]
     top_k: Option<u32>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", rename = "stopSequences")]
     stop_sequences: Vec<String>,
 }
 
@@ -97,19 +98,19 @@ struct GeminiResponse {
 #[derive(Debug, Deserialize)]
 struct GeminiCandidate {
     content: GeminiContent,
-    #[serde(default)]
+    #[serde(default, rename = "finishReason")]
     finish_reason: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "safetyRatings")]
     safety_ratings: Option<Vec<GeminiSafetyRating>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct GeminiUsageMetadata {
-    #[serde(default)]
+    #[serde(default, rename = "promptTokenCount")]
     prompt_token_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, rename = "candidatesTokenCount")]
     candidates_token_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, rename = "totalTokenCount")]
     total_token_count: Option<u32>,
 }
 
@@ -122,7 +123,7 @@ struct GeminiSafetyRating {
 // Token counting response
 #[derive(Debug, Deserialize)]
 struct GeminiCountTokensResponse {
-    #[serde(default)]
+    #[serde(default, rename = "totalTokens")]
     total_tokens: Option<u32>,
 }
 
@@ -349,36 +350,6 @@ impl GeminiBackend {
         }
     }
 
-    /// Count tokens using the Gemini API
-    async fn count_tokens_with_api(
-        &self,
-        gemini_contents: &[GeminiContent],
-    ) -> Result<TokenUsage, LlmError> {
-        // Construct the API endpoint URL for token counting
-        let api_url = format!(
-            "{}/models/{}:countTokens?key={}",
-            API_BASE_URL, 
-            self.model_name, 
-            self.api_key
-        );
-
-        // Using the same request structure but with the countTokens endpoint
-        let request = json!({
-            "contents": gemini_contents
-        });
-
-        // Send request with the reused send_api_request method
-        let token_response: GeminiCountTokensResponse = self.send_api_request(&api_url, request).await?;
-
-        let total_tokens = token_response.total_tokens.unwrap_or(0) as usize;
-
-        Ok(TokenUsage {
-            input_tokens: total_tokens,
-            output_tokens: 0, // Not available until generation
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
-    }
 }
 
 // Helper function to extract text content from Content enum

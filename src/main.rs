@@ -8,7 +8,6 @@ mod macros;
 
 mod agent;
 mod ansi_converter;
-mod auth;
 mod config;
 mod constants;
 mod conversation;
@@ -68,17 +67,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Handle different argument outcomes
     match arg_result {
         ArgResult::Login => {
-            // Authentication is currently disabled
+            // Authentication has been removed
             execute!(
                 io::stdout(),
                 SetForegroundColor(Color::Blue),
-                Print("ℹ️ Authentication is temporarily disabled"),
+                Print("ℹ️ Authentication has been removed from this version"),
                 ResetColor,
                 cursor::MoveToNextLine(1),
             )
             .unwrap();
-            println!("Pro/Plus subscription modes are currently being worked on.");
-            println!("All functionality is available in Free mode for now.");
+            println!("All functionality is available without authentication.");
             return Ok(());
         }
         ArgResult::ShowHelp => {
@@ -97,18 +95,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             return Ok(());
         }
         ArgResult::Query(query) => {
-            // *** Authentication temporarily disabled - always run in Free mode ***
-            config::set_app_mode(config::AppMode::Free);
-            config.app_mode = config::AppMode::Free;
+            // Set the app mode based on build configuration
+            #[cfg(debug_assertions)]
+            {
+                // In debug builds, always use Pro mode
+                config::set_app_mode(config::AppMode::Pro);
+                // Do not announce Pro mode in user-facing output
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                // In release builds, use Free mode (authentication removed)
+                config::set_app_mode(config::AppMode::Free);
+            }
 
             // Run in single query mode
             run_single_query_mode(agent_manager, config, query).await?;
             return Ok(());
         }
         ArgResult::Interactive => {
-            // *** Authentication temporarily disabled - always run in Free mode ***
-            config::set_app_mode(config::AppMode::Free);
-            config.app_mode = config::AppMode::Free;
+            // Set the app mode based on build configuration
+            #[cfg(debug_assertions)]
+            {
+                // In debug builds, always use Pro mode
+                config::set_app_mode(config::AppMode::Pro);
+                // Do not announce Pro mode in user-facing output
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                // In release builds, use Free mode (authentication removed)
+                config::set_app_mode(config::AppMode::Free);
+            }
 
             // Continue to interactive mode
             run_interactive_mode(agent_manager, config).await?;
@@ -117,47 +133,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("Termineer terminated successfully.");
     Ok(())
-}
-
-/// Try to load authentication from a previous session without user interaction
-async fn attempt_cached_auth(
-    config: &mut Config,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Create an AuthConfig from our application Config
-    let mut auth_config = auth::AuthConfig {
-        user_email: config.user_email.clone(),
-        subscription_type: config.subscription_type.clone(),
-        app_mode: config.app_mode.to_string(),
-    };
-    
-    // Callback for setting app mode
-    let set_app_mode_callback = |app_mode_str: String| {
-        // Convert the string to a config::AppMode
-        let app_mode = match app_mode_str.to_lowercase().as_str() {
-            "pro" => config::AppMode::Pro,
-            "plus" => config::AppMode::Plus,
-            _ => config::AppMode::Free,
-        };
-        config::set_app_mode(app_mode);
-    };
-    
-    // Call the auth module function
-    let result = auth::attempt_cached_auth(&mut auth_config, set_app_mode_callback).await;
-    
-    // Update our config with the values from auth_config
-    if result.is_ok() {
-        config.user_email = auth_config.user_email;
-        config.subscription_type = auth_config.subscription_type;
-        
-        // Convert string app mode to config::AppMode
-        config.app_mode = match auth_config.app_mode.to_lowercase().as_str() {
-            "pro" => config::AppMode::Pro,
-            "plus" => config::AppMode::Plus,
-            _ => config::AppMode::Free,
-        };
-    }
-    
-    result
 }
 
 /// Display help information
@@ -171,7 +146,7 @@ If QUERY is provided, runs in non-interactive mode and outputs only the response
 If QUERY is not provided, starts an interactive console session.
 
 Commands:
-  login                  Authenticate to unlock premium features
+  login                  (Authentication feature not currently implemented)
   list-kinds             List available agent kinds/templates
   
 Options:
@@ -192,14 +167,9 @@ Environment Variables:
   ANTHROPIC_API_KEY      Your Anthropic API key (required for Claude models)
   GOOGLE_API_KEY         Your Google API key (required for Gemini models)
 
-Subscription Tiers:
-  Free Mode              Available without authentication, limited to smaller models
-  Plus/Pro               Requires authentication, provides access to advanced models
-
 Example:
   Termineer --model claude-3-haiku-20240307 "What is the capital of France?"
   Termineer --model=google/gemini-1.5-flash "Explain quantum computing."
-  Termineer login                           # Authenticate for premium features
   Termineer list-kinds                      # See available agent templates"#
     );
     println!("{}", help_text);
@@ -221,50 +191,6 @@ For advanced templates: --kind plus/researcher"#
     println!("{}", usage_text);
 
     Ok(())
-}
-
-/// Authenticate user with the server using OAuth
-///
-/// This function connects to the Termineer server to authenticate the user
-/// using an OAuth flow that opens the browser for authentication.
-async fn authenticate_user(
-    config: &mut Config,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Create an AuthConfig from our application Config
-    let mut auth_config = auth::AuthConfig {
-        user_email: config.user_email.clone(),
-        subscription_type: config.subscription_type.clone(),
-        app_mode: config.app_mode.to_string(),
-    };
-    
-    // Callback for setting app mode
-    let set_app_mode_callback = |app_mode_str: String| {
-        // Convert the string to a config::AppMode
-        let app_mode = match app_mode_str.to_lowercase().as_str() {
-            "pro" => config::AppMode::Pro,
-            "plus" => config::AppMode::Plus,
-            _ => config::AppMode::Free,
-        };
-        config::set_app_mode(app_mode);
-    };
-    
-    // Call the auth module function
-    let result = auth::authenticate_user(&mut auth_config, set_app_mode_callback).await;
-    
-    // Update our config with the values from auth_config
-    if result.is_ok() {
-        config.user_email = auth_config.user_email;
-        config.subscription_type = auth_config.subscription_type;
-        
-        // Convert string app mode to config::AppMode
-        config.app_mode = match auth_config.app_mode.to_lowercase().as_str() {
-            "pro" => config::AppMode::Pro,
-            "plus" => config::AppMode::Plus,
-            _ => config::AppMode::Free,
-        };
-    }
-    
-    result
 }
 
 /// Run the application in interactive mode with TUI

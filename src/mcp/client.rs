@@ -31,7 +31,7 @@ pub struct McpClient {
     server_info: Arc<Mutex<Option<ServerInfo>>>,
 }
 
-/// Current MCP protocol version
+// Current MCP protocol version
 lazy_static! {
     static ref PROTOCOL_VERSION: String = obfstr::obfstring!("2024-11-05").to_string();
 }
@@ -62,16 +62,6 @@ impl McpClient {
     }
     */
 
-    /// Connect to an MCP server using a subprocess
-    pub async fn connect_process(
-        &self,
-        name: &str,
-        executable: &str,
-        args: &[&str],
-    ) -> McpResult<()> {
-        // Connect using empty environment variables
-        self.connect_process_with_env(name, executable, args, &HashMap::new()).await
-    }
     
     /// Connect to an MCP server using a subprocess with custom environment variables
     pub async fn connect_process_with_env(

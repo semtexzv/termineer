@@ -1051,9 +1051,6 @@ impl Agent {
         // Read the autoinclude file
         let autoinclude_content = tokio::fs::read_to_string(autoinclude_path).await?;
         
-        // Constants for limits
-        const MAX_TOTAL_SIZE: usize = 100_000;  // Maximum total content size (chars)
-        
         // Process each line as a glob pattern
         let mut included_count = 0;
         let mut total_content_size = 0;

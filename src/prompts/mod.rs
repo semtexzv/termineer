@@ -232,13 +232,13 @@ fn check_kind_access(requested_kind: &str) -> Result<String, anyhow::Error> {
 
     // Check for plus/ and pro/ prefixes in the kind name
     if requested_kind.starts_with("plus/") && matches!(app_mode, AppMode::Free) {
-        bail!("The '{}' agent kind requires a Plus or Pro subscription.\nRun 'termineer login' to authenticate with your account.", requested_kind);
+        bail!("The '{}' agent kind requires a Plus or Pro subscription.", requested_kind);
     }
 
     if requested_kind.starts_with("pro/") {
         match app_mode {
             AppMode::Free | AppMode::Plus => {
-                bail!("The '{}' agent kind requires a Pro subscription.\nRun 'termineer login' to authenticate with your account.", requested_kind);
+                bail!("The '{}' agent kind requires a Pro subscription.", requested_kind);
             }
             AppMode::Pro => {
                 // Pro users can access pro templates

@@ -24,11 +24,6 @@ pub struct McpToolProvider {
 
 impl McpToolProvider {
     /* WebSocket-based connection removed in favor of file-based MCP configuration */
-
-    /// Create a new tool provider for an MCP process
-    pub async fn new_process(name: &str, executable: &str, args: &[&str]) -> McpResult<Self> {
-        Self::new_process_with_env(name, executable, args, &HashMap::new()).await
-    }
     
     /// Create a new tool provider for an MCP process with environment variables
     pub async fn new_process_with_env(

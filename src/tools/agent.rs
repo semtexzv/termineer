@@ -28,7 +28,7 @@ pub async fn execute_agent_tool(
 
     // If user does not have required subscription, return error with upgrade message
     if !has_required_subscription {
-        let error_msg = "Multi-agent capabilities require a Plus or Pro subscription.\nRun 'termineer login' to authenticate with your account.".to_string();
+        let error_msg = "Multi-agent capabilities require a Plus or Pro subscription.".to_string();
         if !silent_mode {
             bprintln !(error:"{}", error_msg);
         }

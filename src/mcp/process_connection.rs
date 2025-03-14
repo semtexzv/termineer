@@ -59,10 +59,6 @@ pub struct ProcessConnection {
 }
 
 impl ProcessConnection {
-    /// Create a new process connection with the given command
-    pub async fn spawn(name: &str, executable: &str, args: &[&str]) -> McpResult<Self> {
-        Self::spawn_with_env(name, executable, args, &std::collections::HashMap::new()).await
-    }
     
     /// Create a new process connection with the given command and environment variables
     pub async fn spawn_with_env(

@@ -49,11 +49,11 @@ pub fn set_app_mode(mode: AppMode) {
 /// Application mode/tier that determines available features
 #[derive(Clone, Debug, PartialEq)]
 pub enum AppMode {
-    /// Free mode - no authentication required, limited features
+    /// Free mode - limited features
     Free,
-    /// Plus mode - requires authentication, more features
+    /// Plus mode - intermediate features (reserved for future use)
     Plus,
-    /// Pro mode - requires authentication, full feature set
+    /// Pro mode - full feature set
     Pro,
 }
 
@@ -110,9 +110,8 @@ pub struct Config {
 
     /// Skip authentication (for development)
     pub skip_auth: bool,
-
-    /// Application mode/tier that determines available features and authentication requirements
-    pub app_mode: AppMode,
+    
+    // Application mode is now only stored in GLOBAL_APP_MODE
 }
 
 impl Config {
@@ -132,7 +131,7 @@ impl Config {
             user_email: None,
             subscription_type: None,
             skip_auth: false,
-            app_mode: AppMode::Free,
+            // app_mode is now only stored in GLOBAL_APP_MODE
         };
 
         // Initialize a config with default values
