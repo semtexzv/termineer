@@ -18,7 +18,7 @@ mod llm;
 mod mcp;
 mod output;
 mod prompts;
-pub mod serde_utils;
+pub mod serde;
 // Session module temporarily disabled until needed
 // mod session;
 mod tools;

@@ -3,7 +3,7 @@
 //! These types are used across different LLM providers to
 //! represent messages, content, and responses.
 
-use crate::serde_utils::element_array;
+use crate::serde::element_array;
 use serde::{Deserialize, Serialize};
 
 /// Response from an LLM provider
