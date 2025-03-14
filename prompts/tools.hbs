@@ -297,6 +297,85 @@ For best results:
 3. Use `screendump window [ID]` to get the UI structure of the same window
 {{/iftool}}
 
+{{#iftool "input"}}
+### Input
+Send mouse and keyboard inputs to windows:
+{{#tool "input"}}[command] [parameters]
+[optional content for type command or sequence]
+{{/tool}}
+
+Commands:
+- `click x y [window_id] [options]` - Click at x,y coordinates in a window
+  - Options: `--right` (right click), `--middle` (middle click), `--double` (double-click)
+- `type [window_id]` - Type text into a window (text follows on next lines)
+- `key [modifiers+]key [window_id]` - Send keyboard shortcut (e.g., cmd+shift+t)
+- `sequence [window_id]` - Execute a sequence of actions (one per line)
+
+Examples:
+
+Mouse click:
+{{#tool "input"}}click 100 200 Terminal{{/tool}}
+
+{{#done "input" 0}}
+Clicked at coordinates (100, 200) in window 'Terminal'
+{{/done}}
+
+Mouse right-click:
+{{#tool "input"}}click 300 400 Safari:1 --right{{/tool}}
+
+{{#done "input" 0}}
+Clicked at coordinates (300, 400) in window 'Safari:1'
+{{/done}}
+
+Type text:
+{{#tool "input"}}type TextEdit:1
+Hello, world! This is some text that will be typed into the window.
+{{/tool}}
+
+{{#done "input" 0}}
+Typed text into window 'TextEdit:1'
+{{/done}}
+
+Keyboard shortcut:
+{{#tool "input"}}key cmd+shift+t Chrome:1{{/tool}}
+
+{{#done "input" 0}}
+Sent keyboard shortcut to window 'Chrome:1'
+{{/done}}
+
+Action sequence:
+{{#tool "input"}}sequence Safari:1
+click 100 200
+wait 500
+type Hello, world!
+key return
+{{/tool}}
+
+{{#done "input" 0}}
+Action 1: Clicked at coordinates (100, 200) in window 'Safari:1'
+Action 2: Waited for 500ms
+Action 3: Typed text into window 'Safari:1'
+Action 4: Sent keyboard shortcut to window 'Safari:1'
+{{/done}}
+
+When to use:
+- Automate UI interactions in target applications
+- Click on specific buttons or elements in windows
+- Type text into form fields or editors
+- Send keyboard shortcuts for application commands
+- Create automation sequences for multi-step workflows
+- Test user interfaces programmatically
+- Interact with applications that don't have API access
+
+How it works:
+- Uses platform-specific accessibility APIs to send inputs to windows
+- Works with `screendump` to identify window positions and IDs
+- Window IDs use the App:Index format (e.g., Safari:1, Terminal:1)
+- Uses secure permissions-based access to control applications
+- Action sequences can combine clicks, typing, key presses, and wait times
+- Handles focus and application activation automatically
+{{/iftool}}
+
 {{#iftool "screendump"}}
 ### Screendump
 Capture the current UI structure as text using accessibility APIs:
