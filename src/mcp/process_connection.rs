@@ -226,13 +226,46 @@ impl ProcessConnection {
 
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Ok(rpc_msg) = serde_json::from_str::<JsonRpcMessage>(&line) {
-                        // Check if this is a response to a pending request
-                        if let Some(id) = &rpc_msg.id {
-                            let id_str = id.to_string();
-
-                            let mut pending = pending_responses.try_lock().unwrap();
-                            if let Some(sender) = pending.remove(&id_str) {
-                                sender.send(Ok(rpc_msg)).unwrap();
+                        // Handle different message types
+                        match &rpc_msg.content {
+                            // Handle responses to requests
+                            _ if rpc_msg.id.is_some() => {
+                                let id_str = rpc_msg.id.as_ref().unwrap().to_string();
+                                let mut pending = pending_responses.try_lock().unwrap();
+                                if let Some(sender) = pending.remove(&id_str) {
+                                    sender.send(Ok(rpc_msg)).unwrap();
+                                }
+                            },
+                            // Handle notifications
+                            crate::mcp::protocol::MessageContent::Notification(notification) => {
+                                // Handle progress notifications
+                                if notification.method == "notifications/progress" {
+                                    if let Some(params) = &notification.params {
+                                        if let Some(token) = params.get("progressToken") {
+                                            if let Some(progress) = params.get("progress") {
+                                                let total = params.get("total");
+                                                let token_str = token.to_string();
+                                                let progress_val = progress.as_f64().unwrap_or(0.0);
+                                                let total_str = total.and_then(|t| t.as_f64())
+                                                    .map(|t| format!("/{:.0}", t))
+                                                    .unwrap_or_else(|| "".to_string());
+                                                
+                                                bprintln!(
+                                                    "{}MCP Progress:{} {}{} ({}{})",
+                                                    crate::constants::FORMAT_CYAN,
+                                                    crate::constants::FORMAT_RESET,
+                                                    token_str.trim_matches('"'),
+                                                    total_str,
+                                                    progress_val,
+                                                    total_str
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                // Other message types don't need special handling
                             }
                         }
                     } else {

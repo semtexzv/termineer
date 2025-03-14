@@ -90,7 +90,72 @@ pub struct InitializeParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
+    /// The protocol version supported by the server
+    pub protocol_version: String,
+    /// Server capabilities
+    pub capabilities: ServerCapabilities,
+    /// Server info
     pub server_info: ServerInfo,
+    /// Optional instructions for using the server
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+}
+
+/// Server capabilities that determine what features are available
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerCapabilities {
+    /// Resources capability if the server supports resources
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourcesCapabilities>,
+    /// Tools capability if the server supports tools
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<ToolsCapabilities>,
+    /// Prompts capability if the server supports prompts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompts: Option<PromptsCapabilities>,
+    /// Logging capability if the server supports logging
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logging: Option<LoggingCapabilities>,
+    /// Experimental capabilities
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<serde_json::Value>,
+}
+
+/// Resources capabilities
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcesCapabilities {
+    /// Whether the server supports subscribing to resource updates
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscribe: Option<bool>,
+    /// Whether the server supports issuing notifications for changes to the resource list
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_changed: Option<bool>,
+}
+
+/// Tools capabilities
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolsCapabilities {
+    /// Whether the server supports issuing notifications for changes to the tool list
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_changed: Option<bool>,
+}
+
+/// Prompts capabilities
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptsCapabilities {
+    /// Whether the server supports issuing notifications for changes to the prompt list
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_changed: Option<bool>,
+}
+
+/// Logging capabilities
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LoggingCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

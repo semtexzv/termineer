@@ -58,9 +58,26 @@ pub async fn execute_mcp_tool(args: &str, body: &str, silent_mode: bool) -> Tool
     }
 
     // Return a message explaining that MCP is handled automatically
-    ToolResult::error(
-        "MCP servers are configured in .termineer/config.json and initialized at startup. User commands for MCP are not needed as the system handles MCP functionality automatically.".to_string()
-    )
+    // Get the list of currently configured servers
+    let providers = MCP_PROVIDERS.lock().await;
+    let server_names: Vec<String> = providers.keys().cloned().collect();
+    
+    // Build a helpful message
+    let mut message = "MCP (Model Context Protocol) servers provide additional capabilities to AI assistants.\n\n".to_string();
+    
+    if !server_names.is_empty() {
+        message.push_str("Currently configured MCP servers:\n");
+        for name in &server_names {
+            message.push_str(&format!("- {}\n", name));
+        }
+        message.push_str("\nTo list tools: mcp list SERVER_NAME\n");
+        message.push_str("To call a tool: mcp call SERVER_NAME TOOL_NAME with JSON parameters\n");
+    } else {
+        message.push_str("No MCP servers are currently configured.\n");
+        message.push_str("Configure servers in .termineer/config.json\n");
+    }
+    
+    ToolResult::success(message)
 }
 
 /// List tools from an MCP server by server name

@@ -105,6 +105,18 @@ impl McpClient {
         let result = self
             .send_request::<_, InitializeResult>("initialize", params)
             .await?;
+        // Verify protocol version compatibility
+        let server_protocol_version = &result.protocol_version;
+        // List of supported protocol versions (current and potentially older versions)
+        let supported_versions = ["2024-11-05", "2024-10-07"];
+        
+        if !supported_versions.contains(&server_protocol_version.as_str()) {
+            return Err(McpError::ProtocolError(format!(
+                "Unsupported protocol version: {}. This client supports versions: {:?}",
+                server_protocol_version, supported_versions
+            )));
+        }
+        
         // Store server info
         let mut server_info_guard = self.server_info.lock().await;
         *server_info_guard = Some(result.server_info.clone());
@@ -188,8 +200,32 @@ impl McpClient {
         // Generate request ID
         let id = self.request_id.fetch_add(1, Ordering::SeqCst);
 
-        // Create request message
+        // Create base request message
         let params_value = serde_json::to_value(params)?;
+        
+        // Add progress support for methods that might be long-running
+        let params_value = if method == "tools/call" || method == "resources/read" {
+            if let serde_json::Value::Object(mut map) = params_value {
+                // Create or get the _meta object
+                let meta = map.entry("_meta")
+                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+                
+                // Add progressToken if it doesn't exist
+                if let serde_json::Value::Object(meta_obj) = meta {
+                    if !meta_obj.contains_key("progressToken") {
+                        meta_obj.insert(
+                            "progressToken".to_string(),
+                            serde_json::Value::String(format!("token_{}", id))
+                        );
+                    }
+                }
+                serde_json::Value::Object(map)
+            } else {
+                params_value
+            }
+        } else {
+            params_value
+        };
         
         // Remove protocol-level logging completely
         
@@ -208,8 +244,16 @@ impl McpClient {
             .as_ref()
             .ok_or_else(|| McpError::ConnectionError("Not connected".to_string()))?;
 
-        // Send request and get response
-        let response = conn.send_message(message).await?;
+        // Send request with timeout
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(60), // 60 second timeout
+            conn.send_message(message)
+        ).await
+        .map_err(|_| McpError::ConnectionError("Request timed out after 60 seconds".to_string()))?
+        .map_err(|e| {
+            bprintln!(error: "MCP connection error: {:?}", e);
+            e
+        })?;
         
         // Parse response
         match response.content {

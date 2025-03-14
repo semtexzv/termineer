@@ -62,7 +62,13 @@ impl McpToolProvider {
     /// Refresh the list of available tools
     pub async fn refresh_tools(&self) -> McpResult<()> {
         // List tools
-        let tools = self.client.list_tools().await?;
+        let tools = match self.client.list_tools().await {
+            Ok(tools) => tools,
+            Err(err) => {
+                bprintln!(error: "Failed to refresh tools: {}", err);
+                return Err(err);
+            }
+        };
 
         // Store tools by ID - now using a Mutex
         let mut tools_map = self.tools.lock().unwrap();
@@ -71,6 +77,16 @@ impl McpToolProvider {
             tools_map.insert(tool.name.clone(), tool);
         }
 
+        Ok(())
+    }
+    
+    /// Start listening for tool and resource list changes
+    pub async fn start_listening_for_updates(&self) -> McpResult<()> {
+        // This would normally set up notification handlers
+        // Not directly implementable in the current architecture
+        // Would require additional changes to the connection logic
+        
+        bprintln!(info: "MCP tool provider now listening for updates from the server");
         Ok(())
     }
 

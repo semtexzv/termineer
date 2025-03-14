@@ -3,6 +3,49 @@
 use crate::mcp::protocol::JsonRpcError;
 use thiserror::Error;
 
+/// Standard JSON-RPC error codes as defined in the MCP specification
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorCode {
+    // SDK error codes
+    ConnectionClosed = -32000,
+    RequestTimeout = -32001,
+    // Standard JSON-RPC error codes
+    ParseError = -32700,
+    InvalidRequest = -32600,
+    MethodNotFound = -32601,
+    InvalidParams = -32602,
+    InternalError = -32603,
+}
+
+impl ErrorCode {
+    /// Convert from i32 to ErrorCode
+    pub fn from_i32(code: i32) -> Option<Self> {
+        match code {
+            -32000 => Some(Self::ConnectionClosed),
+            -32001 => Some(Self::RequestTimeout),
+            -32700 => Some(Self::ParseError),
+            -32600 => Some(Self::InvalidRequest),
+            -32601 => Some(Self::MethodNotFound),
+            -32602 => Some(Self::InvalidParams),
+            -32603 => Some(Self::InternalError),
+            _ => None,
+        }
+    }
+    
+    /// Get a description for this error code
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::ConnectionClosed => "Connection closed",
+            Self::RequestTimeout => "Request timed out",
+            Self::ParseError => "Parse error",
+            Self::InvalidRequest => "Invalid request",
+            Self::MethodNotFound => "Method not found",
+            Self::InvalidParams => "Invalid parameters",
+            Self::InternalError => "Internal error",
+        }
+    }
+}
+
 /// Errors that can occur in the MCP client
 #[derive(Error, Debug)]
 pub enum McpError {
@@ -33,6 +76,26 @@ pub enum McpError {
     /// Protocol error
     #[error("Protocol error: {0}")]
     ProtocolError(String),
+    
+    /// Standard error with code
+    #[error("{} ({0})", code.description())]
+    StandardError { code: ErrorCode, data: Option<String> },
+}
+
+impl McpError {
+    /// Create a standard error from an error code
+    pub fn standard(code: ErrorCode, data: Option<String>) -> Self {
+        Self::StandardError { code, data }
+    }
+    
+    /// Convert from JsonRpcError to McpError with better error code handling
+    pub fn from_json_rpc_error(error: JsonRpcError) -> Self {
+        if let Some(code) = ErrorCode::from_i32(error.code) {
+            Self::standard(code, error.data.map(|d| format!("{:?}", d)))
+        } else {
+            Self::JsonRpcError(error)
+        }
+    }
 }
 
 /// Result type for MCP operations
