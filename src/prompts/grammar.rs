@@ -5,17 +5,13 @@
 //! for parsing structured information from agent output.
 
 use crate::constants::{
+    MD_CODE_END, MD_TOOL_CALL_START, MD_TOOL_ERROR_START, MD_TOOL_RESULT_START,
     PATCH_DELIMITER_AFTER, PATCH_DELIMITER_BEFORE, PATCH_DELIMITER_END, TOOL_END, TOOL_ERROR_END,
     TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX, TOOL_START,
 };
 use bprintln;
 
 // Constants for markdown-based grammar
-const MD_TOOL_CALL_START: &str = "```tool_use ";
-const MD_TOOL_RESULT_START: &str = "```result [";
-const MD_TOOL_ERROR_START: &str = "```error [";
-const MD_CODE_END: &str = "```";
-
 /// Represents a tool invocation with name, arguments, and body content
 #[derive(Debug, Clone)]
 pub struct ToolInvocation {
@@ -358,9 +354,11 @@ impl Grammar for MarkdownGrammar {
                 }
             };
 
-            if let Some(code_end_relative_idx) = after_tool_start[MD_TOOL_CALL_START.len() .. ].find(MD_CODE_END) {
-
-                let code_end_idx = tool_start_idx + MD_TOOL_CALL_START.len() + code_end_relative_idx;
+            if let Some(code_end_relative_idx) =
+                after_tool_start[MD_TOOL_CALL_START.len()..].find(MD_CODE_END)
+            {
+                let code_end_idx =
+                    tool_start_idx + MD_TOOL_CALL_START.len() + code_end_relative_idx;
                 // Get the text before the tool invocation (safely)
                 let text_before_tool = if tool_start_idx > 0 {
                     response[0..tool_start_idx].trim().to_string()

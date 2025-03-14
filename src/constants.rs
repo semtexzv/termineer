@@ -12,6 +12,12 @@ pub const TOOL_ERROR_START_PREFIX: &str = "<tool_error";
 pub const TOOL_ERROR_START: &str = "<tool_error>";
 pub const TOOL_ERROR_END: &str = "</tool_error>";
 
+pub const MD_TOOL_CALL_START: &str = "```tool_use ";
+pub const MD_TOOL_RESULT_START: &str = "```result [";
+pub const MD_TOOL_ERROR_START: &str = "```error [";
+pub const MD_CODE_END: &str = "```";
+
+
 pub const FORMAT_RESET: &str = "\x1b[0m";
 pub const FORMAT_BOLD: &str = "\x1b[1m";
 pub const FORMAT_GRAY: &str = "\x1b[90m";
