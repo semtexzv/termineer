@@ -21,7 +21,7 @@ pub mod serde_utils;
 // Session module temporarily disabled until needed
 // mod session;
 mod tools;
-mod ui_interface;
+mod tui;
 
 use lazy_static::lazy_static;
 use std::io;
@@ -35,7 +35,7 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetForegroundColor},
 };
 use tokio::time::sleep;
-use ui_interface::TuiInterface;
+use tui::TuiInterface;
 
 // Global agent manager available to all components
 lazy_static! {
@@ -177,8 +177,8 @@ Example:
 
 /// List all available agent kinds
 fn list_available_kinds() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Print the list of available kinds
-    println!("{}", prompts::get_available_kinds());
+    // Print the list of available kinds - use Pro mode to show all kinds for upselling
+    println!("{}", prompts::get_kinds_for_mode(config::AppMode::Pro));
 
     // Usage information in a single string
     let usage_text = obfstr::obfstring!(

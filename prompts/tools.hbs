@@ -254,7 +254,11 @@ Create a subtask to perform a specific goal
 {{/tool}}
 
 Parameters (optional):
-- `kind=TYPE`: Specify the agent kind to use for this task (e.g., kind=reasoner)
+- `kind=TYPE`: Specify the agent kind to use for this task (e.g., kind=researcher)
+- `include=PATTERN`: Include file(s) as context (supports glob patterns)
+
+Available agent kinds:
+{{available_kinds false}}
 
 {{#done "task" 0}}
 
@@ -270,7 +274,13 @@ Create a JavaScript function that validates:
 - Matching password confirmation field
 {{/tool}}
 
-{{#tool "task"}}kind=troubleshooter
+{{#tool "task"}}kind=researcher include=src/config.rs
+Research how configuration is managed in this codebase
+Focus on how configuration options are defined, loaded and accessed
+Create a comprehensive overview of the configuration system
+{{/tool}}
+
+{{#tool "task"}}kind=troubleshooter include=src/error.rs include=src/logging.rs
 Debug the memory leak in user session handling
 The application shows increasing memory usage over time
 Memory grows with each user login/logout cycle

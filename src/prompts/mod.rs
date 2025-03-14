@@ -87,10 +87,7 @@ pub fn render_template(
     let mut template_manager = TemplateManager::new(grammar);
 
     // Get the list of configured MCP servers
-    let mcp_servers = match crate::mcp::config::get_server_list() {
-        Ok(servers) => servers,
-        Err(_) => Vec::new(), // Empty list if there's an error
-    };
+    let mcp_servers = crate::mcp::config::get_server_list().unwrap_or_else(|_| Vec::new());
     
     // Load all templates to ensure partials are available
     match template_manager.load_all_templates() {

@@ -344,9 +344,35 @@ impl TemplateManager {
 
         // Register the iftool helper for tool-specific conditional content
         handlebars.register_helper("iftool", Box::new(IfToolHelper));
+        
+        // Register the available_kinds helper that lists all agent kinds
+        handlebars.register_helper("available_kinds", Box::new(AvailableKindsHelper));
 
         handlebars.register_escape_fn(|s| s.to_string());
 
         handlebars
+    }
+}
+
+/// Helper for listing available agent kinds
+struct AvailableKindsHelper;
+
+impl HelperDef for AvailableKindsHelper {
+    fn call<'reg: 'rc, 'rc>(
+        &self,
+        h: &Helper<'rc>,
+        _r: &'reg Handlebars<'reg>,
+        _ctx: &'rc Context,
+        _rc: &mut RenderContext<'reg, 'rc>,
+        out: &mut dyn Output,
+    ) -> HelperResult {
+        
+        // Get the kinds for the selected mode
+        let kinds_output = crate::prompts::get_kinds_for_mode(crate::config::get_app_mode());
+        
+        // Write the output
+        out.write(&kinds_output)?;
+        
+        Ok(())
     }
 }

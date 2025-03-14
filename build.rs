@@ -177,7 +177,8 @@ fn generate_encrypted_prompts_module(
 
     for kind in &sorted_kinds {
         if kind.starts_with("kind/plus/") {
-            plus_templates.push(kind.replace("kind/plus/", ""));
+            // Keep the 'plus/' prefix for plus templates
+            plus_templates.push(kind.replace("kind/plus/", "plus/"));
         } else if kind.starts_with("kind/") {
             standard_templates.push(kind.replace("kind/", ""));
         } else {
@@ -268,9 +269,76 @@ fn generate_encrypted_prompts_module(
             ]
         });
 
+        /// Standard agent kinds (available to all users)
+        pub static STANDARD_KINDS: LazyLock<Vec<String>> = LazyLock::new(|| {
+            AVAILABLE_KINDS_ARRAY.iter()
+                .filter(|k| !k.starts_with("plus/") && !k.starts_with("pro/"))
+                .cloned()
+                .collect()
+        });
+
+        /// Plus agent kinds (available to Plus and Pro users)
+        pub static PLUS_KINDS: LazyLock<Vec<String>> = LazyLock::new(|| {
+            AVAILABLE_KINDS_ARRAY.iter()
+                .filter(|k| k.starts_with("plus/"))
+                .cloned()  // Keep the plus/ prefix
+                .collect()
+        });
+
+        /// Pro agent kinds (available only to Pro users)
+        pub static PRO_KINDS: LazyLock<Vec<String>> = LazyLock::new(|| {
+            AVAILABLE_KINDS_ARRAY.iter()
+                .filter(|k| k.starts_with("pro/"))
+                .cloned()  // Keep the pro/ prefix
+                .collect()
+        });
+
         /// Get the list of available agent kinds
         pub fn get_available_kinds() -> String {
             obfstr::obfstring!(#kinds_content_lit)
+        }
+
+        /// Get the list of available agent kinds for the specified app mode
+        pub fn get_kinds_for_mode(mode: crate::config::AppMode) -> String {
+            // This is essentially returning the same formatted string as get_available_kinds,
+            // but filtering based on the app mode
+            
+            // The original kinds content is efficiently pre-formatted with descriptions
+            let full_listing = get_available_kinds();
+            
+            // Split into sections by newline
+            let sections: Vec<&str> = full_listing.split("\n\n").collect();
+            
+            let mut result = String::new();
+            
+            // Always include standard kinds (first section)
+            if sections.len() > 0 {
+                result.push_str(sections[0]);
+                result.push_str("\n");
+            }
+            
+            // Include Plus kinds for Plus and Pro modes (second section)
+            if sections.len() > 1 {
+                match mode {
+                    crate::config::AppMode::Plus | crate::config::AppMode::Pro => {
+                        result.push_str("\n");
+                        result.push_str(sections[1]);
+                        result.push_str("\n");
+                    },
+                    _ => {}
+                }
+            }
+            
+            // Include Pro kinds only for Pro mode (third section if it exists)
+            if sections.len() > 2 {
+                if let crate::config::AppMode::Pro = mode {
+                    result.push_str("\n");
+                    result.push_str(sections[2]);
+                    result.push_str("\n");
+                }
+            }
+            
+            result
         }
 
     };

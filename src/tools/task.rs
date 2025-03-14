@@ -1,26 +1,188 @@
-use crate::agent::types::InterruptSignal;
-use crate::agent::{AgentMessage, AgentState};
+//! Task tool implementation for creating and running subtasks
+
+use crate::agent::{AgentId, AgentManager, AgentMessage, AgentState};
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
-use crate::prompts::XmlGrammar;
+use crate::prompts;
 use crate::tools::ToolResult;
-use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
 
+// Import the global agent manager
+use crate::GLOBAL_AGENT_MANAGER;
+
+/// Execute the task tool - create and run a subtask with its own agent
 pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
-    // Parse the args string to extract task name and parameters using key=value syntax
+    // Parse arguments to extract task name, kind, and includes
+    let (task_name, kind_name, includes) = parse_task_arguments(args);
+    
+    // Validate task instructions
+    let task_instructions = body.trim();
+    if task_instructions.is_empty() {
+        let error_msg = "Error: Task requires instructions in the body".to_string();
+        if !silent_mode {
+            bprintln!(error:"{}", error_msg);
+        }
+        return ToolResult::error(error_msg);
+    }
+
+    // Log task start information
+    if !silent_mode {
+        let kind_info = if let Some(kind) = &kind_name {
+            format!("{}Using kind: {}{}\n", FORMAT_GRAY, kind, FORMAT_RESET)
+        } else {
+            String::new()
+        };
+
+        bprintln!(tool: "task",
+            "\n{}🔄 Subtask Started:{} {}\n{}{}{}{}{}",
+            FORMAT_BOLD,
+            FORMAT_RESET,
+            task_name,
+            kind_info,
+            FORMAT_GRAY,
+            task_instructions,
+            FORMAT_RESET,
+            if !includes.is_empty() {
+                format!("\n{}Including files: {}{}", FORMAT_GRAY, includes.join(", "), FORMAT_RESET)
+            } else {
+                String::new()
+            }
+        );
+    }
+
+    // Create config for the subtask agent
+    let mut config = Config::new();
+    
+    // Set up the system prompt based on the kind
+    let enabled_tools = prompts::ALL_TOOLS;
+    let grammar = prompts::select_grammar_for_model("claude-3"); // Default to Claude grammar
+    
+    // Generate the system prompt
+    if let Ok(system_prompt) = prompts::generate_system_prompt(
+        enabled_tools,
+        false,
+        kind_name.as_deref(),
+        grammar.clone(),
+    ) {
+        config.system_prompt = Some(system_prompt);
+    } else {
+        let error_msg = format!("Failed to generate system prompt for task agent");
+        if !silent_mode {
+            bprintln!(error:"{}", error_msg);
+        }
+        return ToolResult::error(error_msg);
+    }
+
+    // Set the kind parameter in the config
+    config.kind = kind_name;
+    
+    // Get access to the agent manager
+    let agent_manager = GLOBAL_AGENT_MANAGER.clone();
+    let subtask_agent_id;
+    
+    // Create the subtask agent
+    {
+        let mut manager = match agent_manager.lock() {
+            Ok(manager) => manager,
+            Err(e) => {
+                let error_msg = format!("Failed to acquire agent manager lock: {}", e);
+                if !silent_mode {
+                    bprintln!(error:"{}", error_msg);
+                }
+                return ToolResult::error(error_msg);
+            }
+        };
+        
+        // Create the agent with a unique name
+        let agent_name = format!("task_{}", task_name);
+        match manager.create_agent(agent_name, config) {
+            Ok(id) => {
+                subtask_agent_id = id;
+            },
+            Err(e) => {
+                let error_msg = format!("Failed to create task agent: {}", e);
+                if !silent_mode {
+                    bprintln!(error:"{}", error_msg);
+                }
+                return ToolResult::error(error_msg);
+            }
+        }
+    }
+
+    // Process file includes and combine with task instructions
+    let combined_instructions = if !includes.is_empty() {
+        let context_content = process_includes(&includes, silent_mode);
+        if !context_content.is_empty() {
+            // Combine file context with task instructions
+            format!(
+                "# File Context\n\n{}\n\n# Task Instructions\n\n{}",
+                context_content,
+                task_instructions
+            )
+        } else {
+            task_instructions.to_string()
+        }
+    } else {
+        task_instructions.to_string()
+    };
+
+    // Send the combined instructions (context + task) to the agent
+    {
+        let manager = agent_manager.lock().unwrap();
+        if let Err(e) = manager.send_message(
+            subtask_agent_id,
+            AgentMessage::UserInput(combined_instructions),
+        ) {
+            let error_msg = format!("Failed to send task to agent: {}", e);
+            if !silent_mode {
+                bprintln!(error:"{}", error_msg);
+            }
+            return ToolResult::error(error_msg);
+        }
+    }
+
+    // Wait for the agent to complete its task
+    let result = wait_for_agent_completion(agent_manager.clone(), subtask_agent_id, silent_mode).await;
+
+    // Log task completion
+    if !silent_mode {
+        bprintln!(tool: "task",
+            "\n{}✅ Subtask Completed:{} {}\n",
+            FORMAT_BOLD,
+            FORMAT_RESET,
+            task_name
+        );
+    }
+
+    // Return the result
+    ToolResult::success(result)
+}
+
+/// Parse task arguments to extract task name, kind, and includes
+fn parse_task_arguments(args: &str) -> (String, Option<String>, Vec<String>) {
     let args_string = args.trim().to_string();
     let mut kind_name = None;
-
-    // Split the args by spaces to check for parameters with key=value syntax
-    let parts: Vec<&str> = args_string.split_whitespace().collect();
+    let mut includes = Vec::new();
     let mut task_name_parts = Vec::new();
+
+    // Split the args by spaces to check for parameters
+    let parts: Vec<&str> = args_string.split_whitespace().collect();
 
     for part in parts {
         if part.starts_with("kind=") {
             // Extract kind parameter
             if let Some(value) = part.strip_prefix("kind=") {
                 kind_name = Some(value.to_string());
+            }
+        } else if part.starts_with("include=") {
+            // Extract include parameter
+            if let Some(value) = part.strip_prefix("include=") {
+                includes.push(value.to_string());
             }
         } else {
             // This is part of the task name
@@ -29,179 +191,198 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     }
 
     // Reconstruct the task name from non-parameter parts
-    let task_name = task_name_parts.join(" ");
+    let task_name = if task_name_parts.is_empty() {
+        "unnamed_task".to_string()
+    } else {
+        task_name_parts.join(" ")
+    };
 
-    let task_instructions = body.trim();
+    (task_name, kind_name, includes)
+}
 
-    if task_instructions.is_empty() {
-        let error_msg = "Error: Task requires instructions in the body".to_string();
+/// Process include files and return their contents
+fn process_includes(includes: &[String], silent_mode: bool) -> String {
+    let mut content = String::new();
+    
+    // Process each include file
+    for include_pattern in includes {
+        // Handle globbing
+        match glob::glob(include_pattern) {
+            Ok(paths) => {
+                let mut found = false;
+                
+                for entry in paths {
+                    match entry {
+                        Ok(path) => {
+                            found = true;
+                            match read_file(&path) {
+                                Ok(file_content) => {
+                                    let file_name = path.display();
+                                    // Add a clear file separator with markdown formatting
+                                    content.push_str(&format!("\n## File: {}\n```\n", file_name));
+                                    content.push_str(&file_content);
+                                    // Close the code block and add spacing between files
+                                    content.push_str("\n```\n\n");
+                                }
+                                Err(e) => {
+                                    if !silent_mode {
+                                        bprintln!(error:"Failed to read include file {}: {}", path.display(), e);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if !silent_mode {
+                                bprintln!(error:"Invalid path in glob pattern: {}", e);
+                            }
+                        }
+                    }
+                }
+                
+                if !found && !silent_mode {
+                    bprintln!(error:"No files found matching pattern: {}", include_pattern);
+                }
+            }
+            Err(e) => {
+                if !silent_mode {
+                    bprintln!(error:"Invalid glob pattern '{}': {}", include_pattern, e);
+                }
+            }
+        }
+    }
+    
+    content
+}
 
+/// Read a file and return its contents
+fn read_file<P: AsRef<Path>>(path: P) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+    Ok(content)
+}
+
+/// Wait for agent to complete its task and return the final result
+async fn wait_for_agent_completion(
+    agent_manager: Arc<Mutex<AgentManager>>, 
+    agent_id: AgentId,
+    silent_mode: bool
+) -> String {
+    let timeout = Duration::from_secs(300); // 5 minute timeout
+    let start_time = Instant::now();
+    let mut last_polling_time = Instant::now();
+    let polling_interval = Duration::from_millis(500);
+    
+    let mut result = String::new();
+    let mut done = false;
+    
+    // Keep checking the agent state until it's done or timeout
+    while !done && start_time.elapsed() < timeout {
+        // Only poll at the specified interval
+        if last_polling_time.elapsed() >= polling_interval {
+            last_polling_time = Instant::now();
+            
+            // Get the agent state
+            let state = {
+                let manager = agent_manager.lock().unwrap();
+                manager.get_agent_state(agent_id).ok()
+            };
+            
+            match state {
+                // Agent is done, get the result
+                Some(AgentState::Done(response)) => {
+                    // Extract the final response
+                    if let Some(content) = response {
+                        result = content;
+                    } else {
+                        // If no explicit done response, get the buffer content
+                        let buffer_content = extract_final_output(agent_manager.clone(), agent_id);
+                        result = buffer_content;
+                    }
+                    
+                    done = true;
+                }
+                
+                // Agent is terminated, consider as done
+                Some(AgentState::Terminated) => {
+                    if !silent_mode {
+                        bprintln!(warn: "Task agent was terminated before completion");
+                    }
+                    result = "Task was terminated before completion".to_string();
+                    done = true;
+                }
+                
+                // Other states - keep waiting
+                _ => {}
+            }
+        }
+        
+        // Small sleep to avoid tight loop
+        sleep(Duration::from_millis(50)).await;
+    }
+    
+    // If we reached timeout
+    if !done {
         if !silent_mode {
-            // Use buffer instead of println
-            bprintln !(error:"{}", error_msg);
+            bprintln!(warn: "Task timed out after {} seconds", timeout.as_secs());
         }
-
-        return ToolResult::error(error_msg);
+        result = format!("Task timed out after {} seconds", timeout.as_secs());
+        
+        // Terminate the agent
+        let mut manager = agent_manager.lock().unwrap();
+        // Simply ignore errors on termination attempt - we're timing out anyway
+        let _ = manager.terminate_agent(agent_id); // Cannot await here - just fire and forget
     }
+    
+    result
+}
 
-    // Print task information and kind if specified
-    if !silent_mode {
-        if let Some(kind) = &kind_name {
-            // With kind info
-            bprintln !(tool: "task",
-                "\n{}🔄 Subtask Started:{} {}\n{}Using kind: {}{}\n{}{}{}\n",
-                FORMAT_BOLD,
-                FORMAT_RESET,
-                task_name,
-                FORMAT_GRAY,
-                kind,
-                FORMAT_RESET,
-                FORMAT_GRAY,
-                task_instructions,
-                FORMAT_RESET
-            );
-        } else {
-            // Without kind info
-            bprintln !(tool: "task",
-                "\n{}🔄 Subtask Started:{} {}\n{}{}{}\n",
-                FORMAT_BOLD,
-                FORMAT_RESET,
-                task_name,
-                FORMAT_GRAY,
-                task_instructions,
-                FORMAT_RESET
-            );
+/// Extract the final output from the agent's buffer
+fn extract_final_output(agent_manager: Arc<Mutex<AgentManager>>, agent_id: AgentId) -> String {
+    let manager = agent_manager.lock().unwrap();
+    
+    if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
+        let lines = buffer.lines();
+        
+        // Simple approach: collect all meaningful content after the last user message
+        // Find the last user message
+        let mut last_user_idx = 0;
+        for (i, line) in lines.iter().enumerate() {
+            if line.content.starts_with(">") {
+                last_user_idx = i;
+            }
         }
+        
+        // Take everything after the last user message, filtering out just system messages and tool invocations
+        let full_response = lines.iter()
+            .skip(last_user_idx + 1)
+            .filter(|line| {
+                // Only filter out system messages (starting with 🤖)
+                // We want to keep most content, including tool results
+                !line.content.starts_with("🤖") && 
+                !line.content.contains("Token usage:") &&
+                !line.content.trim().is_empty()
+            })
+            .map(|line| line.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        if !full_response.is_empty() {
+            return full_response;
+        }
+        
+        // If somehow we got nothing, take a simpler approach - just get the last chunk of content
+        return lines.iter()
+            .rev()
+            .take(20) // Take more lines to ensure we get substantial content
+            .filter(|line| !line.content.starts_with("🤖"))
+            .map(|line| line.content.clone())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
     }
-
-    // Create a configuration for the subtask
-    let mut config = Config::new();
-
-    // Create message channels for communicating with the agent
-    let (_sender, _receiver) = mpsc::channel::<AgentMessage>(100);
-    // Create dedicated interrupt channel
-    let (_interrupt_sender, _interrupt_receiver) = mpsc::channel::<InterruptSignal>(10);
-    let (_state_sender, _state_receiver) = watch::channel(AgentState::Idle);
-
-    // Create a tool executor that's silent depending on the parent's silent mode
-    // and set the system prompt
-    // Use all available tools for task agents
-    let enabled_tools = crate::prompts::ALL_TOOLS;
-
-    // Generate the system prompt using the template system
-    // Use kind parameter if provided, otherwise use default template
-    let system_prompt = crate::prompts::generate_system_prompt(
-        enabled_tools,
-        false,
-        kind_name.as_deref(), // Pass the kind name as template_name if provided
-        Arc::new(XmlGrammar),
-    );
-    config.system_prompt = Some(system_prompt.expect("Failed to generate system prompt"));
-
-    // Set the kind parameter in the config
-    config.kind = kind_name;
-
-    // For now, just return a message saying the task functionality is under development
-    if !silent_mode {
-        bprintln !(tool: "task",
-            "Task functionality is currently under development"
-        );
-    }
-
-    ToolResult::success(
-        "Task functionality is currently under development. This is a stub implementation."
-            .to_string(),
-    )
-    //
-    // // Create the agent
-    // let mut agent = match Agent::new(task_id, format!("task_{}", task_name), config, state_sender) {
-    //     Ok(agent) => agent,
-    //     Err(e) => {
-    //         let error_msg = format!("Failed to create agent for task: {}", e);
-    //         if !silent_mode {
-    //             bprintln !(error:"{}", error_msg);
-    //         }
-    //         return ToolResult::error(error_msg);
-    //     }
-    // };
-    //
-    // // Create a simple implementation that just adds the message to conversation
-    // // This avoids potential recursion with send_message
-    // // Add user message to conversation history
-    // agent.conversation.push(crate::llm::Message::text(
-    //     "user",
-    //     task_instructions.to_string(),
-    //     crate::llm::MessageInfo::User,
-    // ));
-    //
-    // // Send the request using our LLM provider directly
-    // let system_prompt = agent.config.system_prompt.as_deref();
-    // let thinking_budget = Some(agent.config.thinking_budget);
-    //
-    // let response = match agent.llm.send_message(
-    //     &agent.conversation,
-    //     system_prompt,
-    //     agent.stop_sequences.as_deref(),
-    //     thinking_budget,
-    //     None, // No cache points for tasks
-    //     None, // Use default max_tokens
-    // ).await {
-    //     Ok(res) => res,
-    //     Err(e) => {
-    //         let error_msg = format!("Error executing task: {}", e);
-    //         if !silent_mode {
-    //             bprintln !(error:"{}", error_msg);
-    //         }
-    //         return ToolResult::error(error_msg);
-    //     }
-    // };
-    //
-    // // Extract content from response
-    // let mut assistant_response = String::new();
-    // for content in &response.content {
-    //     if let crate::llm::Content::Text { text } = content {
-    //         assistant_response.push_str(text);
-    //     }
-    // }
-    //
-    // // Add the assistant's response to conversation
-    // agent.conversation.push(crate::llm::Message::text(
-    //     "assistant",
-    //     assistant_response.clone(),
-    //     crate::llm::MessageInfo::Assistant,
-    // ));
-    //
-    // // Get all conversation messages
-    // let conversation = agent.conversation.clone();
-    //
-    // // Collect all assistant responses
-    // let mut result = String::new();
-    // for message in conversation {
-    //     if message.role == "assistant" {
-    //         // Skip tool calls and just get the text content
-    //         if !matches!(message.info, MessageInfo::ToolCall { .. }) {
-    //             if let Content::Text { text } = &message.content {
-    //                 result.push_str(text);
-    //                 result.push_str("\n\n");
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // // If we have no result, use the assistant response directly
-    // if result.is_empty() {
-    //     result = assistant_response;
-    // }
-    //
-    // // Print completion message if not in silent mode
-    // if !silent_mode {
-    //     bprintln !(tool: "task",
-    //         "\n{}✅ Subtask Completed:{} {}\n",
-    //         FORMAT_BOLD,
-    //         FORMAT_RESET,
-    //         task_name
-    //     );
-    // }
-    //
-    // ToolResult::success(result)
+    
+    "Unable to retrieve agent output".to_string()
 }
