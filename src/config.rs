@@ -24,6 +24,7 @@ pub fn set_app_mode(mode: AppMode) {
 
 /// Application mode/tier that determines available features
 #[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum AppMode {
     /// Free mode - limited features
     Free,

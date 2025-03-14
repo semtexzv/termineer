@@ -166,10 +166,22 @@ This domain is for use in illustrative examples in documents.
 {{/done}}
 
 When to use:
-- Retrieve documentation from external sources
-- Get information from public APIs
-- Access web content (HTML is automatically converted to readable text)
-- Incorporate external reference material into your work
+- **CRUCIAL FOR RESEARCH**: Directly access official documentation, specifications, and guides
+- Retrieve complete documentation pages when you need comprehensive details
+- Get information from public APIs, GitHub repositories, and developer resources
+- Access README files, usage guides, and API documentation
+- Study code examples, tutorials, and implementation patterns from authoritative sources
+- Examine error code references, troubleshooting guides, and FAQs
+- Incorporate external reference material into your analysis and solutions
+- Follow up on promising URLs discovered via search to get full content
+- Access community wikis, official forums, and project documentation
+
+Effective fetch workflow:
+1. First use search to find relevant resources
+2. Identify the most authoritative or helpful URLs from search results
+3. Use fetch to retrieve complete content from those URLs
+4. Extract key information, patterns, and solutions from the fetched content
+5. Apply the knowledge to the specific problem you're solving
 
 {{/iftool}}
 
@@ -202,11 +214,157 @@ Total search time: 418.43ms
 {{/done}}
 
 When to use:
-- Research technical topics and documentation
-- Find information about libraries, frameworks, or tools
-- Gather reference material for programming tasks
-- Discover solutions to technical problems
-- Access up-to-date information from the web
+- **ESSENTIAL FIRST STEP**: Begin most tasks by searching for relevant documentation, tutorials and best practices
+- Research technical topics, libraries, frameworks, and programming concepts
+- Find official documentation, API references, and language specifications
+- Explore common patterns, architectures, and implementation approaches
+- Discover solutions to error messages, bugs, and implementation challenges
+- Research compatibility issues, version differences, and migration guides
+- Investigate security best practices and potential vulnerabilities
+- Find community discussions about pros/cons of different approaches
+- Stay updated with latest developments and recommended practices
+
+Search query tips:
+- Be specific: "react useEffect dependency array" is better than "react hooks"
+- Add context: "python argparse subcommands example" vs just "argparse"
+- Include error messages: search for specific error text for faster solutions 
+- Try multiple variations: "nodejs stream backpressure", "handling backpressure in nodejs"
+{{/iftool}}
+
+{{#iftool "screenshot"}}
+### Screenshot
+Capture a screenshot of the current screen or a specific window:
+{{#tool "screenshot"}}[command] [identifier]{{/tool}}
+
+Commands:
+- No arguments - Captures full screen across all displays (default)
+- `window [ID]` - Captures a specific window by ID (use `screendump` to get IDs)
+- `window [Title]` - Captures a specific window by title match
+
+Examples:
+
+Full screen capture (default behavior):
+{{#tool "screenshot"}}{{/tool}}
+
+{{#done "screenshot" 0}}
+[Full screen image content will appear here]
+{{/done}}
+
+Capture a specific window by ID:
+{{#tool "screenshot"}}window Safari:1{{/tool}}
+
+{{#done "screenshot" 0}}
+[Safari window image content will appear here]
+{{/done}}
+
+Capture a window by title match:
+{{#tool "screenshot"}}window Downloads{{/tool}}
+
+{{#done "screenshot" 0}}
+[Downloads window image content will appear here]
+{{/done}}
+
+When to use:
+- Full screen: Analyze the entire desktop environment across all displays
+- Window capture: Focus on specific applications or UI elements
+- Analyze visual elements using Claude's computer vision capabilities
+- Get visual feedback about the state of applications
+- Assist with troubleshooting UI issues
+- Allow Claude to see and interpret UI elements
+- Document the current state of applications
+
+How it works:
+- Full screen mode captures all displays and combines them into a single image
+- Window mode uses accessibility APIs to find and capture specific windows
+- Works with the `screendump` tool which provides window IDs and structural information
+- Uses the same window identification system as `screendump` (App:Index format)
+- Images are automatically resized if needed to fit Claude's requirements
+- Screenshots are encoded as base64 JPEG images and sent directly to Claude
+
+For best results:
+1. Use `screendump` (without arguments) to list available windows with their IDs
+2. Use `screenshot window [ID]` to capture a specific window
+3. Use `screendump window [ID]` to get the UI structure of the same window
+{{/iftool}}
+
+{{#iftool "screendump"}}
+### Screendump
+Capture the current UI structure as text using accessibility APIs:
+{{#tool "screendump"}}[command] [identifier]{{/tool}}
+
+Commands:
+- No arguments - Lists all available windows with IDs (default)
+- `fullscreen` - Captures all visible applications and windows
+- `window [ID]` - Captures a specific window by ID
+- `window [Title]` - Captures a specific window by title
+
+Examples:
+
+List all windows (default behavior):
+{{#tool "screendump"}}{{/tool}}
+
+{{#done "screendump" 0}}
+Available Windows:
+[Terminal:1] Terminal: termineer — -zsh — 80×24
+[Safari:1] Safari: Claude AI - Safari
+[Finder:1] Finder: Downloads
+[VSCode:1] VSCode: screendump.rs
+
+Use 'screendump window [ID]' or 'screendump window [Window Title]' to view details for a specific window.
+{{/done}}
+
+Capture details for a specific window using ID:
+{{#tool "screendump"}}window Safari:1{{/tool}}
+
+{{#done "screendump" 0}}
+Window Details for 'Safari:1':
+Application: Safari
+Window: Claude AI - Safari
+Position: 240, 150
+Size: 1024×768
+
+UI Elements:
+  Element:
+    Type: AXButton
+    Description: Back
+  Element:
+    Type: AXTextField
+    Value: https://claude.ai
+{{/done}}
+
+Capture details using window title:
+{{#tool "screendump"}}window Downloads{{/tool}}
+
+{{#done "screendump" 0}}
+Window Details for 'Downloads':
+Application: Finder
+Window: Downloads
+Position: 100, 100
+Size: 800×600
+
+UI Elements:
+  Element:
+    Type: AXList
+    Description: File list
+{{/done}}
+
+When to use:
+- List all accessible windows on the system
+- Analyze the structure of specific application interfaces
+- Extract information about UI elements and their properties
+- Understand window layouts and hierarchies
+- Identify accessibility information about windows and applications
+- Get details about controls, buttons, and other interface elements
+- Find specific UI elements for automation or analysis
+- Compare UI structure across different applications
+
+How it works:
+- Uses platform-specific accessibility APIs to query UI structure
+- On macOS, uses AppleScript with System Events to access UI elements
+- Returns structured hierarchical data about windows and UI elements
+- Provides details like element roles, properties, values, and relationships
+- Complements the screenshot tool by providing structural information rather than visual representation
+- Uses a consistent window identification system via App:Index IDs
 {{/iftool}}
 
 {{#iftool "mcp"}}

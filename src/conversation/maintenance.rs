@@ -8,7 +8,7 @@
 //! - Improve LLM processing by ensuring clean, meaningful conversation structure
 //! - Prevent errors from malformed message content
 
-use crate::llm::{Content, Message};
+use crate::llm::{Content, ImageSource, Message};
 
 /// Check if message content is empty or lacks meaningful content
 ///
@@ -31,7 +31,9 @@ pub fn is_empty_content(content: &Content) -> bool {
         Content::RedactedThinking { data } => data.as_ref().map_or(true, |d| d.trim().is_empty()),
 
         // Image without source
-        Content::Image { source } => source.trim().is_empty(),
+        Content::Image { source } => match source {
+            ImageSource::Base64 { data, .. } => data.trim().is_empty(),
+        },
 
         // Document without source
         Content::Document { source } => source.trim().is_empty(),

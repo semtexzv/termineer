@@ -11,4 +11,15 @@
 # Bugs:
 - Wrapping logic is not correct in the input box, multiline text the cursor is one character behind per line
 - Tools template needs to specify that write tool will overwrite entire file contents
-- --help doesnt show list-tools.
+
+# Modify truncation
+We're not saving enough tokens by simple tool output truncation, truncate tool invocations as well, replace them by simple
+assistant message that says what was performed (Eg, I edited this file. I printend this file contents).
+
+# Asynchronous shell.
+Allow running commands asynchronously, their new output being periodically injected into the conversation. Agent
+should be able to start a shell, then would receive the output periodically, and then can kill the shell.
+ Would allow us testing the application itself better.
+
+# Read tool does not colorize output correctly
+Make sure all lines are grayed, not just first.

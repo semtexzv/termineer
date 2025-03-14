@@ -264,7 +264,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
     // Set a default search engine ID - using a programmable search engine for general web search
     // This is the publicly available search engine ID that works with Google API keys
     lazy_static! {
-        static ref SEARCH_ENGINE_ID: String = obfstr::obfstring!("77f98042a073d4c0e").to_string();
+        static ref SEARCH_ENGINE_ID: String = obfstr::obfstring!("77f98042a073d4c0e");
     }
 
     // Check if a search query is provided

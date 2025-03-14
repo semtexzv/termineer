@@ -111,6 +111,15 @@ impl Message {
     }
 }
 
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ImageSource {
+    Base64 {
+        media_type: String,
+        data: String,
+    },
+}
 /// Content of a message
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -133,7 +142,7 @@ pub enum Content {
     Text { text: String },
 
     /// Image content
-    Image { source: String },
+    Image { source: ImageSource },
 
     /// Document content
     Document { source: String },

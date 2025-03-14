@@ -1,5 +1,6 @@
 //! Content types for MCP protocol messages
 
+use crate::llm::ImageSource;
 use serde::{Deserialize, Serialize};
 
 /// Base trait for MCP content types
@@ -75,7 +76,10 @@ impl McpContent for ImageContent {
         // Convert to our internal image format
         // Currently we just store the source which should be a data URI
         crate::llm::Content::Image {
-            source: format!("data:{};base64,{}", self.mime_type, self.data),
+            source: ImageSource::Base64 {
+                data: self.data.clone(),
+                media_type: self.mime_type.clone(),
+            },
         }
     }
 }
@@ -146,7 +150,10 @@ impl McpContent for EmbeddedResource {
                     .unwrap_or_else(|| "application/octet-stream".to_string());
                 if mime_type.starts_with("image/") {
                     crate::llm::Content::Image {
-                        source: format!("data:{};base64,{}", mime_type, blob.blob),
+                        source: ImageSource::Base64 {
+                            media_type: mime_type,
+                            data: blob.blob.clone(),
+                        },
                     }
                 } else {
                     crate::llm::Content::Document {

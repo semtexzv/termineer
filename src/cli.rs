@@ -31,7 +31,7 @@ pub struct Cli {
     pub no_tools: bool,
 
     /// The thinking budget in tokens
-    #[arg(long, default_value_t = 16384)]
+    #[arg(long, default_value_t = 8192)]
     pub thinking_budget: usize,
 
     /// Use minimal prompt

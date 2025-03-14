@@ -5,6 +5,8 @@ pub mod mcp;
 pub mod patch;
 pub mod path_utils;
 pub mod read;
+pub mod screendump;
+pub mod screenshot;
 pub mod search;
 pub mod shell;
 pub mod task;
@@ -18,6 +20,8 @@ pub use fetch::execute_fetch;
 pub use mcp::execute_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
+pub use screendump::execute_screendump;
+pub use screenshot::execute_screenshot;
 pub use search::execute_search;
 pub use shell::InterruptData;
 pub use task::execute_task;
@@ -57,11 +61,11 @@ impl Default for AgentStateChange {
 impl ToolResult {
     /// Create a successful tool result that continues processing
     #[allow(dead_code)]
-    pub fn success(output: String) -> Self {
+    pub fn success(output: impl Into<String>) -> Self {
         Self {
             success: true,
             state_change: AgentStateChange::Continue,
-            content: vec![crate::llm::Content::Text { text: output }],
+            content: vec![crate::llm::Content::Text { text: output.into() }],
         }
     }
 
@@ -97,16 +101,16 @@ impl ToolResult {
     }
 
     /// Create an error tool result
-    pub fn error(message: String) -> Self {
+    pub fn error(message: impl Into<String>) -> Self {
         Self {
             success: false,
             state_change: AgentStateChange::Continue,
-            content: vec![crate::llm::Content::Text { text: message }],
+            content: vec![crate::llm::Content::Text { text: message.into() }],
         }
     }
 
     /// Create a tool result that puts the agent in waiting state
-    pub fn wait(_reason: String) -> Self {
+    pub fn wait(_reason: impl Into<String>) -> Self {
         Self {
             success: true,
             state_change: AgentStateChange::Wait,
@@ -117,11 +121,12 @@ impl ToolResult {
     }
 
     /// Create a tool result that marks the agent as done
-    pub fn done(summary: String) -> Self {
+    pub fn done(summary: impl Into<String>) -> Self {
+        let summary_string = summary.into();
         Self {
             success: true,
             state_change: AgentStateChange::Done,
-            content: vec![crate::llm::Content::Text { text: summary }],
+            content: vec![crate::llm::Content::Text { text: summary_string }],
         }
     }
 
@@ -180,9 +185,7 @@ impl ToolExecutor {
     pub fn is_silent(&self) -> bool {
         self.silent_mode
     }
-
-    // Method removed as it's not implemented and not used
-
+    
     /// Execute a tool based on name, args, and body provided by the LLM
     pub async fn execute_with_parts(&self, tool_name: &str, args: &str, body: &str) -> ToolResult {
         // Using pre-parsed components directly
@@ -208,9 +211,11 @@ impl ToolExecutor {
             "patch" => execute_patch(args, body, self.silent_mode).await,
             "fetch" => execute_fetch(args, body, self.silent_mode).await,
             "search" => execute_search(args, body, self.silent_mode).await,
+            "screenshot" => execute_screenshot(args, body, self.silent_mode).await,
             "mcp" => execute_mcp_tool(args, body, self.silent_mode).await,
             "done" => execute_done(args, body, self.silent_mode),
             "task" => execute_task(args, body, self.silent_mode).await,
+            "screendump" => execute_screendump(args, body, self.silent_mode).await,
             "wait" => execute_wait(args, body, self.silent_mode),
             _ => {
                 if !self.silent_mode {
@@ -268,7 +273,18 @@ impl ToolExecutor {
     fn is_readonly_tool(&self, name: &str) -> bool {
         matches!(
             name,
-            "read" | "shell" | "fetch" | "search" | "mcp" | "done" | "task" | "agent" | "wait"
+            "read"
+                | "shell"
+                | "fetch"
+                | "search"
+                | "screenshot"
+                | "screendump"
+                | "mcp"
+                | "done"
+                | "task"
+                | "agent"
+                | "wait"
+                | "computer"
         )
     }
 }

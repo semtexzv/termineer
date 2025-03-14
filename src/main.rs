@@ -26,6 +26,7 @@ mod tui;
 
 use clap::Parser;
 use lazy_static::lazy_static;
+use std::env;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
