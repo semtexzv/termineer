@@ -237,17 +237,25 @@ Capture a screenshot of the current screen or a specific window:
 {{#tool "screenshot"}}[command] [identifier]{{/tool}}
 
 Commands:
-- No arguments - Captures full screen across all displays (default)
+- No arguments - Captures all displays as separate images (default)
+- `screen [index]` - Captures a specific screen by index number (0-based)
 - `window [ID]` - Captures a specific window by ID (use `screendump` to get IDs)
 - `window [Title]` - Captures a specific window by title match
 
 Examples:
 
-Full screen capture (default behavior):
+Capture all screens as separate images (default behavior):
 {{#tool "screenshot"}}{{/tool}}
 
 {{#done "screenshot" 0}}
-[Full screen image content will appear here]
+[Multiple screen images will appear here]
+{{/done}}
+
+Capture a specific screen by index:
+{{#tool "screenshot"}}screen 0{{/tool}}
+
+{{#done "screenshot" 0}}
+[Primary screen image will appear here]
 {{/done}}
 
 Capture a specific window by ID:
@@ -265,7 +273,8 @@ Capture a window by title match:
 {{/done}}
 
 When to use:
-- Full screen: Analyze the entire desktop environment across all displays
+- Multi-screen capture: Analyze all displays separately
+- Single screen capture: Focus on a specific monitor
 - Window capture: Focus on specific applications or UI elements
 - Analyze visual elements using Claude's computer vision capabilities
 - Get visual feedback about the state of applications
@@ -274,7 +283,8 @@ When to use:
 - Document the current state of applications
 
 How it works:
-- Full screen mode captures all displays and combines them into a single image
+- Default mode captures all displays as separate images
+- Screen index mode captures a specific screen by number
 - Window mode uses accessibility APIs to find and capture specific windows
 - Works with the `screendump` tool which provides window IDs and structural information
 - Uses the same window identification system as `screendump` (App:Index format)
