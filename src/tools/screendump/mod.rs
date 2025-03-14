@@ -5,7 +5,6 @@
 
 use crate::tools::ToolResult;
 use std::env;
-use std::collections::HashMap;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -77,12 +76,25 @@ fn parse_command(args: &str) -> ScreendumpCommand {
 }
 
 /// Public function to get a window's rectangle by ID
+/// 
+/// Returns a tuple of (app_name, window_title, x, y, width, height) where:
+/// - On macOS: Coordinates use a bottom-left origin system (0,0 at bottom-left)
+/// - On Windows: Coordinates use a top-left origin system (0,0 at top-left) [not implemented yet]
+/// - On Linux: Coordinates use a top-left origin system (0,0 at top-left) [not implemented yet]
 pub fn get_window_rect(window_id: &str) -> Result<(String, String, i32, i32, i32, i32), String> {
     let platform = env::consts::OS;
+    crate::bprintln!(dev: "🖥️ SCREENDUMP: Getting window rectangle on {} platform for '{}'", platform, window_id);
 
     match platform {
-        "macos" => macos::get_macos_window_rect(window_id),
-        _ => Err(format!("Window rect retrieval not implemented for {} platform", platform))
+        "macos" => {
+            crate::bprintln!(dev: "🖥️ SCREENDUMP: Using macOS coordinate system (0,0 at bottom-left)");
+            macos::get_macos_window_rect(window_id)
+        },
+        _ => {
+            let error = format!("Window rect retrieval not implemented for {} platform", platform);
+            crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
+            Err(error)
+        }
     }
 }
 

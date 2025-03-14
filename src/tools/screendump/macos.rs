@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use std::collections::HashMap;
 use objc::{class, msg_send, sel, sel_impl};
 use std::ffi::CStr;
@@ -229,9 +231,20 @@ fn get_window_position(window: &AXUIElement) -> Result<(i32, i32), String> {
     match window.position() {
         Ok(point) => {
             let point = point.get_value::<CGPoint>().unwrap();
+            // Log detailed coordinate information
+            crate::bprintln!(
+                dev: "🖥️ SCREENDUMP: Window position: ({}, {}) - macOS uses bottom-left origin coordinate system", 
+                point.x as i32, 
+                point.y as i32
+            );
+            
             Ok((point.x as i32, point.y as i32))
         },
-        Err(e) => Err(format!("Failed to get window position: {}", e))
+        Err(e) => {
+            let error = format!("Failed to get window position: {}", e);
+            crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
+            Err(error)
+        }
     }
 }
 
@@ -241,9 +254,21 @@ fn get_window_size(window: &AXUIElement) -> Result<(i32, i32), String> {
     match window.size() {
         Ok(size) => {
             let size = size.get_value::<CGSize>().unwrap();
+            
+            // Log window size information
+            crate::bprintln!(
+                dev: "🖥️ SCREENDUMP: Window size: width={}, height={}", 
+                size.width as i32, 
+                size.height as i32
+            );
+            
             Ok((size.width as i32, size.height as i32))
         },
-        Err(e) => Err(format!("Failed to get window size: {}", e))
+        Err(e) => {
+            let error = format!("Failed to get window size: {}", e);
+            crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
+            Err(error)
+        }
     }
 }
 
@@ -275,6 +300,8 @@ fn find_window_by_title(title: &str) -> Result<Option<MacOSWindow>, String> {
 
 
 fn get_window_details(window: &MacOSWindow) -> Result<String, String> {
+    crate::bprintln!(dev: "🖥️ SCREENDUMP: Getting window details for '{}' ({})", window.window_title, window.app_name);
+
     let mut result = String::new();
 
     // Basic window info
@@ -287,36 +314,105 @@ fn get_window_details(window: &MacOSWindow) -> Result<String, String> {
     result.push_str("\nUI Elements:\n");
 
     // Get children elements using the children() method
+    crate::bprintln!(dev: "🖥️ SCREENDUMP: Fetching UI elements for window");
     match window.element.children() {
         Ok(children) => {
             if children.is_empty() {
+                crate::bprintln!(dev: "🖥️ SCREENDUMP: No UI elements found in window");
                 result.push_str("  No UI elements found\n");
             } else {
-                for child in children.into_iter() {
+                crate::bprintln!(dev: "🖥️ SCREENDUMP: Found {} UI elements", children.len());
+                // Process elements with recursive exploration
+                let mut element_index = 0;
+                for child in &children {
+                    element_index += 1;
+                    crate::bprintln!(dev: "🖥️ SCREENDUMP: Processing element {}", element_index);
                     result.push_str("  Element:\n");
 
                     // Get role using the role() method
                     if let Ok(role) = child.role() {
-                        result.push_str(&format!("    Type: {}\n", role.to_string()));
+                        let role_str = role.to_string();
+                        crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Type: {}", role_str);
+                        result.push_str(&format!("    Type: {}\n", role_str));
                     }
 
                     // Get description using the description() method
                     if let Ok(desc) = child.description() {
                         let desc_str = desc.to_string();
                         if !desc_str.is_empty() {
+                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Description: {}", desc_str);
                             result.push_str(&format!("    Description: {}\n", desc_str));
                         }
                     }
 
                     // Get value using the value() method
                     if let Ok(value) = child.value() {
+                        crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Value: {:?}", value);
                         result.push_str(&format!("    Value: {:?}\n", value));
+                    }
+
+                    // Try to get position of element if available
+                    if let Ok(position) = child.position() {
+                        if let Some(point) = position.get_value::<CGPoint>().ok() {
+                            let x = point.x as i32;
+                            let y = point.y as i32;
+                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Position: ({}, {})", x, y);
+                            result.push_str(&format!("    Position: ({}, {})\n", x, y));
+                        }
+                    }
+
+                    // Try to get size of element if available
+                    if let Ok(size) = child.size() {
+                        if let Some(sz) = size.get_value::<CGSize>().ok() {
+                            let width = sz.width as i32;
+                            let height = sz.height as i32;
+                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Size: {}×{}", width, height);
+                            result.push_str(&format!("    Size: {}×{}\n", width, height));
+                        }
+                    }
+                    
+                    // Try to get child elements (one level deep)
+                    if let Ok(sub_children) = child.children() {
+                        if !sub_children.is_empty() {
+                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Found {} child elements", sub_children.len());
+                            result.push_str(&format!("    Child Elements: {}\n", sub_children.len()));
+                            
+                            for (subindex, subchild) in sub_children.iter().enumerate().take(5) {
+                                let mut subinfo = String::new();
+                                
+                                if let Ok(role) = subchild.role() {
+                                    subinfo.push_str(&format!("{}", role.to_string()));
+                                }
+                                
+                                if let Ok(desc) = subchild.description() {
+                                    let desc_str = desc.to_string();
+                                    if !desc_str.is_empty() {
+                                        if !subinfo.is_empty() {
+                                            subinfo.push_str(" - ");
+                                        }
+                                        subinfo.push_str(&desc_str);
+                                    }
+                                }
+                                
+                                if subinfo.is_empty() {
+                                    subinfo = "Unknown".to_string();
+                                }
+                                
+                                crate::bprintln!(dev: "🖥️ SCREENDUMP:     + Child {}: {}", subindex + 1, subinfo);
+                                result.push_str(&format!("      Child {}: {}\n", subindex + 1, subinfo));
+                            }
+                            
+                            if sub_children.len() > 5 {
+                                result.push_str(&format!("      ... and {} more children\n", sub_children.len() - 5));
+                            }
+                        }
                     }
                 }
             }
         },
-        Err(_) => {
-            result.push_str("  Failed to get UI elements\n");
+        Err(e) => {
+            crate::bprintln!(error: "🖥️ SCREENDUMP: Failed to get UI elements: {}", e);
+            result.push_str(&format!("  Failed to get UI elements: {}\n", e));
         }
     }
 
@@ -355,15 +451,30 @@ fn get_full_screen_hierarchy() -> Result<String, String> {
 }
 
 pub fn get_macos_window_rect(window_id: &str) -> Result<(String, String, i32, i32, i32, i32), String> {
+    crate::bprintln!(dev: "🖥️ SCREENDUMP: Getting window rect for '{}'", window_id);
+    
     let parts: Vec<&str> = window_id.split(':').collect();
 
     if parts.len() == 2 && parts[1].parse::<usize>().is_ok() {
         // Handle ID of form "AppName:Index"
         let app_name = parts[0];
         let window_index = parts[1].parse::<usize>().unwrap();
-
+        
+        crate::bprintln!(dev: "🖥️ SCREENDUMP: Looking up window by app='{}', index={}", app_name, window_index);
+        
         match get_window_by_app_and_index(app_name, window_index)? {
             Some(window) => {
+                // Log detailed coordinate info
+                crate::bprintln!(
+                    dev: "🖥️ SCREENDUMP: Found window '{}' ({}): Position=({},{}) Size={}×{} - macOS coordinate system with (0,0) at bottom-left", 
+                    window.window_title, 
+                    window.app_name,
+                    window.position.0, 
+                    window.position.1,
+                    window.size.0,
+                    window.size.1
+                );
+                
                 Ok((
                     window.app_name,
                     window.window_title,
@@ -373,12 +484,29 @@ pub fn get_macos_window_rect(window_id: &str) -> Result<(String, String, i32, i3
                     window.size.1
                 ))
             },
-            None => Err(format!("Window with ID '{}' not found", window_id))
+            None => {
+                let error = format!("Window with ID '{}' not found", window_id);
+                crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
+                Err(error)
+            }
         }
     } else {
         // Search by window title
+        crate::bprintln!(dev: "🖥️ SCREENDUMP: Looking up window by title match '{}'", window_id);
+        
         match find_window_by_title(window_id)? {
             Some(window) => {
+                // Log detailed coordinate info
+                crate::bprintln!(
+                    dev: "🖥️ SCREENDUMP: Found window '{}' ({}): Position=({},{}) Size={}×{} - macOS coordinate system with (0,0) at bottom-left", 
+                    window.window_title, 
+                    window.app_name,
+                    window.position.0, 
+                    window.position.1,
+                    window.size.0,
+                    window.size.1
+                );
+                
                 Ok((
                     window.app_name,
                     window.window_title,
@@ -388,7 +516,11 @@ pub fn get_macos_window_rect(window_id: &str) -> Result<(String, String, i32, i3
                     window.size.1
                 ))
             },
-            None => Err(format!("Window with title containing '{}' not found", window_id))
+            None => {
+                let error = format!("Window with title containing '{}' not found", window_id);
+                crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
+                Err(error)
+            }
         }
     }
 }
