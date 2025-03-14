@@ -5,6 +5,8 @@
 
 use crate::config::Config;
 use crate::llm::anthropic::Anthropic;
+use crate::llm::deepseek::DeepSeekBackend;
+use crate::llm::openrouter::OpenRouterBackend;
 use crate::llm::{Backend, LlmError};
 use std::env;
 
@@ -15,8 +17,12 @@ pub enum Provider {
     Anthropic,
     /// OpenAI's models (Not implemented)
     OpenAI,
-    /// Google's Gemini models (Not implemented)
+    /// Google's Gemini models
     Google,
+    /// OpenRouter's unified API
+    OpenRouter,
+    /// DeepSeek's models
+    DeepSeek,
     /// Unknown provider
     Unknown(String),
 }
@@ -39,14 +45,25 @@ pub fn create_backend(config: &Config) -> Result<Box<dyn Backend>, LlmError> {
 /// Parse a model string which may be in either format:
 /// - "claude-3-opus-20240229" (provider inferred from model name)
 /// - "anthropic/claude-3-opus-20240229" (explicit provider)
+/// - "openrouter/openai/gpt-4o" (openrouter provider with model path)
+/// - "deepseek/deepseek-chat" (deepseek provider with model name)
 fn parse_model_string(model_str: &str) -> ModelInfo {
     // Check if we have a provider/model format
     if let Some((provider, model)) = model_str.split_once('/') {
-        // Extract provider and model
+        // Check for OpenRouter format (openrouter/provider/model)
+        if provider.trim().to_lowercase() == "openrouter" {
+            return ModelInfo {
+                provider: Provider::OpenRouter,
+                model_name: model.trim().to_string(), // Keep the provider/model part intact
+            };
+        }
+        
+        // Extract provider and model for non-OpenRouter providers
         let provider_type = match provider.trim().to_lowercase().as_str() {
             "anthropic" => Provider::Anthropic,
             "openai" => Provider::OpenAI,
             "google" => Provider::Google,
+            "deepseek" => Provider::DeepSeek,
             other => Provider::Unknown(other.to_string()),
         };
 
@@ -63,6 +80,10 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
         Provider::OpenAI
     } else if is_gemini_model(model_str) {
         Provider::Google
+    } else if is_openrouter_model(model_str) {
+        Provider::OpenRouter
+    } else if is_deepseek_model(model_str) {
+        Provider::DeepSeek
     } else {
         Provider::Unknown(String::new())
     };
@@ -87,6 +108,24 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
             // Pass model name directly without translation
             Ok(Box::new(crate::llm::gemini::GeminiBackend::new(api_key, model_info.model_name)))
         }
+        Provider::DeepSeek => {
+            let api_key = resolve_deepseek_api_key()?;
+            Ok(Box::new(DeepSeekBackend::new(api_key, model_info.model_name)))
+        }
+        Provider::OpenRouter => {
+            let api_key = resolve_openrouter_api_key()?;
+            
+            // Get optional site URL and name for ranking on OpenRouter
+            let site_url = env::var("OPENROUTER_SITE_URL").ok();
+            let site_name = env::var("OPENROUTER_SITE_NAME").ok();
+            
+            Ok(Box::new(OpenRouterBackend::new(
+                api_key, 
+                model_info.model_name,
+                site_url,
+                site_name
+            )))
+        }
         Provider::OpenAI => {
             Err(LlmError::ConfigError(
                 "OpenAI provider is not implemented in this version".into(),
@@ -103,9 +142,12 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
             };
 
             Err(LlmError::ConfigError(format!(
-                "{}. Currently only supporting Anthropic models:\n\
+                "{}. Currently supporting these providers:\n\
                  - Anthropic models: 'claude-3-opus', 'claude-3-sonnet', etc.\n\
-                 - Explicit provider: 'anthropic/claude-3-opus'",
+                 - Google models: 'gemini-1.5-pro', 'gemini-1.0-pro', etc.\n\
+                 - DeepSeek models: 'deepseek-chat', 'deepseek-reasoner'\n\
+                 - OpenRouter: 'openrouter/openai/gpt-4o', 'openrouter/anthropic/claude-3-opus', etc.\n\
+                 - Explicit provider format: 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'deepseek/deepseek-chat'",
                 provider_msg
             )))
         }
@@ -132,6 +174,18 @@ fn is_gemini_model(model: &str) -> bool {
     model.starts_with("gemini-")
 }
 
+/// Determine if a model name belongs to OpenRouter
+fn is_openrouter_model(model: &str) -> bool {
+    // OpenRouter-specific model identifiers
+    model.starts_with("openrouter/") || model.starts_with("or-")
+}
+
+/// Determine if a model name belongs to DeepSeek
+fn is_deepseek_model(model: &str) -> bool {
+    // DeepSeek model identifiers
+    model.starts_with("deepseek-") || model == "deepseek-chat" || model == "deepseek-reasoner"
+}
+
 /// Resolve Anthropic API key from environment variables
 fn resolve_anthropic_api_key() -> Result<String, LlmError> {
     env::var("ANTHROPIC_API_KEY")
@@ -139,9 +193,19 @@ fn resolve_anthropic_api_key() -> Result<String, LlmError> {
 }
 
 /// Resolve Google API key from environment variables
-/// Keeping this for future when Google support is added
-#[allow(dead_code)]
 fn resolve_google_api_key() -> Result<String, LlmError> {
     env::var("GOOGLE_API_KEY")
         .map_err(|_| LlmError::ConfigError("GOOGLE_API_KEY environment variable not set".into()))
+}
+
+/// Resolve OpenRouter API key from environment variables
+fn resolve_openrouter_api_key() -> Result<String, LlmError> {
+    env::var("OPENROUTER_API_KEY")
+        .map_err(|_| LlmError::ConfigError("OPENROUTER_API_KEY environment variable not set".into()))
+}
+
+/// Resolve DeepSeek API key from environment variables
+fn resolve_deepseek_api_key() -> Result<String, LlmError> {
+    env::var("DEEPSEEK_API_KEY")
+        .map_err(|_| LlmError::ConfigError("DEEPSEEK_API_KEY environment variable not set".into()))
 }

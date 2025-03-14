@@ -9,7 +9,6 @@ use crate::constants::{
     PATCH_DELIMITER_AFTER, PATCH_DELIMITER_BEFORE, PATCH_DELIMITER_END, TOOL_END, TOOL_ERROR_END,
     TOOL_ERROR_START_PREFIX, TOOL_RESULT_END, TOOL_RESULT_START_PREFIX, TOOL_START,
 };
-use bprintln;
 
 // Constants for markdown-based grammar
 /// Represents a tool invocation with name, arguments, and body content
@@ -321,10 +320,8 @@ impl Grammar for MarkdownGrammar {
     }
 
     fn parse_response(&self, response: &str) -> ParsedResponse {
-        bprintln!("Parsing markdown response: {}\n\n", response);
         // Defensive programming - return early if response is empty or too short
         if response.is_empty() || response.len() < MD_TOOL_CALL_START.len() + 3 {
-            bprintln!("Too short response length");
             return ParsedResponse {
                 prefix: response.to_string(),
                 tool: None,

@@ -358,6 +358,7 @@ impl TemplateManager {
 struct AvailableKindsHelper;
 
 impl HelperDef for AvailableKindsHelper {
+    #[allow(unused_variables)]
     fn call<'reg: 'rc, 'rc>(
         &self,
         h: &Helper<'rc>,

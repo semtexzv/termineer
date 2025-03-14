@@ -11,7 +11,7 @@ pub mod handlebars;
 pub mod protected;
 
 use anyhow::bail;
-pub use grammar::{Grammar, XmlGrammar};
+pub use grammar::Grammar;
 pub use handlebars::TemplateManager;
 use std::sync::Arc;
 
