@@ -8,6 +8,7 @@ mod macros;
 
 mod agent;
 mod ansi_converter;
+mod cli;
 mod config;
 mod constants;
 mod conversation;
@@ -23,13 +24,15 @@ pub mod serde_utils;
 mod tools;
 mod tui;
 
+use clap::Parser;
 use lazy_static::lazy_static;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent::{AgentManager, AgentMessage, AgentState};
-use config::{ArgResult, Config};
+use cli::{Cli, Commands, cli_to_config};
+use config::Config;
 use crossterm::{
     cursor, execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
@@ -52,21 +55,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load environment variables from .env file
     let _ = dotenvy::dotenv();
 
-    // Get command line arguments
-    let args: Vec<String> = std::env::args().collect();
-
+    // Parse command line arguments using clap
+    let cli = Cli::parse();
+    
+    // Convert to application config
+    let config = cli_to_config(&cli);
+    
     // Use a reference to the global agent manager
     let agent_manager = GLOBAL_AGENT_MANAGER.clone();
+    
+    // Set the app mode based on build configuration
+    #[cfg(debug_assertions)]
+    {
+        // In debug builds, always use Pro mode
+        config::set_app_mode(config::AppMode::Pro);
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        // In release builds, use Free mode (authentication removed)
+        config::set_app_mode(config::AppMode::Free);
+    }
 
-    // Initialize configuration
-    let mut config = Config::new();
-
-    // Process command line arguments
-    let arg_result = config.apply_args(&args).unwrap();
-
-    // Handle different argument outcomes
-    match arg_result {
-        ArgResult::Login => {
+    // Handle different command/argument combinations
+    match &cli.command {
+        Some(Commands::Login) => {
             // Authentication has been removed
             execute!(
                 io::stdout(),
@@ -79,100 +91,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             println!("All functionality is available without authentication.");
             return Ok(());
         }
-        ArgResult::ShowHelp => {
-            // Display help information and exit
-            print_help();
-            return Ok(());
-        }
-        ArgResult::DumpPrompts => {
-            // Dump prompt templates and exit
-            // TODO: Unimplemented
-            return Ok(());
-        }
-        ArgResult::ListKinds => {
+        Some(Commands::ListKinds) => {
             // List available agent kinds and exit
             list_available_kinds()?;
             return Ok(());
         }
-        ArgResult::Query(query) => {
-            // Set the app mode based on build configuration
-            #[cfg(debug_assertions)]
-            {
-                // In debug builds, always use Pro mode
-                config::set_app_mode(config::AppMode::Pro);
-                // Do not announce Pro mode in user-facing output
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                // In release builds, use Free mode (authentication removed)
-                config::set_app_mode(config::AppMode::Free);
-            }
-
-            // Run in single query mode
-            run_single_query_mode(agent_manager, config, query).await?;
+        Some(Commands::DumpPrompts { .. }) => {
+            // Dump prompt templates and exit
+            // Note: The template name is already in the config
+            // TODO: Implement prompt dumping functionality
             return Ok(());
         }
-        ArgResult::Interactive => {
-            // Set the app mode based on build configuration
-            #[cfg(debug_assertions)]
-            {
-                // In debug builds, always use Pro mode
-                config::set_app_mode(config::AppMode::Pro);
-                // Do not announce Pro mode in user-facing output
+        None => {
+            // Check if we have a query for non-interactive mode
+            if let Some(query) = cli.query {
+                // Run in single query mode
+                run_single_query_mode(agent_manager, config, query).await?;
+            } else {
+                // Run in interactive mode
+                run_interactive_mode(agent_manager, config).await?;
             }
-            #[cfg(not(debug_assertions))]
-            {
-                // In release builds, use Free mode (authentication removed)
-                config::set_app_mode(config::AppMode::Free);
-            }
-
-            // Continue to interactive mode
-            run_interactive_mode(agent_manager, config).await?;
         }
     }
 
     println!("Termineer terminated successfully.");
     Ok(())
-}
-
-/// Display help information
-fn print_help() {
-    let help_text = obfstr::obfstring!(
-        r#"Termineer - Your Terminal Engineer
-
-Usage: Termineer [OPTIONS] [QUERY]
-
-If QUERY is provided, runs in non-interactive mode and outputs only the response.
-If QUERY is not provided, starts an interactive console session.
-
-Commands:
-  login                  (Authentication feature not currently implemented)
-  list-kinds             List available agent kinds/templates
-  
-Options:
-  --model MODEL_NAME     Specify the model to use
-                         (default: claude-3-7-sonnet-20250219)
-  --grammar TYPE         Specify the grammar type to use (xml, markdown)
-                         (default: xml for most models, markdown for Gemini)
-  --kind KIND_NAME       Use a specific agent kind/template
-  --no-tools             Disable tools
-  --thinking-budget N    Set the thinking budget in tokens
-  --help                 Display this help message
-
-Note: Options that take values can use either:
-  --option value         Space-separated format
-  --option=value         Equals-sign format
-
-Environment Variables:
-  ANTHROPIC_API_KEY      Your Anthropic API key (required for Claude models)
-  GOOGLE_API_KEY         Your Google API key (required for Gemini models)
-
-Example:
-  Termineer --model claude-3-haiku-20240307 "What is the capital of France?"
-  Termineer --model=google/gemini-1.5-flash "Explain quantum computing."
-  Termineer list-kinds                      # See available agent templates"#
-    );
-    println!("{}", help_text);
 }
 
 /// List all available agent kinds
