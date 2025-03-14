@@ -4,59 +4,88 @@
 //! complete UI automation capabilities for agents.
 
 use crate::tools::ToolResult;
-use std::env;
+use crate::tools::screendump;
+use enigo::{Enigo, Key, KeyboardControllable, MouseButton, MouseControllable};
 use std::time::Duration;
 use tokio::time::sleep;
 
-#[cfg(target_os = "macos")]
-mod macos;
-
 /// Execute the input tool
 pub async fn execute_input(args: &str, body: &str, silent_mode: bool) -> ToolResult {
-    let platform = env::consts::OS;
+    bprintln!(debug: "💻 INPUT: execute_input called with args=\"{}\" body_length={}", args, body.len());
     let command = parse_command(args, body);
+
+    bprintln!(debug: "💻 INPUT: Parsed command: {:?}", command);
 
     if !silent_mode {
         match &command {
             InputCommand::Click { x, y, window_id, button, double } => {
                 let button_str = match button {
-                    MouseButton::Left => "left",
-                    MouseButton::Right => "right",
-                    MouseButton::Middle => "middle",
+                    MouseButtonType::Left => "left",
+                    MouseButtonType::Right => "right",
+                    MouseButtonType::Middle => "middle",
                 };
                 let double_str = if *double { "double " } else { "" };
                 crate::bprintln!("🖱️ Sending {}{}click at ({},{}) to window '{}' on {} platform...", 
-                    double_str, button_str, x, y, window_id, platform);
+                    double_str, button_str, x, y, window_id, std::env::consts::OS);
             },
-            InputCommand::Type { text: _, window_id } => {
-                crate::bprintln!("⌨️ Typing text to window '{}' on {} platform...", window_id, platform);
+            InputCommand::Type { text, window_id } => {
+                crate::bprintln!("⌨️ Typing text to window '{}' on {} platform...", window_id, std::env::consts::OS);
+                bprintln!(debug: "💻 INPUT: Will type text of length {}: '{}'", text.len(), if text.len() > 50 { format!("{}...", &text[..50]) } else { text.clone() });
             },
             InputCommand::KeyPress { key, modifiers, window_id } => {
                 crate::bprintln!("⌨️ Sending key {} with modifiers {} to window '{}' on {} platform...", 
-                    key, modifiers.join("+"), window_id, platform);
+                    key, modifiers.join("+"), window_id, std::env::consts::OS);
             },
             InputCommand::Sequence { actions, window_id } => {
                 crate::bprintln!("🤖 Executing {} input actions on window '{}' on {} platform...", 
-                    actions.len(), window_id, platform);
+                    actions.len(), window_id, std::env::consts::OS);
+                for (i, action) in actions.iter().enumerate() {
+                    bprintln!(debug: "💻 INPUT: Action {}: {:?}", i+1, action);
+                }
             },
         }
     }
 
-    // Switch on platform
-    match platform {
-        "macos" => execute_input_macos(command).await,
-        "windows" => execute_input_windows(command).await,
-        "linux" => execute_input_linux(command).await,
-        _ => ToolResult::error(format!("Input tool not implemented for {} platform", platform)),
+    match command {
+        InputCommand::Click { x, y, window_id, button, double } => {
+            match send_mouse_click(x, y, &window_id, button, double).await {
+                Ok(msg) => ToolResult::success(msg),
+                Err(err) => ToolResult::error(err),
+            }
+        },
+        InputCommand::Type { text, window_id } => {
+            match send_keyboard_text(&text, &window_id).await {
+                Ok(msg) => ToolResult::success(msg),
+                Err(err) => ToolResult::error(err),
+            }
+        },
+        InputCommand::KeyPress { key, modifiers, window_id } => {
+            match send_keyboard_shortcut(&key, &modifiers, &window_id).await {
+                Ok(msg) => ToolResult::success(msg),
+                Err(err) => ToolResult::error(err),
+            }
+        },
+        InputCommand::Sequence { actions, window_id } => {
+            execute_action_sequence(&actions, &window_id).await
+        },
     }
 }
 
 /// Mouse button types
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MouseButton {
+pub enum MouseButtonType {
     Left,
     Right,
     Middle,
+}
+
+/// Convert MouseButtonType to Enigo's MouseButton
+fn to_enigo_button(button: MouseButtonType) -> MouseButton {
+    match button {
+        MouseButtonType::Left => MouseButton::Left,
+        MouseButtonType::Right => MouseButton::Right,
+        MouseButtonType::Middle => MouseButton::Middle,
+    }
 }
 
 /// Individual input action
@@ -66,7 +95,7 @@ pub enum InputAction {
     Click {
         x: i32,
         y: i32,
-        button: MouseButton,
+        button: MouseButtonType,
         double: bool,
     },
     /// Type text
@@ -92,7 +121,7 @@ pub enum InputCommand {
         x: i32,
         y: i32,
         window_id: String,
-        button: MouseButton, 
+        button: MouseButtonType, 
         double: bool,
     },
     /// Type text into a window
@@ -134,7 +163,7 @@ fn parse_command(args: &str, body: &str) -> InputCommand {
                     x: 0,
                     y: 0,
                     window_id: String::new(),
-                    button: MouseButton::Left,
+                    button: MouseButtonType::Left,
                     double: false,
                 };
             }
@@ -145,14 +174,14 @@ fn parse_command(args: &str, body: &str) -> InputCommand {
 
             // Default values
             let mut window_id = String::new();
-            let mut button = MouseButton::Left;
+            let mut button = MouseButtonType::Left;
             let mut double = false;
 
             // Parse remaining arguments
             for i in 3..parts.len() {
                 match parts[i] {
-                    "--right" => button = MouseButton::Right,
-                    "--middle" => button = MouseButton::Middle,
+                    "--right" => button = MouseButtonType::Right,
+                    "--middle" => button = MouseButtonType::Middle,
                     "--double" => double = true,
                     id => {
                         // Assume it's the window ID if not an option
@@ -269,9 +298,9 @@ fn parse_action_sequence(body: &str) -> Vec<InputAction> {
                             let double = action.get("double").and_then(|v| v.as_bool()).unwrap_or(false);
                             
                             let button = match button_str {
-                                "right" => MouseButton::Right,
-                                "middle" => MouseButton::Middle,
-                                _ => MouseButton::Left,
+                                "right" => MouseButtonType::Right,
+                                "middle" => MouseButtonType::Middle,
+                                _ => MouseButtonType::Left,
                             };
                             
                             actions.push(InputAction::Click { x, y, button, double });
@@ -320,13 +349,13 @@ fn parse_action_sequence(body: &str) -> Vec<InputAction> {
                     
                     let x = parts[1].parse::<i32>().unwrap_or(0);
                     let y = parts[2].parse::<i32>().unwrap_or(0);
-                    let mut button = MouseButton::Left;
+                    let mut button = MouseButtonType::Left;
                     let mut double = false;
                     
                     for i in 3..parts.len() {
                         match parts[i] {
-                            "--right" => button = MouseButton::Right,
-                            "--middle" => button = MouseButton::Middle,
+                            "--right" => button = MouseButtonType::Right,
+                            "--middle" => button = MouseButtonType::Middle,
                             "--double" => double = true,
                             _ => {}
                         }
@@ -380,31 +409,331 @@ fn parse_action_sequence(body: &str) -> Vec<InputAction> {
     actions
 }
 
+/// Check if a key corresponds to a special key in Enigo
+fn parse_key(key: &str) -> Option<Key> {
+    match key.to_lowercase().as_str() {
+        "return" | "enter" => Some(Key::Return),
+        "tab" => Some(Key::Tab),
+        "space" => Some(Key::Space),
+        "backspace" => Some(Key::Backspace),
+        "escape" | "esc" => Some(Key::Escape),
+        "up" | "uparrow" => Some(Key::UpArrow),
+        "down" | "downarrow" => Some(Key::DownArrow),
+        "left" | "leftarrow" => Some(Key::LeftArrow),
+        "right" | "rightarrow" => Some(Key::RightArrow),
+        "home" => Some(Key::Home),
+        "end" => Some(Key::End),
+        "pageup" => Some(Key::PageUp),
+        "pagedown" => Some(Key::PageDown),
+        "delete" | "del" => Some(Key::Delete),
+        "f1" => Some(Key::F1),
+        "f2" => Some(Key::F2),
+        "f3" => Some(Key::F3),
+        "f4" => Some(Key::F4),
+        "f5" => Some(Key::F5),
+        "f6" => Some(Key::F6),
+        "f7" => Some(Key::F7),
+        "f8" => Some(Key::F8),
+        "f9" => Some(Key::F9),
+        "f10" => Some(Key::F10),
+        "f11" => Some(Key::F11),
+        "f12" => Some(Key::F12),
+        _ => None,
+    }
+}
+
+/// Parse modifier key
+fn parse_modifier(modifier: &str) -> Option<Key> {
+    match modifier.to_lowercase().as_str() {
+        "command" | "cmd" | "meta" => Some(Key::Meta),
+        "shift" => Some(Key::Shift),
+        "alt" | "option" => Some(Key::Alt),
+        "control" | "ctrl" => Some(Key::Control),
+        _ => None,
+    }
+}
+
+/// Get the window position and size from its ID
+async fn get_window_position(window_id: &str) -> Result<(i32, i32), String> {
+    bprintln!(debug: "💻 INPUT: Getting position for window '{}'", window_id);
+    
+    // Get window information from screendump module
+    let result = screendump::get_window_rect(window_id);
+    
+    match &result {
+        Ok((app, title, x, y, width, height)) => {
+            bprintln!(debug: "💻 INPUT: Window '{}' found: app='{}', title='{}', position=({},{}), size={}x{}", 
+                     window_id, app, title, x, y, width, height);
+        },
+        Err(e) => {
+            bprintln!(warn: "💻 INPUT: ⚠️ Failed to get window position: {}", e);
+        }
+    }
+    
+    let (_, _, x, y, _, _) = result
+        .map_err(|e| format!("Failed to get window position: {}", e))?;
+    
+    Ok((x, y))
+}
+
+/// Activate a window by its ID
+async fn activate_window(window_id: &str) -> Result<(), String> {
+    bprintln!(debug: "💻 INPUT: Activating window '{}'", window_id);
+    
+    // This is a bit more complex and platform-specific
+    // For now we'll use a simplistic approach, but could be enhanced
+    
+    // First check if we can get the window rect (validates it exists)
+    match screendump::get_window_rect(window_id) {
+        Ok(_) => bprintln!(debug: "💻 INPUT: Window '{}' found, will activate", window_id),
+        Err(e) => {
+            let error = format!("Failed to find window: {}", e);
+            bprintln!(error: "💻 INPUT: ⚠️ {}", error);
+            return Err(error);
+        }
+    }
+    
+    // On macOS we might want to actually focus the window
+    // This is a simplified approach that may not work in all cases
+    if cfg!(target_os = "macos") {
+        let parts: Vec<&str> = window_id.split(':').collect();
+        if parts.is_empty() {
+            let error = "Invalid window ID format".to_string();
+            bprintln!(error: "💻 INPUT: ⚠️ {}", error);
+            return Err(error);
+        }
+        
+        let app_name = parts[0];
+        bprintln!(debug: "💻 INPUT: Using osascript to activate application '{}'", app_name);
+        
+        // Try to focus the application using a simple bash command
+        // In a more robust implementation, we would use platform APIs
+        let script = format!("tell application \"{}\" to activate", app_name);
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| {
+                let error = format!("Failed to execute osascript: {}", e);
+                bprintln!(error: "💻 INPUT: ⚠️ {}", error);
+                error
+            })?;
+        
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            let error_msg = format!("Failed to activate window: {}", error);
+            bprintln!(error: "💻 INPUT: ⚠️ {}", error_msg);
+            return Err(error_msg);
+        }
+        
+        bprintln!(debug: "💻 INPUT: Successfully activated '{}', waiting for activation to complete", app_name);
+        // Wait for the activation to complete
+        sleep(Duration::from_millis(200)).await;
+    } else {
+        bprintln!(info: "💻 INPUT: Window activation not implemented for this platform, continuing");
+    }
+    
+    bprintln!(debug: "💻 INPUT: Window activation completed for '{}'", window_id);
+    Ok(())
+}
+
+/// Send a mouse click at the specified coordinates
+async fn send_mouse_click(
+    x: i32, 
+    y: i32, 
+    window_id: &str, 
+    button: MouseButtonType,
+    double: bool
+) -> Result<String, String> {
+    bprintln!(debug: "💻 INPUT: Sending mouse click: x={}, y={}, window='{}', button={:?}, double={}", 
+              x, y, window_id, button, double);
+    
+    // First activate the window
+    activate_window(window_id).await?;
+    
+    // Get the window position
+    let (win_x, win_y) = get_window_position(window_id).await?;
+    
+    // Calculate absolute screen coordinates
+    let abs_x = win_x + x;
+    let abs_y = win_y + y;
+    bprintln!(debug: "💻 INPUT: Calculated absolute coordinates: ({}, {})", abs_x, abs_y);
+    
+    // Use tokio's block_in_place to avoid blocking the runtime
+    bprintln!(debug: "💻 INPUT: Executing mouse click with Enigo (blocking)");
+    let result = tokio::task::block_in_place(|| -> Result<(), String> {
+        // Create a new Enigo instance
+        let mut enigo = Enigo::new();
+        
+        // Move to the position
+        bprintln!(dev: "💻 INPUT: Moving mouse to ({}, {})", abs_x, abs_y);
+        enigo.mouse_move_to(abs_x, abs_y);
+        
+        // Perform the click
+        let enigo_button = to_enigo_button(button);
+        
+        // Single or double click
+        bprintln!(dev: "💻 INPUT: Performing mouse down with button {:?}", button);
+        enigo.mouse_down(enigo_button);
+        bprintln!(dev: "💻 INPUT: Performing mouse up");
+        enigo.mouse_up(enigo_button);
+        
+        if double {
+            // Small pause between clicks for double-click
+            bprintln!(dev: "💻 INPUT: Pausing for double-click");
+            std::thread::sleep(Duration::from_millis(10));
+            bprintln!(dev: "💻 INPUT: Performing second click (mouse down)");
+            enigo.mouse_down(enigo_button);
+            bprintln!(dev: "💻 INPUT: Performing second click (mouse up)");
+            enigo.mouse_up(enigo_button);
+        }
+        
+        Ok(())
+    });
+    
+    if let Err(e) = &result {
+        bprintln!(error: "💻 INPUT: ⚠️ Mouse click failed: {}", e);
+    } else {
+        bprintln!(debug: "💻 INPUT: Mouse click completed successfully");
+    }
+    
+    result?;
+    
+    Ok(format!("Clicked at coordinates ({}, {}) in window '{}'", x, y, window_id))
+}
+
+/// Type text into a window
+async fn send_keyboard_text(text: &str, window_id: &str) -> Result<String, String> {
+    bprintln!(debug: "💻 INPUT: Sending keyboard text to window '{}'", window_id);
+    if text.len() > 100 {
+        bprintln!(debug: "💻 INPUT: Text content (first 100 chars): '{}'...", &text[..100]);
+    } else {
+        bprintln!(debug: "💻 INPUT: Text content: '{}'", text);
+    }
+    
+    // First activate the window
+    activate_window(window_id).await?;
+    
+    // Small delay to ensure window is active
+    bprintln!(debug: "💻 INPUT: Waiting 100ms for window activation to settle");
+    sleep(Duration::from_millis(100)).await;
+    
+    // Use tokio's block_in_place for the Enigo operations
+    bprintln!(debug: "💻 INPUT: Executing keyboard input with Enigo (blocking)");
+    let result = tokio::task::block_in_place(|| -> Result<(), String> {
+        let mut enigo = Enigo::new();
+        
+        // Type the text
+        bprintln!(dev: "💻 INPUT: Typing text of length {}", text.len());
+        enigo.key_sequence(text);
+        bprintln!(dev: "💻 INPUT: Finished typing text");
+        
+        Ok(())
+    });
+    
+    if let Err(e) = &result {
+        bprintln!(error: "💻 INPUT: ⚠️ Keyboard text input failed: {}", e);
+    } else {
+        bprintln!(debug: "💻 INPUT: Keyboard text input completed successfully");
+    }
+    
+    result?;
+    
+    Ok(format!("Typed text into window '{}'", window_id))
+}
+
+/// Send a keyboard shortcut to a window
+async fn send_keyboard_shortcut(
+    key: &str, 
+    modifiers: &[String], 
+    window_id: &str
+) -> Result<String, String> {
+    bprintln!(debug: "💻 INPUT: Sending keyboard shortcut: key='{}', modifiers={:?}, window='{}'", 
+             key, modifiers, window_id);
+    
+    // First activate the window
+    activate_window(window_id).await?;
+    
+    // Small delay to ensure window is active
+    bprintln!(debug: "💻 INPUT: Waiting 100ms for window activation to settle");
+    sleep(Duration::from_millis(100)).await;
+    
+    // Use tokio's block_in_place for the Enigo operations
+    bprintln!(debug: "💻 INPUT: Executing keyboard shortcut with Enigo (blocking)");
+    let result = tokio::task::block_in_place(|| -> Result<(), String> {
+        let mut enigo = Enigo::new();
+        
+        // Hold down modifier keys
+        bprintln!(dev: "💻 INPUT: Holding down {} modifier keys", modifiers.len());
+        for modifier in modifiers {
+            if let Some(m_key) = parse_modifier(modifier) {
+                bprintln!(dev: "💻 INPUT: Pressing modifier: {}", modifier);
+                enigo.key_down(m_key);
+            } else {
+                bprintln!(warn: "💻 INPUT: ⚠️ Unknown modifier key: {}", modifier);
+            }
+        }
+        
+        // Press and release the main key
+        bprintln!(dev: "💻 INPUT: Processing main key: '{}'", key);
+        if let Some(e_key) = parse_key(key) {
+            // For special keys
+            bprintln!(dev: "💻 INPUT: Pressing special key: {:?}", e_key);
+            enigo.key_click(e_key);
+        } else if key.len() == 1 {
+            // For regular single character keys
+            let c = key.chars().next().unwrap();
+            bprintln!(dev: "💻 INPUT: Pressing single character key: '{}'", c);
+            enigo.key_sequence(&c.to_string());
+        } else {
+            // For strings (typed out character by character)
+            bprintln!(dev: "💻 INPUT: Typing key as sequence: '{}'", key);
+            enigo.key_sequence(key);
+        }
+        
+        // Release modifier keys in reverse order
+        bprintln!(dev: "💻 INPUT: Releasing modifier keys in reverse order");
+        for modifier in modifiers.iter().rev() {
+            if let Some(m_key) = parse_modifier(modifier) {
+                bprintln!(dev: "💻 INPUT: Releasing modifier: {}", modifier);
+                enigo.key_up(m_key);
+            }
+        }
+        
+        Ok(())
+    });
+    
+    if let Err(e) = &result {
+        bprintln!(error: "💻 INPUT: ⚠️ Keyboard shortcut failed: {}", e);
+    } else {
+        bprintln!(debug: "💻 INPUT: Keyboard shortcut completed successfully");
+    }
+    
+    result?;
+    
+    Ok(format!("Sent keyboard shortcut to window '{}'", window_id))
+}
+
 /// Execute a sequence of actions with the given window ID
-async fn execute_action_sequence(actions: &[InputAction], window_id: &str, platform: &str) -> ToolResult {
+async fn execute_action_sequence(actions: &[InputAction], window_id: &str) -> ToolResult {
     let mut results = Vec::new();
     
     for (index, action) in actions.iter().enumerate() {
         // Execute the action
-        let result = match platform {
-            "macos" => {
-                match action {
-                    InputAction::Click { x, y, button, double } => {
-                        macos::send_mouse_click(*x, *y, window_id, *button, *double).await
-                    },
-                    InputAction::Type { text } => {
-                        macos::send_keyboard_text(text, window_id).await
-                    },
-                    InputAction::KeyPress { key, modifiers } => {
-                        macos::send_keyboard_shortcut(key, modifiers, window_id).await
-                    },
-                    InputAction::Wait { ms } => {
-                        sleep(Duration::from_millis(*ms)).await;
-                        Ok(format!("Waited for {}ms", ms))
-                    }
-                }
+        let result = match action {
+            InputAction::Click { x, y, button, double } => {
+                send_mouse_click(*x, *y, window_id, *button, *double).await
             },
-            _ => Err(format!("Input actions not implemented for {} platform", platform))
+            InputAction::Type { text } => {
+                send_keyboard_text(text, window_id).await
+            },
+            InputAction::KeyPress { key, modifiers } => {
+                send_keyboard_shortcut(key, modifiers, window_id).await
+            },
+            InputAction::Wait { ms } => {
+                sleep(Duration::from_millis(*ms)).await;
+                Ok(format!("Waited for {}ms", ms))
+            }
         };
         
         // Process the result
@@ -425,43 +754,6 @@ async fn execute_action_sequence(actions: &[InputAction], window_id: &str, platf
     ToolResult::success(results.join("\n"))
 }
 
-/// Execute the input command on macOS
-async fn execute_input_macos(command: InputCommand) -> ToolResult {
-    match command {
-        InputCommand::Click { x, y, window_id, button, double } => {
-            match macos::send_mouse_click(x, y, &window_id, button, double).await {
-                Ok(msg) => ToolResult::success(msg),
-                Err(err) => ToolResult::error(err),
-            }
-        },
-        InputCommand::Type { text, window_id } => {
-            match macos::send_keyboard_text(&text, &window_id).await {
-                Ok(msg) => ToolResult::success(msg),
-                Err(err) => ToolResult::error(err),
-            }
-        },
-        InputCommand::KeyPress { key, modifiers, window_id } => {
-            match macos::send_keyboard_shortcut(&key, &modifiers, &window_id).await {
-                Ok(msg) => ToolResult::success(msg),
-                Err(err) => ToolResult::error(err),
-            }
-        },
-        InputCommand::Sequence { actions, window_id } => {
-            execute_action_sequence(&actions, &window_id, "macos").await
-        },
-    }
-}
-
-/// Execute the input command on Windows (not implemented yet)
-async fn execute_input_windows(_command: InputCommand) -> ToolResult {
-    ToolResult::error("Input tool not implemented for Windows platform yet")
-}
-
-/// Execute the input command on Linux (not implemented yet)
-async fn execute_input_linux(_command: InputCommand) -> ToolResult {
-    ToolResult::error("Input tool not implemented for Linux platform yet")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,7 +766,7 @@ mod tests {
                 assert_eq!(x, 100);
                 assert_eq!(y, 200);
                 assert_eq!(window_id, "Terminal");
-                assert_eq!(button, MouseButton::Left);
+                assert_eq!(button, MouseButtonType::Left);
                 assert_eq!(double, false);
             },
             _ => panic!("Expected Click command"),
@@ -486,7 +778,7 @@ mod tests {
                 assert_eq!(x, 100);
                 assert_eq!(y, 200);
                 assert_eq!(window_id, "Terminal");
-                assert_eq!(button, MouseButton::Right);
+                assert_eq!(button, MouseButtonType::Right);
                 assert_eq!(double, true);
             },
             _ => panic!("Expected Click command with options"),
@@ -513,27 +805,22 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_action_sequence() {
-        // Test JSON format
-        let json = r#"[
-            {"type": "click", "x": 100, "y": 200, "button": "left", "double": false},
-            {"type": "type", "text": "Hello, world!"},
-            {"type": "key", "key": "a", "modifiers": ["cmd", "shift"]},
-            {"type": "wait", "ms": 500}
-        ]"#;
-        
-        let actions = parse_action_sequence(json);
-        assert_eq!(actions.len(), 4);
-        
-        // Test text format
-        let text = r#"
-            click 100 200 --right
-            type Hello, world!
-            key cmd+shift+a
-            wait 500
-        "#;
-        
-        let actions = parse_action_sequence(text);
-        assert_eq!(actions.len(), 4);
+    fn test_parse_key() {
+        assert_eq!(parse_key("return"), Some(Key::Return));
+        assert_eq!(parse_key("enter"), Some(Key::Return));
+        assert_eq!(parse_key("escape"), Some(Key::Escape));
+        assert_eq!(parse_key("esc"), Some(Key::Escape));
+        assert_eq!(parse_key("a"), None); // Regular key, not special
+    }
+
+    #[test]
+    fn test_parse_modifier() {
+        assert_eq!(parse_modifier("command"), Some(Key::Meta));
+        assert_eq!(parse_modifier("cmd"), Some(Key::Meta));
+        assert_eq!(parse_modifier("shift"), Some(Key::Shift));
+        assert_eq!(parse_modifier("alt"), Some(Key::Alt));
+        assert_eq!(parse_modifier("control"), Some(Key::Control));
+        assert_eq!(parse_modifier("ctrl"), Some(Key::Control));
+        assert_eq!(parse_modifier("unknown"), None);
     }
 }
