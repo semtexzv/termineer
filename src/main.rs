@@ -15,6 +15,7 @@ mod prompts;
 pub mod serde;
 mod tools;
 mod tui;
+mod version_check;
 mod workflow;
 
 use clap::Parser;
@@ -337,6 +338,30 @@ async fn run_interactive_mode(
         };
         result
     }).await?;
+    
+    // Check for updates - run in the background
+    let id_for_update_check = main_agent_id;
+    tokio::spawn(async move {
+        match version_check::check_for_updates().await {
+            Ok((has_update, latest_version, message)) => {
+                if has_update {
+                    if let Some(msg) = message {
+                        // Get the agent buffer and print the update message
+                        if let Ok(buffer) = agent::get_agent_buffer(id_for_update_check) {
+                            crate::output::CURRENT_BUFFER.scope(buffer, async {
+                                bprintln!("\n{}{}{}\n", 
+                                    crate::constants::FORMAT_YELLOW,
+                                    msg,
+                                    crate::constants::FORMAT_RESET
+                                );
+                            }).await;
+                        }
+                    }
+                }
+            },
+            Err(_) => {} // Silently ignore errors in update check
+        }
+    });
 
     // Initialize and run the TUI interface with the same buffer
     let mut tui = TuiInterface::new(main_agent_id)?;
