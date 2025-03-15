@@ -1,20 +1,19 @@
-//! Screen capture tool for AI agents
+//! macOS implementation of the screenshot tool
 //!
-//! This tool allows agents to capture screenshots and analyze what's on the screen
-//! using Claude's computer vision capability.
+//! This module provides macOS-specific implementation for the screenshot tool
+//! using macOS screen capture APIs.
 
 use crate::tools::ToolResult;
+use crate::llm::Content;
+use crate::llm::ImageSource;
+use crate::tools::ui::screendump;
 use base64::{engine::general_purpose, Engine as _};
 use screenshots::Screen;
 use std::io::Cursor;
-// Command import removed as it's not needed
-use crate::llm::Content;
-use crate::llm::ImageSource;
-use crate::tools::screendump;
 use image::{DynamicImage, GenericImageView, ImageOutputFormat};
 
-/// Execute the screenshot tool - captures the screen and returns it as a base64-encoded image
-pub async fn execute_screenshot(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
+/// Execute the macOS screenshot tool
+pub async fn execute_macos_screenshot(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
     // Parse screenshot command
     let command = parse_command(args);
 

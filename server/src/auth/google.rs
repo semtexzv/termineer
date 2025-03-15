@@ -12,7 +12,6 @@ use oauth2::reqwest::async_http_client;
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use std::error::Error;
-use tracing::{error, info};
 
 /// Create an OAuth client for Google authentication
 pub fn create_oauth_client(config: &Config) -> Result<BasicClient, Box<dyn Error>> {

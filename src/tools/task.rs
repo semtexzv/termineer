@@ -152,10 +152,11 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     // Log task completion
     if !silent_mode {
         bprintln!(tool: "task",
-            "\n{}✅ Subtask Completed:{} {}\n",
+            "\n{}✅ Subtask Completed:{} {}\n{}",
             FORMAT_BOLD,
             FORMAT_RESET,
-            task_name
+            task_name,
+            result,
         );
     }
 

@@ -1,3 +1,4 @@
+use std::iter::once;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::{AgentStateChange, ToolResult};
 use tokio::fs;
@@ -278,27 +279,28 @@ async fn read_file_content(
 
             // Direct output to console if not in silent mode
             if !silent_mode {
+                let num_lines = end_line - start_line;
                 // Create a brief preview for console output
                 let preview_lines = lines[start_line..end_line]
                     .iter()
                     .take(2)
-                    .cloned()
-                    .collect::<Vec<&str>>()
+                    .map(ToString::to_string)
+                    .chain(once(format!(" + {} lines", end_line.saturating_sub(start_line).saturating_sub(2))))
+                    .map(|line| format!("{}{}{}", FORMAT_GRAY, line, FORMAT_RESET))
+                    .collect::<Vec<String>>()
                     .join("\n");
-
+                
                 // Use output buffer for read tool output
                 if !preview_lines.is_empty() {
                     bprintln !(tool: "read",
-                        "{}📄 Read: {} (lines {}-{} of {} total){}\n{}{}{}",
+                        "{}📄 Read: {} (lines {}-{} of {} total){}\n{}",
                         FORMAT_BOLD,
                         safe_display_path,
                         start_line + 1,
                         end_line,
                         total_lines,
                         FORMAT_RESET,
-                        FORMAT_GRAY,
-                        preview_lines,
-                        FORMAT_RESET
+                        preview_lines
                     );
                 } else {
                     bprintln !(tool: "read",

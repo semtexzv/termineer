@@ -1,22 +1,23 @@
 #![allow(unexpected_cfgs)]
 
-use std::collections::HashMap;
+//! macOS implementation of the screendump tool
+//!
+//! This module provides macOS-specific implementation for the screendump tool
+//! using the macOS Accessibility APIs.
+
+use crate::tools::ToolResult;
+use crate::tools::ui::screendump::ScreendumpCommand;
+use super::xml_helpers;
+
 use objc::{class, msg_send, sel, sel_impl};
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use cocoa::base::id;
 use core_graphics_types::geometry::{CGPoint, CGSize};
-use accessibility_ng::{
-    AXUIElement,
-    AXUIElementAttributes
-};
-use accessibility_sys_ng::{
-    AXIsProcessTrusted,
-    pid_t,
-};
-use crate::tools::screendump::ScreendumpCommand;
-use crate::tools::ToolResult;
+use accessibility_ng::{AXUIElement, AXUIElementAttributes};
+use accessibility_sys_ng::{AXIsProcessTrusted, pid_t};
 
+/// MacOS Window representation
 struct MacOSWindow {
     app_name: String,
     window_title: String,
@@ -27,10 +28,19 @@ struct MacOSWindow {
     index: usize,
 }
 
+/// Execute the macOS screendump tool
+pub async fn execute_macos_screendump(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
+    let command = crate::tools::ui::screendump::parse_command(args);
 
-pub fn capture_macos_ui(command: ScreendumpCommand, silent_mode: bool) -> ToolResult {
     if !silent_mode {
-        crate::bprintln!("Using macOS Accessibility API...");
+        match &command {
+            ScreendumpCommand::ListWindows => {
+                crate::bprintln!("🔍 Listing all windows in XML format...");
+            },
+            ScreendumpCommand::WindowDetails(id) => {
+                crate::bprintln!("🔍 Capturing XML details for window '{}'...", id);
+            },
+        }
     }
 
     // Check accessibility permissions
@@ -45,25 +55,37 @@ pub fn capture_macos_ui(command: ScreendumpCommand, silent_mode: bool) -> ToolRe
             match list_all_windows() {
                 Ok(windows) => {
                     if windows.is_empty() {
-                        return ToolResult::success("No visible windows found.");
+                        return ToolResult::success("<UITree><Windows/></UITree>");
                     }
 
-                    let mut result = String::new();
-                    result.push_str("Available Windows:\n");
+                    // Create a list of all windows in XML format
+                    let mut xml_output = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<UITree>\n  <Windows>\n");
 
                     for window in windows {
-                        let window_id = format!("{}:{}", window.app_name, window.index);
-                        result.push_str(&format!(
-                            "[{}] {}: {}\n",
-                            window_id,
+                        // Print window dimensions for debugging
+                        crate::bprintln!(
+                            dev: "🖥️ SCREENDUMP: Window '{}' ({}): Position=({},{}) Size={}×{}", 
+                            window.window_title, window.app_name,
+                            window.position.0, window.position.1, 
+                            window.size.0, window.size.1
+                        );
+                        
+                        xml_output.push_str(&format!(
+                            "    <Window id=\"{}:{}\" app=\"{}\" title=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+                            window.app_name, window.index,
                             window.app_name,
-                            window.window_title
+                            window.window_title,
+                            window.position.0, window.position.1,
+                            window.size.0, window.size.1
                         ));
                     }
 
-                    result.push_str("\nUse 'screendump window [ID]' or 'screendump window [Window Title]' to view details for a specific window.");
+                    xml_output.push_str("  </Windows>\n</UITree>");
+                    
+                    // Log the full XML output for debugging
+                    crate::bprintln!(dev: "🖥️ SCREENDUMP: Generated XML output for window list:\n{}", xml_output);
 
-                    ToolResult::success(result)
+                    ToolResult::success(xml_output)
                 },
                 Err(e) => ToolResult::error(format!("Failed to list windows: {}", e))
             }
@@ -79,10 +101,8 @@ pub fn capture_macos_ui(command: ScreendumpCommand, silent_mode: bool) -> ToolRe
 
                 match get_window_by_app_and_index(app_name, window_index) {
                     Ok(Some(window)) => {
-                        match get_window_details(&window) {
-                            Ok(details) => ToolResult::success(
-                                format!("Window Details for '{}':\n{}", id, details)
-                            ),
+                        match get_window_details_xml(&window) {
+                            Ok(xml) => ToolResult::success(xml),
                             Err(e) => ToolResult::error(
                                 format!("Failed to get window details: {}", e)
                             )
@@ -99,10 +119,8 @@ pub fn capture_macos_ui(command: ScreendumpCommand, silent_mode: bool) -> ToolRe
                 // Search by window title
                 match find_window_by_title(&id) {
                     Ok(Some(window)) => {
-                        match get_window_details(&window) {
-                            Ok(details) => ToolResult::success(
-                                format!("Window Details for '{}':\n{}", id, details)
-                            ),
+                        match get_window_details_xml(&window) {
+                            Ok(xml) => ToolResult::success(xml),
                             Err(e) => ToolResult::error(
                                 format!("Failed to get window details: {}", e)
                             )
@@ -117,20 +135,43 @@ pub fn capture_macos_ui(command: ScreendumpCommand, silent_mode: bool) -> ToolRe
                 }
             }
         },
-        ScreendumpCommand::FullScreen => {
-            match get_full_screen_hierarchy() {
-                Ok(hierarchy) => ToolResult::success(
-                    format!("Full Screen UI Hierarchy:\n{}", hierarchy)
-                ),
-                Err(e) => ToolResult::error(
-                    format!("Failed to capture full screen hierarchy: {}", e)
-                )
-            }
-        }
     }
 }
 
+/// Get window details in XML format
+fn get_window_details_xml(window: &MacOSWindow) -> Result<String, String> {
+    crate::bprintln!(dev: "🖥️ SCREENDUMP: Getting XML window details for '{}' ({})", window.window_title, window.app_name);
 
+    // Print window dimensions for debugging
+    crate::bprintln!(
+        dev: "🖥️ SCREENDUMP: Window dimensions - Position: ({}, {}) Size: {}×{}", 
+        window.position.0, window.position.1, 
+        window.size.0, window.size.1
+    );
+
+    // Create a structured UIWindow using our helper
+    let ui_window = xml_helpers::create_ui_window_from_macos_window(
+        window.app_name.clone(),
+        window.window_title.clone(),
+        window.position,
+        window.size,
+        &window.element,
+    );
+    
+    // Convert to XML
+    let xml_result = ui_window.to_xml();
+    
+    // Log the generated XML
+    if let Ok(ref xml_string) = xml_result {
+        // Log the full XML output for debugging
+        crate::bprintln!(dev: "🖥️ SCREENDUMP: Generated XML output for window '{}':\n{}", 
+                         window.window_title, xml_string);
+    }
+    
+    xml_result
+}
+
+/// List all windows on the system
 fn list_all_windows() -> Result<Vec<MacOSWindow>, String> {
     // Get running application PIDs
     let running_pids = get_running_application_pids()
@@ -181,7 +222,7 @@ fn list_all_windows() -> Result<Vec<MacOSWindow>, String> {
     Ok(windows)
 }
 
-
+/// Get running application process IDs
 fn get_running_application_pids() -> Result<Vec<pid_t>, String> {
     unsafe {
         let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
@@ -201,7 +242,7 @@ fn get_running_application_pids() -> Result<Vec<pid_t>, String> {
     }
 }
 
-
+/// Get application name from process ID
 fn get_application_name(pid: pid_t) -> Result<String, String> {
     unsafe {
         let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
@@ -225,7 +266,7 @@ fn get_application_name(pid: pid_t) -> Result<String, String> {
     }
 }
 
-
+/// Get window position
 fn get_window_position(window: &AXUIElement) -> Result<(i32, i32), String> {
     // Use the position accessor directly from AXUIElementAttributes trait
     match window.position() {
@@ -248,7 +289,7 @@ fn get_window_position(window: &AXUIElement) -> Result<(i32, i32), String> {
     }
 }
 
-
+/// Get window size
 fn get_window_size(window: &AXUIElement) -> Result<(i32, i32), String> {
     // Use the size accessor directly from AXUIElementAttributes trait
     match window.size() {
@@ -272,7 +313,7 @@ fn get_window_size(window: &AXUIElement) -> Result<(i32, i32), String> {
     }
 }
 
-
+/// Find a window by app name and index
 fn get_window_by_app_and_index(app_name: &str, window_index: usize) -> Result<Option<MacOSWindow>, String> {
     let windows = list_all_windows()?;
 
@@ -285,7 +326,7 @@ fn get_window_by_app_and_index(app_name: &str, window_index: usize) -> Result<Op
     Ok(None)
 }
 
-
+/// Find a window by title
 fn find_window_by_title(title: &str) -> Result<Option<MacOSWindow>, String> {
     let windows = list_all_windows()?;
 
@@ -298,158 +339,7 @@ fn find_window_by_title(title: &str) -> Result<Option<MacOSWindow>, String> {
     Ok(None)
 }
 
-
-fn get_window_details(window: &MacOSWindow) -> Result<String, String> {
-    crate::bprintln!(dev: "🖥️ SCREENDUMP: Getting window details for '{}' ({})", window.window_title, window.app_name);
-
-    let mut result = String::new();
-
-    // Basic window info
-    result.push_str(&format!("Application: {}\n", window.app_name));
-    result.push_str(&format!("Window: {}\n", window.window_title));
-    result.push_str(&format!("Position: {}, {}\n", window.position.0, window.position.1));
-    result.push_str(&format!("Size: {}×{}\n", window.size.0, window.size.1));
-
-    // UI Elements
-    result.push_str("\nUI Elements:\n");
-
-    // Get children elements using the children() method
-    crate::bprintln!(dev: "🖥️ SCREENDUMP: Fetching UI elements for window");
-    match window.element.children() {
-        Ok(children) => {
-            if children.is_empty() {
-                crate::bprintln!(dev: "🖥️ SCREENDUMP: No UI elements found in window");
-                result.push_str("  No UI elements found\n");
-            } else {
-                crate::bprintln!(dev: "🖥️ SCREENDUMP: Found {} UI elements", children.len());
-                // Process elements with recursive exploration
-                let mut element_index = 0;
-                for child in &children {
-                    element_index += 1;
-                    crate::bprintln!(dev: "🖥️ SCREENDUMP: Processing element {}", element_index);
-                    result.push_str("  Element:\n");
-
-                    // Get role using the role() method
-                    if let Ok(role) = child.role() {
-                        let role_str = role.to_string();
-                        crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Type: {}", role_str);
-                        result.push_str(&format!("    Type: {}\n", role_str));
-                    }
-
-                    // Get description using the description() method
-                    if let Ok(desc) = child.description() {
-                        let desc_str = desc.to_string();
-                        if !desc_str.is_empty() {
-                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Description: {}", desc_str);
-                            result.push_str(&format!("    Description: {}\n", desc_str));
-                        }
-                    }
-
-                    // Get value using the value() method
-                    if let Ok(value) = child.value() {
-                        crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Value: {:?}", value);
-                        result.push_str(&format!("    Value: {:?}\n", value));
-                    }
-
-                    // Try to get position of element if available
-                    if let Ok(position) = child.position() {
-                        if let Some(point) = position.get_value::<CGPoint>().ok() {
-                            let x = point.x as i32;
-                            let y = point.y as i32;
-                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Position: ({}, {})", x, y);
-                            result.push_str(&format!("    Position: ({}, {})\n", x, y));
-                        }
-                    }
-
-                    // Try to get size of element if available
-                    if let Ok(size) = child.size() {
-                        if let Some(sz) = size.get_value::<CGSize>().ok() {
-                            let width = sz.width as i32;
-                            let height = sz.height as i32;
-                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Size: {}×{}", width, height);
-                            result.push_str(&format!("    Size: {}×{}\n", width, height));
-                        }
-                    }
-                    
-                    // Try to get child elements (one level deep)
-                    if let Ok(sub_children) = child.children() {
-                        if !sub_children.is_empty() {
-                            crate::bprintln!(dev: "🖥️ SCREENDUMP:   - Found {} child elements", sub_children.len());
-                            result.push_str(&format!("    Child Elements: {}\n", sub_children.len()));
-                            
-                            for (subindex, subchild) in sub_children.iter().enumerate().take(5) {
-                                let mut subinfo = String::new();
-                                
-                                if let Ok(role) = subchild.role() {
-                                    subinfo.push_str(&format!("{}", role.to_string()));
-                                }
-                                
-                                if let Ok(desc) = subchild.description() {
-                                    let desc_str = desc.to_string();
-                                    if !desc_str.is_empty() {
-                                        if !subinfo.is_empty() {
-                                            subinfo.push_str(" - ");
-                                        }
-                                        subinfo.push_str(&desc_str);
-                                    }
-                                }
-                                
-                                if subinfo.is_empty() {
-                                    subinfo = "Unknown".to_string();
-                                }
-                                
-                                crate::bprintln!(dev: "🖥️ SCREENDUMP:     + Child {}: {}", subindex + 1, subinfo);
-                                result.push_str(&format!("      Child {}: {}\n", subindex + 1, subinfo));
-                            }
-                            
-                            if sub_children.len() > 5 {
-                                result.push_str(&format!("      ... and {} more children\n", sub_children.len() - 5));
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        Err(e) => {
-            crate::bprintln!(error: "🖥️ SCREENDUMP: Failed to get UI elements: {}", e);
-            result.push_str(&format!("  Failed to get UI elements: {}\n", e));
-        }
-    }
-
-    Ok(result)
-}
-
-
-fn get_full_screen_hierarchy() -> Result<String, String> {
-    let windows = list_all_windows()?;
-
-    let mut result = String::new();
-
-    let mut app_map: HashMap<String, Vec<&MacOSWindow>> = HashMap::new();
-
-    // Group windows by application
-    for window in &windows {
-        app_map.entry(window.app_name.clone())
-            .or_insert_with(Vec::new)
-            .push(window);
-    }
-
-    // Generate output for each application
-    for (app_name, app_windows) in app_map {
-        result.push_str(&format!("Application: {}\n", app_name));
-
-        for window in app_windows {
-            result.push_str(&format!("  Window {}: {}\n", window.index, window.window_title));
-            result.push_str(&format!("    Position: {}, {}\n", window.position.0, window.position.1));
-            result.push_str(&format!("    Size: {}×{}\n", window.size.0, window.size.1));
-        }
-
-        result.push_str("\n");
-    }
-
-    Ok(result)
-}
-
+/// Get a window's rectangle by ID
 pub fn get_macos_window_rect(window_id: &str) -> Result<(String, String, i32, i32, i32, i32), String> {
     crate::bprintln!(dev: "🖥️ SCREENDUMP: Getting window rect for '{}'", window_id);
     

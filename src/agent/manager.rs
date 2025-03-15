@@ -8,7 +8,8 @@ use super::types::{
 use crate::agent::AgentReceiver;
 use crate::config::Config;
 use crate::output::{SharedBuffer, CURRENT_BUFFER};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+use std::collections::{BTreeMap, HashMap};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -51,10 +52,10 @@ pub struct AgentHandle {
 /// 2. A secondary index by name for convenient name-based lookups
 pub struct AgentManager {
     /// Map of agent ID to agent handle (primary index)
-    agents: HashMap<AgentId, AgentHandle>,
+    agents: IndexMap<AgentId, AgentHandle>,
 
     /// Map of agent name to agent ID for efficient name lookups (secondary index)
-    name_index: HashMap<String, AgentId>,
+    name_index: IndexMap<String, AgentId>,
 
     /// Next agent ID to assign
     next_id: u64,
@@ -64,8 +65,8 @@ impl AgentManager {
     /// Create a new agent manager
     pub fn new() -> Self {
         Self {
-            agents: HashMap::new(),
-            name_index: HashMap::new(),
+            agents: IndexMap::new(),
+            name_index: IndexMap::new(),
             next_id: 1,
         }
     }
@@ -230,7 +231,7 @@ impl AgentManager {
     pub async fn terminate_all(&mut self) {
         // Don't collect ids first - just directly handle all agents
         // This avoids any issues with buffer access during termination
-        for (_id, handle) in self.agents.drain() {
+        for (_id, handle) in self.agents.drain(..) {
             // Send interrupt signal first to stop any tool execution
             let _ = handle
                 .interrupt_sender

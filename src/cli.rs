@@ -64,6 +64,20 @@ pub enum Commands {
     /// List available agent kinds/templates
     ListKinds,
 
+    /// Run a workflow from the .termineer/workflows directory
+    Workflow {
+        /// Name of the workflow to run
+        name: Option<String>,
+        
+        /// Parameters for the workflow in key=value format
+        #[arg(long = "param", short = 'p')]
+        parameters: Vec<String>,
+        
+        /// Additional query to pass to the workflow (everything after parameters)
+        #[arg(trailing_var_arg = true)]
+        query: Vec<String>,
+    },
+
     /// Dump prompt templates (hidden, debug-only feature)
     #[command(hide = true)]
     DumpPrompts {

@@ -79,13 +79,13 @@ impl McpToolProvider {
 
         Ok(())
     }
-    
+
     /// Start listening for tool and resource list changes
     pub async fn start_listening_for_updates(&self) -> McpResult<()> {
         // This would normally set up notification handlers
         // Not directly implementable in the current architecture
         // Would require additional changes to the connection logic
-        
+
         bprintln!(info: "MCP tool provider now listening for updates from the server");
         Ok(())
     }

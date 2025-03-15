@@ -1,11 +1,5 @@
-//! Termineer - AI Agent Console Interface
-//!
-//! This application provides a command-line interface for interacting with AI agents,
-//! supporting multiple agents, tool execution, and conversation management.
-
 #[macro_use]
 mod macros;
-
 mod agent;
 mod ansi_converter;
 mod cli;
@@ -19,16 +13,16 @@ mod mcp;
 mod output;
 mod prompts;
 pub mod serde;
-// Session module temporarily disabled until needed
-// mod session;
 mod tools;
 mod tui;
+mod workflow;
 
 use clap::Parser;
 use lazy_static::lazy_static;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::collections::HashMap;
 
 use agent::{AgentManager, AgentMessage, AgentState};
 use cli::{Cli, Commands, cli_to_config};
@@ -89,33 +83,128 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )
             .unwrap();
             println!("All functionality is available without authentication.");
-            return Ok(());
+            return // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(());
         }
         Some(Commands::ListKinds) => {
             // List available agent kinds and exit
-            list_available_kinds()?;
-            return Ok(());
+            list_available_kinds().map_err(|e| {
+                Box::<dyn std::error::Error + Send + Sync>::from(format!("Error listing kinds: {}", e))
+            })?;
+            return // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(());
+        }
+        Some(Commands::Workflow { name, parameters, query }) => {
+            // Convert the query vector to an Option<String> by joining with spaces
+            let query_string = if !query.is_empty() {
+                Some(query.join(" "))
+            } else {
+                None
+            };
+            // Create the main agent
+            let main_agent_id = {
+                let mut manager = agent_manager.lock().unwrap();
+                match manager.create_agent("main".to_string(), config.clone()) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        eprintln!("Failed to create main agent: {}", e);
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to create main agent: {}", e),
+                        )));
+                    }
+                }
+            };
+            
+            // Handle the workflow command
+            // Create and run workflow executor
+            let executor = workflow::executor::WorkflowExecutor::new(agent_manager.clone(), main_agent_id);
+            
+            // Load the workflow
+            match workflow::loader::load_workflow(&name.clone().unwrap_or_default()) {
+                Ok(workflow) => {
+                    // Parse parameters
+                    let mut params = HashMap::new();
+                    for param in parameters {
+                        if let Some((key, value)) = param.split_once('=') {
+                            params.insert(key.to_string(), serde_yaml::Value::String(value.to_string()));
+                        }
+                    }
+                    
+                    // Execute workflow
+                    if let Err(e) = executor.execute_workflow(&workflow, params, query_string.clone()).await {
+                        eprintln!("Workflow error: {}", e);
+                    }
+                    
+                    // Clean up: terminate all agents
+                    let mut manager = agent_manager.lock().unwrap();
+                    manager.terminate_all().await;
+                    
+                    return // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(());
+                },
+                Err(e) => {
+                    eprintln!("Failed to load workflow: {}", e);
+                    
+                    // Clean up: terminate all agents
+                    let mut manager = agent_manager.lock().unwrap();
+                    manager.terminate_all().await;
+                    
+                    return // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(());
+                }
+            }
         }
         Some(Commands::DumpPrompts { .. }) => {
             // Dump prompt templates and exit
-            // Note: The template name is already in the config
-            // TODO: Implement prompt dumping functionality
-            return Ok(());
+            // The template name is already in the config
+            if let Some(template_name) = &config.dump_prompts {
+                match prompts::protected::get_prompt_template(template_name) {
+                    Some(template_content) => {
+                        // Print the template content to stdout
+                        println!("// Template: {}", template_name);
+                        println!("{}", template_content);
+                    },
+                    None => {
+                        // Template not found
+                        eprintln!("Error: Template '{}' not found", template_name);
+                        
+                        // List available templates to help the user
+                        eprintln!("\nAvailable templates:");
+                        for available in prompts::protected::list_available_templates() {
+                            eprintln!("  - {}", available);
+                        }
+                        
+                        return std::process::exit(1);
+                    }
+                }
+            } else {
+                // This shouldn't happen as the command requires a template parameter
+                eprintln!("Error: No template name specified");
+                return std::process::exit(1);
+            }
+            return // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(());
         }
         None => {
             // Check if we have a query for non-interactive mode
             if let Some(query) = cli.query {
                 // Run in single query mode
-                run_single_query_mode(agent_manager, config, query).await?;
+                run_single_query_mode(agent_manager, config, query).await.map_err(|e| {
+                    Box::<dyn std::error::Error + Send + Sync>::from(format!("Error in single query mode: {}", e))
+                })?;
             } else {
                 // Run in interactive mode
-                run_interactive_mode(agent_manager, config).await?;
+                run_interactive_mode(agent_manager, config).await.map_err(|e| {
+                    Box::<dyn std::error::Error + Send + Sync>::from(format!("Error in interactive mode: {}", e))
+                })?;
             }
         }
     }
 
     println!("Termineer terminated successfully.");
-    Ok(())
+    // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(())
 }
 
 /// List all available agent kinds
@@ -133,7 +222,8 @@ For advanced templates: --kind plus/researcher"#
 
     println!("{}", usage_text);
 
-    Ok(())
+    // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(())
 }
 
 /// Run the application in interactive mode with TUI
@@ -147,7 +237,8 @@ async fn run_interactive_mode(
     if !is_tty {
         // Non-interactive mode requires a TTY for the TUI
         eprintln!("TUI interface requires an interactive terminal. Exiting...");
-        return Ok(());
+        return // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(());
     }
 
     // Create the main agent
@@ -184,7 +275,8 @@ async fn run_interactive_mode(
         manager.terminate_all().await;
     }
 
-    Ok(())
+    // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(())
 }
 
 /// Run the application in single query mode (non-interactive)
@@ -349,5 +441,6 @@ async fn run_single_query_mode(
         println!("{}", final_response.trim());
     }
 
-    Ok(())
+    // Explicit use of Result with the expected return type
+    Result::<(), Box<dyn std::error::Error + Send + Sync>>::Ok(())
 }

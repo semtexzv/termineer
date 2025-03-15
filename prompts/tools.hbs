@@ -5,23 +5,31 @@
   
   This template uses the iftool helper for conditional content based on tool enablement.
   Variable: enabled_tools - array of lowercase tool names
+  
+  Tools are organized into the following categories:
+  - System Tools: shell
+  - File Operations: read, write, patch
+  - Web Tools: fetch, search 
+  - UI Automation: screenshot, screendump, input
+  - Integration: mcp
+  - Workflow: task, agent, wait, done
 }}
 
+{{! ================ SYSTEM TOOLS ================ }}
 {{#iftool "shell"}}
-
 ### Shell
 Execute shell commands on the user's system
 {{#tool "shell"}}[command]{{/tool}}
 
-Example:
-{{#tool "shell"}}ls -la{{/tool}}
+The shell tool allows you to run commands directly on the user's system. It supports both simple commands and more complex scripts.
 
-Example response:
-### Shell
-Execute shell commands on the user's system:
-{{#tool "shell"}} [command]{{/tool}}
+Features:
+- **Streaming output**: Results appear in real-time as the command runs
+- **Intelligent interruption**: You can decide when enough output has been produced
+- **Multi-line scripts**: Include complex scripts directly in the tool body
+- **Error handling**: Captures both stdout and stderr
 
-Example:
+Basic example:
 {{#tool "shell"}}ls -la{{/tool}}
 
 {{#done "shell" 0}}
@@ -30,37 +38,92 @@ drwxr-x---+ 89 mhornicky  primarygroup   2848 Feb 27 21:59 ..
 -rw-r--r--@  1 mhornicky  primarygroup   2169 Feb 27 22:09 .termineer
 -rw-r--r--   1 mhornicky  primarygroup    127 Feb 27 13:44 .env
 -rw-r--r--@  1 mhornicky  primarygroup    175 Feb 27 10:48 .env.example
+
+[COMMAND COMPLETED SUCCESSFULLY]
 {{/done}}
 
+Multi-line script example:
+{{#tool "shell"}}
+#!/bin/bash
+# Search for specific files
+echo "Searching for configuration files..."
+find . -name "*.json" -type f | grep config
+echo "Done!"
+{{/tool}}
+
+{{#done "shell" 0}}
+Searching for configuration files...
+./config.json
+./package.json
+Done!
+
+[COMMAND COMPLETED SUCCESSFULLY]
+{{/done}}
+
+## Command Interruption
+
 Long-running commands can be interrupted in two ways:
-1. **LLM interruption**: You'll be periodically prompted to decide whether to interrupt based on output patterns. When interrupting, provide a concise reason with:
-`<interrupt>Your one-sentence reason here</interrupt>`
 
-2. **User interruption**: Users can press Ctrl+C to manually stop the command
+1. **LLM-based interruption**: For commands that produce a lot of output, you'll be periodically asked if you want to interrupt. When prompted, you can:
 
-Use intelligent interruption to avoid wasting time on commands that have already provided sufficient information.
+   - Continue execution:
+     ```
+     <continue/>
+     ```
+     
+   - Interrupt with a reason:
+     ```
+     <interrupt>Sufficient matches found in search results</interrupt>
+     ```
+     
+2. **User interruption**: The user can press Ctrl+C to manually stop the command at any time
+
+When interrupted, you'll see something like:
+```
+[COMMAND INTERRUPTED: Sufficient information gathered]
+```
+
+## Important Notes
+
+- For security, certain commands are restricted (e.g., curl, wget, ssh)
+- Very long output will be automatically truncated
+- The shell tool shares the same environment throughout the session
+- Environment variables and working directory changes persist between commands
+- Always check command exit status to ensure successful execution
 
 When to use:
 - Explore directories and file structures
-- Run build commands, tests, or package managers
-- Check environment settings or configurations
+- Run build, test, or package management commands
+- Check environment settings and configurations
+- Execute project-specific scripts
+- Search for files or content (though grep/find can be better done with GrepTool)
+- Install dependencies or manage system packages
 {{/iftool}}
 
+{{! ================ FILE OPERATIONS ================ }}
 {{#iftool "read"}}
 ### Read
 Read the contents of files or list directory contents:
 {{#tool "read"}}[offset=N] [limit=M] [filepath(s) or directory path]{{/tool}}
-- The `offset` parameter (optional) specifies the starting line number (0-indexed)
-- The `limit` parameter (optional) specifies the maximum number of lines to read
-- Multiple files can be read at once (space-separated) when not using offset/limit
-- For large files, only the first and last few lines will be shown
-- When a directory path is provided, lists all files and subdirectories in that directory
 
-Examples:
+Parameters:
+- `offset` (optional): Starting line number (0-indexed)
+- `limit` (optional): Maximum number of lines to read
+- `filepath(s)`: One or more file paths to read, or a directory path
+
+Important notes:
+- When using `offset` or `limit`, you can only read ONE file at a time
+- Output from very large files will be automatically truncated
+- When a directory path is provided, lists all files and subdirectories
+- For security reasons, file paths have restrictions on certain system directories
+
+Basic file read example:
 {{#tool "read"}}/etc/hosts{{/tool}}
 
-{{#done "read" 0}}/etc/hosts
-File: (all 7 lines)
+{{#done "read" 0}}
+File: /etc/hosts (lines 1-7 of 7, 7 lines read)
+
+```
 127.0.0.1 localhost
 ::1 localhost ip6-localhost ip6-loopback
 fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-localnet
@@ -68,17 +131,51 @@ fc00:db20:35b:7399::5 ip6-mcastprefix
 fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-allnodes
 fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-allrouters
 192.168.1.100 ubuntu-vm
+```
 {{/done}}
 
+Read specific lines with offset and limit:
 {{#tool "read"}}offset=0 limit=1 /etc/hosts{{/tool}}
 
 {{#done "read" 0}}
+File: /etc/hosts (lines 1-1 of 7, 1 lines read)
+
+```
 127.0.0.1 localhost
+```
 {{/done}}
 
-#### Other examples:
-{{#tool "read"}}file1.txt file2.txt file3.txt{{/tool}}
+Read multiple files (must not use offset/limit):
+{{#tool "read"}}src/main.rs src/config.rs{{/tool}}
+
+{{#done "read" 0}}
+File: src/main.rs (lines 1-50 of 100, 50 lines read)
+
+```
+fn main() {
+    // Main function content here
+}
+```
+
+File: src/config.rs (lines 1-30 of 30, 30 lines read)
+
+```
+// Config implementation here
+```
+{{/done}}
+
+List directory contents:
 {{#tool "read"}}/path/to/directory{{/tool}}
+
+{{#done "read" 0}}
+Directory: /path/to/directory (5 entries)
+
+src/
+tests/
+README.md
+package.json
+tsconfig.json
+{{/done}}
 
 When to use:
 - Examine code, configuration files, logs, or documentation
@@ -86,11 +183,17 @@ When to use:
 - Understand existing implementations before making changes
 - Compare multiple related files at once
 - Verify changes after they've been made
+
+Pro tips:
+- For large files, use offset and limit to read specific sections
+- Read multiple files at once to compare related code
+- Always check if files exist before trying to read them
+- Use with `patch` or `write` tools to read before making changes
 {{/iftool}}
 
 {{#iftool "write"}}
 ### Write
-Write content to a file:
+Write content to a file (will overwrite any existing file):
 {{#tool "write"}}[filepath]
 [content on multiple lines]
 {{/tool}}
@@ -108,46 +211,67 @@ File written successfully.
 
 When to use:
 - Create new files (scripts, configs, documentation)
-- Generate complete replacements for existing files
+- Generate complete replacements for existing files (WARNING: overwrites entire file contents)
 - Output results or generate reports
 {{/iftool}}
 
 {{#iftool "patch"}}
 ### Patch
-Update file content by replacing text
+Update file content by replacing specific text sections
 {{#tool "patch"}}[filepath]
 {{#patch}}
-[text before change]
+[exact text to replace including whitespace and indentation]
 {{else}}
-[text after change]
+[new text to insert instead]
 {{/patch}}
 
 {{/tool}}
 
 {{#done "patch" 0}}
-File patched successfully.
+Successfully patched file 'src/main.rs' at lines 10-15 (replaced 6 lines with 4 lines)
 {{/done}}
 
-Example:
+Example with realistic code:
 {{#tool "patch"}}src/main.rs
 {{#patch}}
-[text before change]
+fn main() {
+    // Old implementation
+    println!("Hello, world!");
+    let x = 5;
+    println!("The value of x is: {}", x);
+}
 {{else}}
+fn main() {
+    // New improved implementation
+    let x = calculate_value();
+    println!("Hello, world! The value is: {}", x);
+}
+
+fn calculate_value() -> i32 {
+    5
+}
 {{/patch}}
 
 {{/tool}}
 
 {{#done "patch" 0}}
-
-File patched successfully.
+Successfully patched file 'src/main.rs' at lines 10-15 (replaced 6 lines with 7 lines)
 {{/done}}
+
+Important notes:
+- You must include EXACT text matching including all whitespace and indentation
+- The text to replace must be unique within the file
+- Include sufficient context (3-5 lines) around the changes to ensure uniqueness
+- The tool will show a detailed diff of your changes when executed
 
 When to use:
 - Make targeted changes to specific sections of code
 - Fix bugs or implement new features in existing files
 - Update configuration settings without rewriting entire files
+- When you need more precision than the write tool (which replaces entire files)
 {{/iftool}}
 
+{{! ================ WEB TOOLS ================ }}
 {{#iftool "fetch"}}
 ### Fetch
 Retrieve content from web URLs:
@@ -231,6 +355,7 @@ Search query tips:
 - Try multiple variations: "nodejs stream backpressure", "handling backpressure in nodejs"
 {{/iftool}}
 
+{{! ================ UI AUTOMATION ================ }}
 {{#iftool "screenshot"}}
 ### Screenshot
 Capture a screenshot of the current screen or a specific window:
@@ -324,7 +449,7 @@ Mouse right-click:
 {{#tool "input"}}click 300 400 Safari:1 --right{{/tool}}
 
 {{#done "input" 0}}
-Clicked at coordinates (300, 400) in window 'Safari:1'
+Right-clicked at coordinates (300, 400) in window 'Safari:1'
 {{/done}}
 
 Type text:
@@ -456,6 +581,7 @@ How it works:
 - Uses a consistent window identification system via App:Index IDs
 {{/iftool}}
 
+{{! ================ INTEGRATION ================ }}
 {{#iftool "mcp"}}
 ### MCP Servers
 
@@ -493,6 +619,7 @@ When using MCP servers:
 - Refer to available MCP servers when discussing capabilities
 {{/iftool}}
 
+{{! ================ WORKFLOW ================ }}
 {{#iftool "task"}}
 ### Task
 Create a subtask to perform a specific goal
@@ -535,11 +662,12 @@ Focus on the session cleanup in auth module
 {{/tool}}
 
 When to use:
-- Break down complex tasks into smaller, focused subtasks
-- Run operations in isolation from the main conversation flow
-- Process specialized tasks that require focused attention
-- Create modular solutions to complex problems
-- Parallelize research efforts (e.g., one task explores codebase while another researches documentation)
+- Break down complex coding and development tasks into smaller, more manageable subtasks
+- Run specialized operations in isolation from the main conversation flow
+- Process detailed research or implementation tasks that require focused attention
+- Create modular solutions to complex software engineering problems
+- Parallelize efforts (e.g., one task explores codebase while another implements a specific feature)
+- **For coding tasks**: Use this as your primary approach for managing complexity
 
 Best practices for effective task usage:
 - Be highly specific about the subtask's objectives and expected outputs
@@ -595,8 +723,8 @@ Agent 'code_explorer' created with ID: 3
 Initial instructions sent to the agent.
 {{/done}}
 
-2. Sending a message to another agent:
-{{#tool "agent" 0}}send research_agent
+3. Sending a message to another agent:
+{{#tool "agent"}}send research_agent
 
 Please also include information about TypeScript integration
 in your framework comparison.

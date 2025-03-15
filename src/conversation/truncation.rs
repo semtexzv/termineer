@@ -72,15 +72,16 @@ pub struct TruncationResult {
     pub truncated_indices: BTreeSet<usize>,
 }
 
-/// Tool result info used for truncation analysis
-struct ToolResultInfo {
+/// Message info used for truncation analysis
+struct TruncationCandidate {
     /// Index of the message in the conversation
     index: usize,
     /// Name of the tool
-    #[allow(dead_code)]
     tool_name: String,
     /// Length of the content in characters
     content_length: usize,
+    /// Whether this is a tool invocation or result
+    is_invocation: bool,
 }
 
 /// Identifies and truncates eligible tool outputs in a conversation
@@ -129,7 +130,7 @@ pub fn truncate_conversation(
     }
 
     // Find all tool result messages and their info
-    let tool_results = collect_tool_results(messages);
+    let tool_results = collect_truncation_candidates(messages);
 
     // If we don't have enough tool outputs to truncate, return None
     if tool_results.len() <= config.preserve_initial_tools + config.preserve_recent_tools {
@@ -158,12 +159,13 @@ fn should_truncate(token_usage: &TokenUsage, safe_token_limit: usize) -> bool {
     token_usage.input_tokens >= safe_token_limit
 }
 
-/// Collect all tool result messages from the conversation
-fn collect_tool_results(messages: &[Message]) -> Vec<ToolResultInfo> {
-    let mut tool_results = Vec::new();
+/// Collect all tool result and tool invocation messages from the conversation
+fn collect_truncation_candidates(messages: &[Message]) -> Vec<TruncationCandidate> {
+    let mut candidates = Vec::new();
 
     for (i, message) in messages.iter().enumerate() {
         match &message.info {
+            // Collect tool results
             MessageInfo::ToolResult { tool_name, .. } => {
                 // Skip "done" tool which is typically important
                 if tool_name != "done" {
@@ -172,23 +174,25 @@ fn collect_tool_results(messages: &[Message]) -> Vec<ToolResultInfo> {
                         _ => 0,
                     };
 
-                    tool_results.push(ToolResultInfo {
+                    candidates.push(TruncationCandidate {
                         index: i,
                         tool_name: tool_name.clone(),
                         content_length,
+                        is_invocation: false,
                     });
                 }
-            }
+            },
+            // Add handling for other message types here
             _ => {}
         }
     }
 
-    tool_results
+    candidates
 }
 
 /// Identify which tool results should be truncated
 fn identify_truncation_candidates(
-    tool_results: &[ToolResultInfo],
+    tool_results: &[TruncationCandidate],
     config: &TruncationConfig,
 ) -> BTreeSet<usize> {
     let mut candidates = BTreeSet::new();

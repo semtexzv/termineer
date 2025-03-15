@@ -1,16 +1,14 @@
 pub mod agent;
 pub mod done;
 pub mod fetch;
-pub mod input;
 pub mod mcp;
 pub mod patch;
 pub mod path_utils;
 pub mod read;
-pub mod screendump;
-pub mod screenshot;
 pub mod search;
 pub mod shell;
 pub mod task;
+pub mod ui;
 pub mod wait;
 pub mod write;
 
@@ -18,15 +16,15 @@ pub mod write;
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
 pub use fetch::execute_fetch;
-pub use input::execute_input;
 pub use mcp::execute_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
-pub use screendump::execute_screendump;
-pub use screenshot::execute_screenshot;
 pub use search::execute_search;
 pub use shell::InterruptData;
 pub use task::execute_task;
+pub use ui::input::execute_input;
+pub use ui::screendump::execute_screendump;
+pub use ui::screenshot::execute_screenshot;
 pub use wait::execute_wait;
 pub use write::execute_write;
 
@@ -223,7 +221,7 @@ impl ToolExecutor {
             _ => {
                 if !self.silent_mode {
                     // Always use buffer-based printing with direct formatting
-                    bprintln !(error:"Unknown tool: {:?}", tool_name);
+                    bprintln !(error:"Unknown tool: {:?}, args:{}, body:{}", tool_name, args, body);
                 }
                 ToolResult::error(format!("Unknown tool: {:?}", tool_name))
             }

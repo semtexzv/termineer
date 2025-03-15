@@ -191,6 +191,8 @@ impl Agent {
             }
         }
         
+        // No session loading - sessions are disabled
+        
         // Load project information and autoinclude files at startup for every agent
         if let Err(e) = self.load_project_info(None, false).await {
             bprintln !(error:"Failed to load project information: {}", e);
@@ -1299,6 +1301,8 @@ impl Agent {
                 MessageInfo::Assistant,
             ));
 
+            // No session saving needed
+
             // If this is a regular response, set the state back to Idle
             // so the agent waits for the next user input
             self.state = AgentState::Idle;
@@ -1487,6 +1491,8 @@ impl Agent {
             }
         }
 
+        // No session saving needed
+        
         // Return with continue_processing flag set to true to indicate tool processing should continue
         // The agent run loop will handle sending the next empty message
         Ok(MessageResult {
