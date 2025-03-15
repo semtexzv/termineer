@@ -9,7 +9,6 @@ use crate::agent::AgentReceiver;
 use crate::config::Config;
 use crate::output::{SharedBuffer, CURRENT_BUFFER};
 use indexmap::IndexMap;
-use std::collections::{BTreeMap, HashMap};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -203,9 +202,22 @@ impl AgentManager {
         }
     }
 
+    /// Remove an agent from the manager without termination
+    pub fn remove_agent(&mut self, id: AgentId) -> Result<(), AgentError> {
+        if let Some(handle) = self.agents.shift_remove(&id) {
+            // Remove from name index
+            self.name_index.shift_remove(&handle.name);
+            // Abort the task
+            handle.join_handle.abort();
+            Ok(())
+        } else {
+            Err(AgentError::AgentNotFound(id))
+        }
+    }
+
     /// Terminate an agent
     pub async fn terminate_agent(&mut self, id: AgentId) -> Result<(), AgentError> {
-        if let Some(handle) = self.agents.remove(&id) {
+        if let Some(handle) = self.agents.shift_remove(&id) {
             // Send interrupt signal first to stop any tool execution
             let _ = handle
                 .interrupt_sender
@@ -219,7 +231,7 @@ impl AgentManager {
             handle.join_handle.abort();
 
             // Remove from name index
-            self.name_index.remove(&handle.name);
+            self.name_index.shift_remove(&handle.name);
 
             Ok(())
         } else {

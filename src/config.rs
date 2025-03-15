@@ -108,15 +108,6 @@ impl Config {
         }
     }
 
-    /// Create a new configuration with a specific model
-    pub fn with_model(model: String) -> Self {
-        let mut config = Self::new();
-        config.model = model;
-        // Apply model-specific grammar settings if not explicitly set
-        config.apply_model_specific_grammar();
-        config
-    }
-
     /// Apply model-specific settings, such as selecting the appropriate grammar
     /// based on the model name
     ///

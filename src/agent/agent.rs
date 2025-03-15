@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
+use anyhow::format_err;
 use super::interrupt::{spawn_interrupt_monitor, InterruptCoordinator};
 use super::types::{
     AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, InterruptReceiver, StateSender,
@@ -1568,7 +1568,7 @@ impl Agent {
     /// Initialize MCP connections from configuration file
     async fn initialize_mcp_connections(
         &mut self,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> anyhow::Result<()> {
         // Use the silent mode setting from the tool executor
         let silent_mode = self.tool_executor.is_silent();
 
@@ -1649,7 +1649,7 @@ impl Agent {
                 }
                 Ok(())
             }
-            Err(e) => Err(format!("Failed to initialize MCP connections: {}", e).into()),
+            Err(e) => Err(format_err!("Failed to initialize MCP connections: {}", e)),
         }
     }
 }

@@ -29,6 +29,12 @@ pub const FORMAT_MAGENTA: &str = "\x1b[35m";
 pub const FORMAT_CYAN: &str = "\x1b[36m";
 pub const FORMAT_RED_BG: &str = "\x1b[41m";
 pub const FORMAT_GREEN_BG: &str = "\x1b[42m";
+// Colors for diff output (using 256-color indexed colors)
+pub const FORMAT_DIFF_DELETED: &str = "\x1b[48;5;224m";     // Light pastel red background
+pub const FORMAT_DIFF_ADDED: &str = "\x1b[48;5;193m";       // Light pastel green background
+pub const FORMAT_DIFF_DELETED_CHAR: &str = "\x1b[48;5;217m"; // Darker red for char-level changes
+pub const FORMAT_DIFF_ADDED_CHAR: &str = "\x1b[48;5;157m";   // Darker green for char-level changes
+pub const FORMAT_DIFF_SECTION: &str = "\x1b[38;5;39m";      // Bright blue for section markers
 
 // Patch tool delimiters
 pub const PATCH_DELIMITER_BEFORE: &str = "<<<<BEFORE";

@@ -4,13 +4,11 @@
 //! executing workflows from the CLI.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
+use anyhow::format_err;
 use serde_yaml::Value as YamlValue;
 
-use crate::agent::AgentManager;
 use crate::workflow::loader::{ensure_workflows_directory, list_workflows, load_workflow};
-use crate::workflow::executor::WorkflowExecutor;
+use crate::workflow::executor;
 use crate::workflow::context::WorkflowError;
 
 /// Handle the workflow command from the CLI
@@ -18,9 +16,8 @@ pub async fn handle_workflow_command(
     name: &Option<String>,
     param_values: &[String],
     query: Option<String>,
-    agent_manager: Arc<Mutex<crate::agent::AgentManager>>,
     agent_id: crate::agent::AgentId,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> anyhow::Result<()> {
     // Ensure the workflows directory exists
     ensure_workflows_directory()?;
     
@@ -30,7 +27,7 @@ pub async fn handle_workflow_command(
     }
     
     // Get the workflow name
-    let workflow_name = name.as_ref().ok_or("No workflow specified")?;
+    let workflow_name = name.as_ref().ok_or(format_err!("No workflow specified"))?;
     
     // Load the workflow
     let workflow = load_workflow(workflow_name)?;
@@ -38,16 +35,14 @@ pub async fn handle_workflow_command(
     // Parse parameters
     let parameters = parse_parameters_from_values(param_values, &workflow)?;
     
-    // Create and run workflow executor
-    let executor = WorkflowExecutor::new(agent_manager, agent_id);
-    // Pass the query from the command line
-    executor.execute_workflow(&workflow, parameters, query).await?;
+    // Execute the workflow
+    executor::execute_workflow(&workflow, parameters, query, agent_id).await?;
     
     Ok(())
 }
 
 /// List all available workflows
-async fn list_available_workflows() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn list_available_workflows() -> anyhow::Result<()> {
     let workflows = list_workflows()?;
     
     if workflows.is_empty() {

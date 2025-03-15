@@ -60,36 +60,51 @@ pub struct Step {
     /// Common fields
     pub description: Option<String>,
     
-    /// Only one of these will be present, determining the step type
+    /// Step type identifiers
     #[serde(rename = "shell")]
     pub shell_id: Option<String>,
     
-    #[serde(rename = "message")]
-    pub message_id: Option<String>,
-    
-    #[serde(rename = "file")]
-    pub file_id: Option<String>,
-    
-    #[serde(rename = "output")]
-    pub output_id: Option<String>,
-    
-    #[serde(rename = "wait")]
-    pub wait_id: Option<String>,
+    #[serde(rename = "agent")]
+    pub agent_id: Option<String>,
     
     /// Shell step fields
     pub command: Option<String>,
     pub store_output: Option<String>,
+    #[allow(dead_code)]
     pub fail_on_error: Option<bool>,
     
-    /// Message step fields (for agent interaction)
+    /// Agent step fields
+    pub kind: Option<String>,
+    pub prompt: Option<String>,
+    pub into: Option<String>,
+    
+    /// Keep fields for message, file, output, and wait steps to maintain deserializing
+    /// compatibility with existing workflow files, even though we don't use them
+    #[serde(rename = "message")]
+    #[allow(dead_code)]
+    pub message_id: Option<String>,
+    
+    #[serde(rename = "file")]
+    #[allow(dead_code)]
+    pub file_id: Option<String>,
+    
+    #[serde(rename = "output")]
+    #[allow(dead_code)]
+    pub output_id: Option<String>,
+    
+    #[serde(rename = "wait")]
+    #[allow(dead_code)]
+    pub wait_id: Option<String>,
+    
+    #[allow(dead_code)]
     pub content: Option<String>,
+    #[allow(dead_code)]
     pub store_response: Option<String>,
-    
-    /// File step fields
+    #[allow(dead_code)]
     pub action: Option<FileAction>,
+    #[allow(dead_code)]
     pub path: Option<String>,
-    
-    /// Wait step fields (separate from message to avoid conflict with message_id)
+    #[allow(dead_code)]
     pub wait_message: Option<String>,
 }
 
@@ -99,18 +114,9 @@ pub enum StepType {
     /// A shell command
     Shell,
     
-    /// A message to the agent
-    Message,
-    
-    /// A file operation
-    File,
-    
-    /// Output to the user
-    Output,
-    
-    /// Wait for user input
-    Wait,
-    
+    /// Agent step that creates a new agent
+    Agent,
+
     /// Unknown step type
     Unknown,
 }
@@ -119,10 +125,7 @@ impl fmt::Display for StepType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             StepType::Shell => write!(f, "shell"),
-            StepType::Message => write!(f, "message"),
-            StepType::File => write!(f, "file"),
-            StepType::Output => write!(f, "output"),
-            StepType::Wait => write!(f, "wait"),
+            StepType::Agent => write!(f, "agent"),
             StepType::Unknown => write!(f, "unknown"),
         }
     }
@@ -133,14 +136,8 @@ impl Step {
     pub fn get_type(&self) -> StepType {
         if self.shell_id.is_some() {
             StepType::Shell
-        } else if self.message_id.is_some() {
-            StepType::Message
-        } else if self.file_id.is_some() {
-            StepType::File
-        } else if self.output_id.is_some() {
-            StepType::Output
-        } else if self.wait_id.is_some() {
-            StepType::Wait
+        } else if self.agent_id.is_some() {
+            StepType::Agent
         } else {
             StepType::Unknown
         }
@@ -150,13 +147,7 @@ impl Step {
     pub fn get_id(&self) -> String {
         if let Some(id) = &self.shell_id {
             id.clone()
-        } else if let Some(id) = &self.message_id {
-            id.clone()
-        } else if let Some(id) = &self.file_id {
-            id.clone()
-        } else if let Some(id) = &self.output_id {
-            id.clone()
-        } else if let Some(id) = &self.wait_id {
+        } else if let Some(id) = &self.agent_id {
             id.clone()
         } else {
             "unknown".to_string()
@@ -165,6 +156,7 @@ impl Step {
 }
 
 /// The action to perform on a file
+/// Note: Kept for deserialization compatibility with existing workflow files
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum FileAction {

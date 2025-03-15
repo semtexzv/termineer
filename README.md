@@ -15,6 +15,11 @@ Termineer creates a seamless bridge between the terminal environment and state-o
 - **Powerful Tooling**: Execute commands, manipulate files, fetch web content, and more through natural language
 - **Terminal Efficiency**: Maintain your productivity environment without switching contexts
 - **Conversational Approach**: Inspired by the emerging practice of expressing intent through conversation rather than explicit coding (sometimes called "vibe coding")
+- **Rich Terminal UI**: Sophisticated terminal interface with conversation history and tool output display
+- **Subscription Tiers**: Free/Plus/Pro modes with different feature sets and model access
+- **Multi-Agent Collaboration**: Create and coordinate multiple agents for complex tasks
+- **Task Management**: Create subtasks with specialized agent kinds for focused execution
+- **Intelligent Interruption**: LLM-based decision-making for interrupting long-running operations
 
 ## Requirements
 
@@ -22,6 +27,18 @@ Termineer creates a seamless bridge between the terminal environment and state-o
 - Anthropic API key (for Claude models)
 - Google API key (for Gemini models)
 - OpenRouter API key (optional, for access to various models through OpenRouter)
+
+## Project Structure
+
+The Termineer project is organized into several key components:
+
+- **Core Application**: Main program logic, configuration, and UI implementation
+- **Agent System**: Agent implementation with conversation management and LLM interaction
+- **Tools Implementation**: Comprehensive tool suite for environment interaction
+- **LLM Integration**: Interface for communicating with different AI model providers
+- **Model Context Protocol (MCP)**: Support for extending agent capabilities via MCP
+- **Authentication**: OAuth-based authentication system for subscription management
+- **Server Component**: Backend server for authentication, subscriptions, and API services
 
 ## Installation
 
@@ -230,3 +247,21 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 MIT
+
+## Testing The Patch Tool
+
+This section was successfully updated using the Termineer patch tool to demonstrate its functionality! The patch tool allows for precise updates to files by:
+
+1. Specifying the exact text to replace (including whitespace and indentation)
+2. Providing the new text to insert instead
+3. Applying the changes with proper context validation
+4. Ensuring the changes are applied correctly at the intended location
+
+When using the patch tool, remember to include sufficient context around your changes to ensure uniqueness within the file. This helps the tool identify exactly where changes should be applied, particularly in large files with similar sections.
+
+### Patch Tool Best Practices
+
+- Include 3-5 lines of context around your changes
+- Match whitespace and indentation exactly
+- Test patches on small sections before making large changes
+- Verify the file after patching to ensure changes were applied correctly

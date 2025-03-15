@@ -8,7 +8,6 @@ pub mod types;
 pub mod context;
 pub mod executor;
 pub mod loader;
-pub mod steps;
 pub mod cli;
 
 // We don't re-export components to avoid circular dependencies

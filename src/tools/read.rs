@@ -279,17 +279,16 @@ async fn read_file_content(
 
             // Direct output to console if not in silent mode
             if !silent_mode {
-                let num_lines = end_line - start_line;
                 // Create a brief preview for console output
                 let preview_lines = lines[start_line..end_line]
                     .iter()
                     .take(2)
                     .map(ToString::to_string)
-                    .chain(once(format!(" + {} lines", end_line.saturating_sub(start_line).saturating_sub(2))))
+                    .chain(once(format!("+ {} lines", end_line.saturating_sub(start_line).saturating_sub(2))))
                     .map(|line| format!("{}{}{}", FORMAT_GRAY, line, FORMAT_RESET))
                     .collect::<Vec<String>>()
                     .join("\n");
-                
+
                 // Use output buffer for read tool output
                 if !preview_lines.is_empty() {
                     bprintln !(tool: "read",

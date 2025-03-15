@@ -1,0 +1,46 @@
+name: "Simple Feature Workflow"
+description: "End-to-end feature implementation using just natural language instructions"
+
+query_template: "{{query}}"
+
+steps:
+  - agent: "Analyze codebase"
+    kind: general
+    prompt: |
+      Read through the codebase, I want to implement a new feature: {{query}}. 
+      Come up with files that will be useful to know during the implementation.
+    into: analysis
+
+  - agent: "Research"
+    kind: general
+    prompt: |
+      Search web for information related to implementing this feature:
+        {{query}}
+      This is codebase analysis:
+        {{analysis}}
+    into: research
+
+  - agent: "Implement"
+    kind: general
+    prompt: |
+      # Implement this feature: 
+      {{query}}
+      # Codebase analysis: 
+      {{analysis}}
+      # Web research: 
+      {{research}}
+
+    into: result
+
+  - agent: "Test"
+    kind: general
+    prompt: |
+      We've implemented this feature:  
+      {{query}}
+      # Codebase analysis: 
+      {{analysis}}
+      # Web research: 
+      {{research}}
+      # Status
+      {{result}}
+      Now implement tests please

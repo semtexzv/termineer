@@ -3,31 +3,23 @@
 //! Handles executing each step in a workflow, managing the context,
 //! and coordinating between steps.
 
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::Command;
-use std::io::{self, Write};
-use tokio::fs;
-use tokio::time::Duration;
-use tokio::io::AsyncWriteExt;
+use std::io;
 
-use crate::agent::{AgentManager, AgentMessage, AgentState};
-use crate::workflow::types::{Workflow, Step, StepType, FileAction};
+use crate::agent::{AgentId, AgentMessage};
+use crate::workflow::types::{Workflow, Step, StepType};
 use crate::workflow::context::{WorkflowContext, WorkflowError};
 
 /// Executor for workflows
 pub struct WorkflowExecutor {
-    /// The agent manager
-    agent_manager: Arc<Mutex<crate::agent::AgentManager>>,
-    
-    /// The agent ID to use for executing messages
-    agent_id: crate::agent::AgentId,
+    // The struct is kept for API compatibility, but doesn't need to store any fields
 }
 
 impl WorkflowExecutor {
-    /// Create a new workflow executor with the given agent
-    pub fn new(agent_manager: Arc<Mutex<crate::agent::AgentManager>>, agent_id: crate::agent::AgentId) -> Self {
-        Self { agent_manager, agent_id }
+    /// Create a new workflow executor
+    pub fn new(_agent_id: crate::agent::AgentId) -> Self {
+        Self { }
     }
     
     /// Execute a workflow with the given parameters and optional query
@@ -64,27 +56,25 @@ impl WorkflowExecutor {
             let step_type = step.get_type();
             let step_id = step.get_id();
             
-            println!("Step {}/{}: {} - {}", 
+            // Enhanced logging with more visible separation between steps
+            println!("\n{}", "=".repeat(80));
+            println!("📋 STEP {}/{}: {} - {}", 
                      step_index + 1, 
                      workflow.steps.len(),
                      step_id, 
                      step.description.as_deref().unwrap_or(""));
+            println!("{}\n", "-".repeat(80));
+            
+            // Logging to monitor execution
+            println!("Executing step with type: {}", step_type);
             
             match step_type {
                 StepType::Shell => {
                     self.execute_shell_step(step, &mut context).await?;
                 },
-                StepType::Message => {
-                    self.execute_message_step(step, &mut context).await?;
-                },
-                StepType::File => {
-                    self.execute_file_step(step, &mut context).await?;
-                },
-                StepType::Output => {
-                    self.execute_output_step(step, &mut context).await?;
-                },
-                StepType::Wait => {
-                    self.execute_wait_step(step, &mut context).await?;
+                StepType::Agent => {
+                    println!("Executing agent step: {}", step.get_id());
+                    self.execute_agent_step(step, &mut context).await?;
                 },
                 StepType::Unknown => {
                     return Err(WorkflowError::InvalidStepType);
@@ -92,7 +82,9 @@ impl WorkflowExecutor {
             }
         }
         
-        println!("Workflow completed successfully");
+        println!("\n{}", "=".repeat(80));
+        println!("✅ WORKFLOW COMPLETED SUCCESSFULLY: {}", workflow.name);
+        println!("{}", "=".repeat(80));
         Ok(())
     }
     
@@ -110,14 +102,29 @@ impl WorkflowExecutor {
         let rendered_command = context.render_template(command)?;
         
         // Execute shell command directly
-        println!("Executing: {}", rendered_command);
+        println!("🔄 Executing shell command: {}", rendered_command);
+        println!("{}", "-".repeat(40));
         
         let output = self.execute_shell_command(&rendered_command)
             .map_err(|e| WorkflowError::ShellError(e.to_string()))?;
         
         // Store output if specified
         if let Some(var_name) = &step.store_output {
-            context.set_variable(var_name.clone(), output);
+            context.set_variable(var_name.clone(), output.clone());
+            println!("✅ Command output stored in variable: {}", var_name);
+            
+            // Log a preview of the output (truncated if very long)
+            let preview = if output.len() > 500 {
+                format!("{}... [truncated {} more characters]", 
+                        &output[..500], output.len() - 500)
+            } else {
+                output.clone()
+            };
+            
+            println!("\n📄 Output preview: \n{}\n", preview);
+        } else {
+            // Always show output preview if not stored in a variable
+            println!("\n📄 Command output: \n{}\n", output);
         }
         
         Ok(())
@@ -153,261 +160,196 @@ impl WorkflowExecutor {
         Ok(result)
     }
     
-    /// Execute an agent message step
-    async fn execute_message_step(
+    /// Execute an agent step with streaming output
+    async fn execute_agent_step(
         &self, 
         step: &Step,
         context: &mut WorkflowContext,
     ) -> Result<(), WorkflowError> {
+        use std::time::{Duration, Instant};
+        use tokio::time::sleep;
+        
         // Verify required fields
-        let content = step.content.as_ref()
-            .ok_or(WorkflowError::MissingField("content".to_string()))?;
+        let agent_id = step.get_id();
+        let prompt_template = step.prompt.as_ref()
+            .ok_or(WorkflowError::MissingField("prompt".to_string()))?;
         
-        // Render message with variable interpolation
-        let rendered_content = context.render_template(content)?;
+        // Render prompt with variable interpolation
+        let rendered_prompt = context.render_template(prompt_template)?;
         
-        // Send to agent as a user input message
-        println!("Sending message to agent: {}", step.get_id());
+        // Log agent step with formatted header
+        println!("🤖 Creating agent: {}", agent_id);
         
-        // Create user input message
-        let message = AgentMessage::UserInput(rendered_content);
-        
-        // Get the current state of the agent to detect when it changes
-        let initial_state = {
-            let manager = self.agent_manager.lock().unwrap();
-            manager.get_agent_state(self.agent_id)
-                .unwrap_or(AgentState::Idle)
+        // Use specified kind or default to "general"
+        let kind = step.kind.as_ref().map(|k| k.as_str()).unwrap_or("general");
+        println!("Agent kind: {}", kind);
+        println!("{}", "-".repeat(40));
+                
+        // Log the prompt being sent (truncated if very long)
+        let preview = if rendered_prompt.len() > 500 {
+            format!("{}... [truncated {} more characters]", 
+                    &rendered_prompt[..500], rendered_prompt.len() - 500)
+        } else {
+            rendered_prompt.clone()
         };
         
+        println!("📨 Agent prompt:\n{}\n", preview);
+        
+        // Create a config for the new agent with the specified kind
+        let mut agent_config = crate::config::Config::new();
+        agent_config.kind = Some(kind.to_string());
+        
+        // Create a new agent with the generated name and config
+        let agent_name = format!("workflow_agent_{}", agent_id);
+        let new_agent_id = crate::agent::create_agent(agent_name, agent_config)
+            .map_err(|e| WorkflowError::AgentError(format!("Failed to create agent: {}", e)))?;
+        
+        // Set up buffer streaming for real-time feedback
+        let mut last_line_count = 0;
+        let mut buffer_check_time = Instant::now();
+        let buffer_check_interval = Duration::from_millis(100);
+        let state_check_interval = Duration::from_millis(500);
+        let mut state_check_time = Instant::now();
+        
         // Send the message to the agent
-        {
-            let manager = self.agent_manager.lock().unwrap();
-            manager.send_message(self.agent_id, message)
-                .map_err(|e| WorkflowError::AgentError(format!("Failed to send message: {}", e)))?;
-        }
+        crate::agent::send_message(
+            new_agent_id, 
+            AgentMessage::UserInput(rendered_prompt)
+        ).map_err(|e| WorkflowError::AgentError(format!("Failed to send message: {}", e)))?;
         
-        // Wait for the agent to process the message
-        let mut attempts = 0;
-        let max_attempts = 300; // Wait up to 5 minutes (1 second intervals)
+        println!("Agent is now processing, waiting for completion...");
+        println!("{}", "-".repeat(40));
         
-        // Wait for the state to change from Processing back to Idle or Done
-        let mut done_state: Option<AgentState> = None;
+        // Use a custom timeout of 5 minutes (300 seconds)
+        let timeout_seconds = 300;
+        let timeout = Duration::from_secs(timeout_seconds);
+        let start_time = Instant::now();
+        let mut last_activity_time = Instant::now();
         
-        while done_state.is_none() && attempts < max_attempts {
-            // Sleep briefly to avoid busy-waiting
-            tokio::time::sleep(Duration::from_secs(1)).await;
+        // Use a manual approach that combines buffer streaming and state checking
+        let mut response = String::new();
+        let mut done = false;
+        
+        // Keep checking until we're done or reach timeout
+        while !done && start_time.elapsed() < timeout {
+            let mut had_activity = false;
             
-            // Get the agent's current state
-            let current_state = {
-                let manager = self.agent_manager.lock().unwrap();
-                manager.get_agent_state(self.agent_id)
-                    .unwrap_or(AgentState::Idle)
-            };
+            // Sleep briefly to avoid tight polling
+            sleep(Duration::from_millis(50)).await;
             
-            // Check if the state indicates completion
-            match &current_state {
-                AgentState::Idle => {
-                    // State has changed to Idle, indicating completion
-                    if let AgentState::Processing = initial_state {
-                        done_state = Some(current_state);
+            // 1. Stream buffer updates only at certain intervals
+            if buffer_check_time.elapsed() >= buffer_check_interval {
+                buffer_check_time = Instant::now();
+                
+                if let Ok(buffer) = crate::agent::get_agent_buffer(new_agent_id) {
+                    let lines = buffer.lines();
+                    let current_count = lines.len();
+                    
+                    // Check if we have new lines
+                    if current_count > last_line_count {
+                        had_activity = true;
+                        
+                        // Print new lines with a subtle prefix
+                        for i in last_line_count..current_count {
+                            if let Some(line) = lines.get(i) {
+                                // Filter out certain system messages for cleaner output
+                                if !line.content.starts_with("🤖") && 
+                                   !line.content.contains("Token usage:") {
+                                    println!("│ {}", line.content);
+                                }
+                            }
+                        }
+                        last_line_count = current_count;
                     }
-                },
-                AgentState::Done(response) => {
-                    // State has changed to Done, with a response
-                    done_state = Some(current_state);
-                },
-                AgentState::Processing => {
-                    // Still processing, continue waiting
-                },
-                AgentState::RunningTool { .. } => {
-                    // Tool is running, continue waiting
-                },
-                AgentState::Terminated => {
-                    // Agent was terminated, error out
-                    return Err(WorkflowError::AgentError("Agent was terminated".to_string()));
-                },
+                }
             }
             
-            attempts += 1;
+            // 2. Check if agent is done (less frequently than buffer checks)
+            if state_check_time.elapsed() >= state_check_interval {
+                state_check_time = Instant::now();
+                
+                if let Ok(state) = crate::agent::get_agent_state(new_agent_id) {
+                    match state {
+                        crate::agent::AgentState::Done(Some(content)) => {
+                            // Agent is done with a response
+                            response = content;
+                            done = true;
+                            break;
+                        },
+                        crate::agent::AgentState::Terminated => {
+                            // Agent was terminated
+                            return Err(WorkflowError::AgentError("Agent was terminated".to_string()));
+                        },
+                        crate::agent::AgentState::Processing |
+                        crate::agent::AgentState::RunningTool { .. } => {
+                            // These are active states, update activity timestamp
+                            had_activity = true;
+                        },
+                        _ => {}
+                    }
+                }
+            }
+            
+            // Update the last activity time if we saw activity
+            if had_activity {
+                last_activity_time = Instant::now();
+            }
+            
+            // Additional check: if no activity for 30 seconds, check more aggressively
+            if last_activity_time.elapsed() > Duration::from_secs(30) {
+                // Force check agent state at next iteration
+                state_check_time = Instant::now() - state_check_interval;
+            }
         }
         
-        if attempts >= max_attempts {
+        // If we reached here and we're not done, we timed out
+        if !done {
+            // Try to terminate the agent cleanly
+            let _ = crate::agent::send_message(new_agent_id, AgentMessage::Terminate);
+            
             return Err(WorkflowError::AgentError(
-                "Timeout waiting for agent response".to_string()
+                format!("Agent did not complete within {} seconds", timeout_seconds)
             ));
         }
         
-        // Extract the response from the agent's buffer
-        let response = {
-            let manager = self.agent_manager.lock().unwrap();
+        println!("{}", "-".repeat(40));
+        println!("✅ Agent task completed!");
+        
+        // Store response in the specified variable
+        if let Some(var_name) = &step.into {
+            context.set_variable(var_name.clone(), response.clone());
+            println!("Response stored in variable: {}", var_name);
             
-            // Get the buffer contents
-            if let Ok(buffer) = manager.get_agent_buffer(self.agent_id) {
-                // Extract the most recent assistant message
-                // This is a simplified approach - in a real implementation,
-                // we would parse the buffer more carefully
-                let buffer_text = format!("{:?}", buffer);
-                
-                // Use a simple heuristic to extract the last response
-                // In a real implementation, this would be more sophisticated
-                buffer_text
+            // Log a preview of the response
+            let preview = if response.len() > 500 {
+                format!("{}... [truncated {} more characters]", 
+                        &response[..500], response.len() - 500)
             } else {
-                "Could not retrieve agent response".to_string()
-            }
-        };
-        
-        // Store the agent's response in the context
-        context.set_agent_response(response.clone());
-        
-        // Also store in a named variable if specified
-        if let Some(var_name) = &step.store_response {
-            context.set_variable(var_name.clone(), response);
-        }
-        
-        Ok(())
-    }
-    
-    /// Execute a file operation step
-    async fn execute_file_step(
-        &self, 
-        step: &Step,
-        context: &mut WorkflowContext,
-    ) -> Result<(), WorkflowError> {
-        // Verify required fields
-        let action = step.action.as_ref()
-            .ok_or(WorkflowError::MissingField("action".to_string()))?;
-        let path = step.path.as_ref()
-            .ok_or(WorkflowError::MissingField("path".to_string()))?;
-        
-        // Render path with variable interpolation
-        let rendered_path = context.render_template(path)?;
-        
-        match action {
-            FileAction::Read => {
-                // Read file content
-                let content = fs::read_to_string(&rendered_path)
-                    .await
-                    .map_err(|e| WorkflowError::IoError(e))?;
-                
-                // Store content if specified
-                if let Some(var_name) = &step.store_output {
-                    context.set_variable(var_name.clone(), content);
-                }
-            },
-            FileAction::Write => {
-                // Check if content is provided
-                if let Some(content_template) = &step.content {
-                    // Render content with variable interpolation
-                    let content = context.render_template(content_template)?;
-                    
-                    // Ensure the directory exists
-                    if let Some(parent) = std::path::Path::new(&rendered_path).parent() {
-                        if !parent.exists() {
-                            fs::create_dir_all(parent)
-                                .await
-                                .map_err(|e| WorkflowError::IoError(e))?;
-                        }
-                    }
-                    
-                    // Write to file
-                    fs::write(&rendered_path, content)
-                        .await
-                        .map_err(|e| WorkflowError::IoError(e))?;
-                } else {
-                    return Err(WorkflowError::MissingField("content".to_string()));
-                }
-            },
-            FileAction::Append => {
-                // Check if content is provided
-                if let Some(content_template) = &step.content {
-                    // Render content with variable interpolation
-                    let content = context.render_template(content_template)?;
-                    
-                    // Ensure the directory exists
-                    if let Some(parent) = std::path::Path::new(&rendered_path).parent() {
-                        if !parent.exists() {
-                            fs::create_dir_all(parent)
-                                .await
-                                .map_err(|e| WorkflowError::IoError(e))?;
-                        }
-                    }
-                    
-                    // Append to file (open in append mode)
-                    let mut file = fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&rendered_path)
-                        .await
-                        .map_err(|e| WorkflowError::IoError(e))?;
-                    
-                    file.write_all(content.as_bytes())
-                        .await
-                        .map_err(|e| WorkflowError::IoError(e))?;
-                } else {
-                    return Err(WorkflowError::MissingField("content".to_string()));
-                }
-            },
-        }
-        
-        Ok(())
-    }
-    
-    /// Execute an output step
-    async fn execute_output_step(
-        &self, 
-        step: &Step,
-        context: &mut WorkflowContext,
-    ) -> Result<(), WorkflowError> {
-        // Verify required fields
-        let content = step.content.as_ref()
-            .ok_or(WorkflowError::MissingField("content".to_string()))?;
-        
-        // Render content with variable interpolation
-        let rendered_content = context.render_template(content)?;
-        
-        // Format output with a prefix to make it stand out
-        let formatted_output = format!("🔶 WORKFLOW OUTPUT: {}", rendered_content);
-        
-        // Print to console using buffer printing
-        println!("{}", formatted_output);
-        
-        // Optionally, we could also send this output to the agent's buffer
-        // for visualization in the UI, but this might be confusing
-        
-        Ok(())
-    }
-    
-    /// Execute a wait step
-    async fn execute_wait_step(
-        &self, 
-        step: &Step,
-        context: &mut WorkflowContext,
-    ) -> Result<(), WorkflowError> {
-        // Render message if provided, or use default
-        let message = if let Some(msg_template) = &step.wait_message {
-            context.render_template(msg_template)?
+                response.clone()
+            };
+            
+            println!("\n📩 Response preview:\n{}\n", preview);
         } else {
-            "Press Enter to continue...".to_string()
-        };
+            // Always show a preview if not stored in a variable
+            println!("\n📝 Agent response (not stored in any variable):\n{}\n", response);
+        }
         
-        // Format wait message with special formatting
-        let formatted_message = format!(
-            "{}⏸️ WORKFLOW PAUSED:{} {}\nPress Enter to continue...",
-            crate::constants::FORMAT_BOLD,
-            crate::constants::FORMAT_RESET,
-            message
-        );
-        
-        // Display message and wait for input
-        println!("{}", formatted_message);
-        
-        // Wait for user input
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer)?;
-        
-        // Let the user know we're continuing
-        println!("▶️ Workflow continuing...");
+        // Send a terminate message to the agent
+        if let Err(e) = crate::agent::send_message(new_agent_id, AgentMessage::Terminate) {
+            println!("Warning: Failed to send terminate message to agent: {}", e);
+        }
         
         Ok(())
     }
+}
+
+/// Execute a workflow with the given parameters and main agent
+pub async fn execute_workflow(
+    workflow: &Workflow,
+    parameters: HashMap<String, serde_yaml::Value>,
+    query: Option<String>,
+    main_agent_id: AgentId,
+) -> Result<(), WorkflowError> {
+    let executor = WorkflowExecutor::new(main_agent_id);
+    executor.execute_workflow(workflow, parameters, query).await
 }

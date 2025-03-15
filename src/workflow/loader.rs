@@ -27,6 +27,16 @@ pub fn load_workflow(name: &str) -> Result<Workflow, WorkflowError> {
     Ok(workflow)
 }
 
+/// Get path to the home directory workflow location
+fn get_home_workflows_path() -> Option<PathBuf> {
+    home_dir().map(|path| path.join(".termineer").join("workflows"))
+}
+
+/// Get path to the local workflows directory
+fn get_local_workflows_path() -> PathBuf {
+    PathBuf::from(".termineer").join("workflows")
+}
+
 /// Find a workflow file by name
 ///
 /// Searches in the following locations:
@@ -40,55 +50,49 @@ fn find_workflow_file(name: &str) -> Result<PathBuf, WorkflowError> {
         format!("{}.yaml", name)
     };
     
+    let alt_name = if normalized_name.ends_with(".yaml") {
+        normalized_name.replace(".yaml", ".yml")
+    } else {
+        normalized_name.replace(".yml", ".yaml")
+    };
+    
     // Check in the current directory first
-    let local_dir = Path::new(".termineer/workflows");
+    let local_dir = get_local_workflows_path();
+    
+    // Try with original extension
     let local_path = local_dir.join(&normalized_name);
     if local_path.exists() {
+        println!("Found workflow in local directory: {}", local_path.display());
         return Ok(local_path);
     }
     
-    // Check for the alternate extension
-    if normalized_name.ends_with(".yaml") {
-        let alt_name = normalized_name.replace(".yaml", ".yml");
-        let alt_path = local_dir.join(alt_name);
-        if alt_path.exists() {
-            return Ok(alt_path);
-        }
-    } else if normalized_name.ends_with(".yml") {
-        let alt_name = normalized_name.replace(".yml", ".yaml");
-        let alt_path = local_dir.join(alt_name);
-        if alt_path.exists() {
-            return Ok(alt_path);
-        }
+    // Try with alternate extension
+    let alt_local_path = local_dir.join(&alt_name);
+    if alt_local_path.exists() {
+        println!("Found workflow in local directory: {}", alt_local_path.display());
+        return Ok(alt_local_path);
     }
     
     // Check in the user's home directory
-    if let Some(home) = home_dir() {
-        let global_dir = home.join(".termineer/workflows");
+    if let Some(global_dir) = get_home_workflows_path() {
+        // Try with original extension
         let global_path = global_dir.join(&normalized_name);
         if global_path.exists() {
+            println!("Found workflow in home directory: {}", global_path.display());
             return Ok(global_path);
         }
         
-        // Check for the alternate extension
-        if normalized_name.ends_with(".yaml") {
-            let alt_name = normalized_name.replace(".yaml", ".yml");
-            let alt_path = global_dir.join(alt_name);
-            if alt_path.exists() {
-                return Ok(alt_path);
-            }
-        } else if normalized_name.ends_with(".yml") {
-            let alt_name = normalized_name.replace(".yml", ".yaml");
-            let alt_path = global_dir.join(alt_name);
-            if alt_path.exists() {
-                return Ok(alt_path);
-            }
+        // Try with alternate extension
+        let alt_global_path = global_dir.join(&alt_name);
+        if alt_global_path.exists() {
+            println!("Found workflow in home directory: {}", alt_global_path.display());
+            return Ok(alt_global_path);
         }
     }
     
     // Workflow file not found
     Err(WorkflowError::InvalidConfig(format!(
-        "Workflow file not found: {} (searched in .termineer/workflows/)",
+        "Workflow file not found: {} (searched in local and home .termineer/workflows/ directories)",
         name
     )))
 }
@@ -97,19 +101,21 @@ fn find_workflow_file(name: &str) -> Result<PathBuf, WorkflowError> {
 ///
 /// Creates the .termineer/workflows directory if it doesn't exist,
 /// both in the current directory and in the user's home directory.
+#[allow(dead_code)]
 pub fn ensure_workflows_directory() -> Result<(), WorkflowError> {
     // Create local directory
-    let local_dir = Path::new(".termineer/workflows");
+    let local_dir = get_local_workflows_path();
     if !local_dir.exists() {
-        fs::create_dir_all(local_dir)
+        println!("Creating local workflows directory: {}", local_dir.display());
+        fs::create_dir_all(&local_dir)
             .map_err(|e| WorkflowError::IoError(e))?;
     }
     
     // Create global directory
-    if let Some(home) = home_dir() {
-        let global_dir = home.join(".termineer/workflows");
+    if let Some(global_dir) = get_home_workflows_path() {
         if !global_dir.exists() {
-            fs::create_dir_all(global_dir)
+            println!("Creating home workflows directory: {}", global_dir.display());
+            fs::create_dir_all(&global_dir)
                 .map_err(|e| WorkflowError::IoError(e))?;
         }
     }
@@ -121,18 +127,18 @@ pub fn ensure_workflows_directory() -> Result<(), WorkflowError> {
 ///
 /// Returns a list of all workflow names (without extensions)
 /// found in the .termineer/workflows directories.
+#[allow(dead_code)]
 pub fn list_workflows() -> Result<Vec<String>, WorkflowError> {
     let mut workflows = Vec::new();
     
     // Check local directory
-    let local_dir = Path::new(".termineer/workflows");
+    let local_dir = get_local_workflows_path();
     if local_dir.exists() {
-        add_workflows_from_dir(local_dir, &mut workflows)?;
+        add_workflows_from_dir(&local_dir, &mut workflows)?;
     }
     
     // Check global directory
-    if let Some(home) = home_dir() {
-        let global_dir = home.join(".termineer/workflows");
+    if let Some(global_dir) = get_home_workflows_path() {
         if global_dir.exists() {
             add_workflows_from_dir(&global_dir, &mut workflows)?;
         }
@@ -146,6 +152,7 @@ pub fn list_workflows() -> Result<Vec<String>, WorkflowError> {
 }
 
 /// Add workflows from a directory to the list
+#[allow(dead_code)]
 fn add_workflows_from_dir(dir: &Path, workflows: &mut Vec<String>) -> Result<(), WorkflowError> {
     for entry in fs::read_dir(dir).map_err(|e| WorkflowError::IoError(e))? {
         let entry = entry.map_err(|e| WorkflowError::IoError(e))?;

@@ -1,6 +1,6 @@
 //! Task tool implementation for creating and running subtasks
 
-use crate::agent::{AgentId, AgentManager, AgentMessage, AgentState};
+use crate::agent::{AgentId, AgentMessage, AgentState};
 use crate::config::Config;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::prompts;
@@ -8,12 +8,8 @@ use crate::tools::ToolResult;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-
-// Import the global agent manager
-use crate::GLOBAL_AGENT_MANAGER;
 
 /// Execute the task tool - create and run a subtask with its own agent
 pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResult {
@@ -81,38 +77,18 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     // Set the kind parameter in the config
     config.kind = kind_name;
     
-    // Get access to the agent manager
-    let agent_manager = GLOBAL_AGENT_MANAGER.clone();
-    let subtask_agent_id;
-    
-    // Create the subtask agent
-    {
-        let mut manager = match agent_manager.lock() {
-            Ok(manager) => manager,
-            Err(e) => {
-                let error_msg = format!("Failed to acquire agent manager lock: {}", e);
-                if !silent_mode {
-                    bprintln!(error:"{}", error_msg);
-                }
-                return ToolResult::error(error_msg);
+    // Create the subtask agent with a unique name
+    let agent_name = format!("task_{}", task_name);
+    let subtask_agent_id = match crate::agent::create_agent(agent_name, config) {
+        Ok(id) => id,
+        Err(e) => {
+            let error_msg = format!("Failed to create task agent: {}", e);
+            if !silent_mode {
+                bprintln!(error:"{}", error_msg);
             }
-        };
-        
-        // Create the agent with a unique name
-        let agent_name = format!("task_{}", task_name);
-        match manager.create_agent(agent_name, config) {
-            Ok(id) => {
-                subtask_agent_id = id;
-            },
-            Err(e) => {
-                let error_msg = format!("Failed to create task agent: {}", e);
-                if !silent_mode {
-                    bprintln!(error:"{}", error_msg);
-                }
-                return ToolResult::error(error_msg);
-            }
+            return ToolResult::error(error_msg);
         }
-    }
+    };
 
     // Process file includes and combine with task instructions
     let combined_instructions = if !includes.is_empty() {
@@ -132,22 +108,19 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool) -> ToolResu
     };
 
     // Send the combined instructions (context + task) to the agent
-    {
-        let manager = agent_manager.lock().unwrap();
-        if let Err(e) = manager.send_message(
-            subtask_agent_id,
-            AgentMessage::UserInput(combined_instructions),
-        ) {
-            let error_msg = format!("Failed to send task to agent: {}", e);
-            if !silent_mode {
-                bprintln!(error:"{}", error_msg);
-            }
-            return ToolResult::error(error_msg);
+    if let Err(e) = crate::agent::send_message(
+        subtask_agent_id,
+        AgentMessage::UserInput(combined_instructions),
+    ) {
+        let error_msg = format!("Failed to send task to agent: {}", e);
+        if !silent_mode {
+            bprintln!(error:"{}", error_msg);
         }
+        return ToolResult::error(error_msg);
     }
 
     // Wait for the agent to complete its task
-    let result = wait_for_agent_completion(agent_manager.clone(), subtask_agent_id, silent_mode).await;
+    let result = wait_for_agent_completion(subtask_agent_id, silent_mode).await;
 
     // Log task completion
     if !silent_mode {
@@ -265,7 +238,6 @@ fn read_file<P: AsRef<Path>>(path: P) -> io::Result<String> {
 
 /// Wait for agent to complete its task and return the final result
 async fn wait_for_agent_completion(
-    agent_manager: Arc<Mutex<AgentManager>>, 
     agent_id: AgentId,
     silent_mode: bool
 ) -> String {
@@ -284,10 +256,7 @@ async fn wait_for_agent_completion(
             last_polling_time = Instant::now();
             
             // Get the agent state
-            let state = {
-                let manager = agent_manager.lock().unwrap();
-                manager.get_agent_state(agent_id).ok()
-            };
+            let state = crate::agent::get_agent_state(agent_id).ok();
             
             match state {
                 // Agent is done, get the result
@@ -297,7 +266,7 @@ async fn wait_for_agent_completion(
                         result = content;
                     } else {
                         // If no explicit done response, get the buffer content
-                        let buffer_content = extract_final_output(agent_manager.clone(), agent_id);
+                        let buffer_content = extract_final_output(agent_id);
                         result = buffer_content;
                     }
                     
@@ -330,19 +299,15 @@ async fn wait_for_agent_completion(
         result = format!("Task timed out after {} seconds", timeout.as_secs());
         
         // Terminate the agent
-        let mut manager = agent_manager.lock().unwrap();
-        // Simply ignore errors on termination attempt - we're timing out anyway
-        let _ = manager.terminate_agent(agent_id); // Cannot await here - just fire and forget
+        let _ = crate::agent::terminate_agent(agent_id).await;
     }
     
     result
 }
 
 /// Extract the final output from the agent's buffer
-fn extract_final_output(agent_manager: Arc<Mutex<AgentManager>>, agent_id: AgentId) -> String {
-    let manager = agent_manager.lock().unwrap();
-    
-    if let Ok(buffer) = manager.get_agent_buffer(agent_id) {
+fn extract_final_output(agent_id: AgentId) -> String {
+    if let Ok(buffer) = crate::agent::get_agent_buffer(agent_id) {
         let lines = buffer.lines();
         
         // Simple approach: collect all meaningful content after the last user message

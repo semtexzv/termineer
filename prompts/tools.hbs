@@ -100,6 +100,137 @@ When to use:
 - Install dependencies or manage system packages
 {{/iftool}}
 
+{{#iftool "asyncshell"}}
+### AsyncShell
+Start a shell command that runs asynchronously, periodically feeding output to the conversation:
+{{#tool "asyncshell"}}[command]
+[optional multi-line script]
+{{/tool}}
+
+The asyncshell tool allows you to run commands in the background while continuing conversation with the user. Command output is periodically injected into the conversation.
+
+Features:
+- **Background execution**: Commands run without blocking the conversation
+- **Periodic updates**: Output is automatically sent to the conversation as it's produced
+- **Long-running operations**: Ideal for commands that take substantial time to complete
+- **Multi-line scripts**: Supports complex scripts in the tool body
+
+Example:
+{{#tool "asyncshell"}}find /usr -name "*.json" -type f{{/tool}}
+
+{{#done "asyncshell" 0}}
+Asynchronous command started with ID: f47ac10b-58cc-4372-a567-0e02b2c3d479
+
+The command will run in the background and its output will be periodically injected into the conversation. Use `asyncshell-list` to see running commands and `asyncshell-kill f47ac10b-58cc-4372-a567-0e02b2c3d479` to terminate it.
+{{/done}}
+
+Multi-line script example:
+{{#tool "asyncshell"}}
+#!/bin/bash
+# Script that continuously reports system status
+for i in {1..10}; do
+    echo "Iteration $i"
+    echo "Memory usage:"
+    free -m
+    echo "CPU info:"
+    top -bn1 | head -15
+    echo "-------------------"
+    sleep 5
+done
+{{/tool}}
+
+{{#done "asyncshell" 0}}
+Asynchronous command started with ID: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+
+The command will run in the background and its output will be periodically injected into the conversation. Use `asyncshell-list` to see running commands and `asyncshell-kill 3fa85f64-5717-4562-b3fc-2c963f66afa6` to terminate it.
+{{/done}}
+
+Typical agent experience with async updates:
+```
+Agent: Let me start a command to search for large log files...
+
+[Agent starts an async command]
+
+Agent: While that's running in the background, let's look at the configuration file...
+
+[Output appears in conversation]
+AsyncShell [3fa85f64-5717-4562-b3fc-2c963f66afa6] update:
+Found 32 log files larger than 100MB in /var/log/...
+[More output details]
+
+Agent: Interesting, I can see from the async command results that there are many large log files. Let's examine the rotation settings...
+```
+
+When to use:
+- Long-running file searches or analysis
+- Continuous monitoring operations
+- Build processes that take significant time
+- Operations where you want to continue conversation while waiting
+- Test execution with monitoring
+- Comparing async results with other data during the conversation
+
+Important notes:
+- The command runs in its own process independent of the conversation
+- Output is automatically injected into the conversation periodically
+- You can have multiple async commands running simultaneously
+- Commands are tracked by unique IDs for management
+- Use `asyncshell-list` and `asyncshell-kill` to manage running commands
+{{/iftool}}
+
+{{#iftool "asyncshell-list"}}
+### AsyncShell-List
+List all running asynchronous shell commands:
+{{#tool "asyncshell-list"}}{{/tool}}
+
+Lists all async commands running in the background with their status and details.
+
+Example:
+{{#tool "asyncshell-list"}}{{/tool}}
+
+{{#done "asyncshell-list" 0}}
+Running async shell commands (2):
+
+ID: f47ac10b-58cc-4372-a567-0e02b2c3d479
+Command: find /usr -name "*.json" -type f
+Running for: 35.67s
+Status: Running
+Output lines: 127
+
+ID: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+Command: ./monitor_system.sh
+Running for: 62.45s
+Status: Running
+Output lines: 423
+{{/done}}
+
+When to use:
+- Check which commands are currently running in the background
+- Get the IDs needed to kill specific commands
+- Monitor the progress of running commands
+- See how much output has been generated
+{{/iftool}}
+
+{{#iftool "asyncshell-kill"}}
+### AsyncShell-Kill
+Terminate a running asynchronous shell command:
+{{#tool "asyncshell-kill"}}command_id{{/tool}}
+
+The command_id must be the UUID of a running async command (get it from asyncshell-list).
+
+Example:
+{{#tool "asyncshell-kill"}}f47ac10b-58cc-4372-a567-0e02b2c3d479{{/tool}}
+
+{{#done "asyncshell-kill" 0}}
+Async command f47ac10b-58cc-4372-a567-0e02b2c3d479 terminated
+{{/done}}
+
+When to use:
+- Stop a command that's no longer needed
+- Terminate commands that are taking too long
+- Cancel operations when you have the information you need
+- Clean up before ending a session
+{{/iftool}}
+
 {{! ================ FILE OPERATIONS ================ }}
 {{#iftool "read"}}
 ### Read

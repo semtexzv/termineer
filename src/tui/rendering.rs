@@ -219,47 +219,36 @@ pub fn render_command_suggestions(state: &TuiState, f: &mut Frame) {
 
 /// Render the header with agent list
 pub fn render_header(state: &TuiState, f: &mut Frame, area: Rect) {
-    // Get agents directly from the agent manager
-    let agent_spans = if let Ok(manager) = state.agent_manager.lock() {
-        let agents = manager.get_agents();
+    // Get agents directly using the static function
+    let agents = crate::agent::get_agents();
+    
+    // Create spans for each agent
+    let agent_spans = agents
+        .iter()
+        .map(|(id, name)| {
+            // Get state indicator based on agent state
+            let state_opt = crate::agent::get_agent_state(*id).ok();
+            let state_char = if let Some(state) = state_opt {
+                TuiState::get_state_indicator(&state)
+            } else {
+                "?" // Unknown state
+            };
 
-        // Collect all agent states in a single lock operation
-        let mut agent_states = Vec::new();
-        for (id, _) in &agents {
-            let state = manager.get_agent_state(*id).ok();
-            agent_states.push(state);
-        }
-
-        // Create spans for each agent
-        agents
-            .iter()
-            .zip(agent_states.iter())
-            .map(|((id, name), state_opt)| {
-                // Get state indicator based on agent state
-                let state_char = if let Some(state) = state_opt {
-                    TuiState::get_state_indicator(state)
-                } else {
-                    "?" // Unknown state
-                };
-
-                if *id == state.selected_agent_id {
-                    Span::styled(
-                        format!(" {} {} [{}] ", state_char, name, id),
-                        Style::default()
-                            .fg(Color::Black)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Span::styled(
-                        format!(" {} {} [{}] ", state_char, name, id),
-                        Style::default().fg(Color::LightBlue),
-                    )
-                }
-            })
-            .collect::<Vec<Span>>()
-    } else {
-        Vec::new()
-    };
+            if *id == state.selected_agent_id {
+                Span::styled(
+                    format!(" {} {} [{}] ", state_char, name, id),
+                    Style::default()
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Span::styled(
+                    format!(" {} {} [{}] ", state_char, name, id),
+                    Style::default().fg(Color::LightBlue),
+                )
+            }
+        })
+        .collect::<Vec<Span>>();
 
     // Add a final span with empty content to fill remaining space
     // This ensures old content is fully cleared
@@ -370,16 +359,12 @@ pub fn render_input(state: &TuiState, f: &mut Frame, area: Rect) {
     // Get the agent state from the agent manager
     let agent_state_str = state.get_agent_state_string();
 
-    // Get the current agent name directly from the agent manager
-    let agent_name = if let Ok(manager) = state.agent_manager.lock() {
-        // Clone the name to avoid lifetime issues
-        manager
-            .get_agent_handle(state.selected_agent_id)
-            .map(|h| h.name.clone())
-            .unwrap_or_else(|| "Unknown".to_string())
-    } else {
-        "Unknown".to_string()
-    };
+    // Get the current agent name using static function
+    let agents = crate::agent::get_agents();
+    let agent_name = agents
+        .iter()
+        .find_map(|(id, name)| if *id == state.selected_agent_id { Some(name.clone()) } else { None })
+        .unwrap_or_else(|| "Unknown".to_string());
 
     // Create title with agent state
     let title = format!(

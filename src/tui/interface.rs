@@ -1,6 +1,6 @@
 //! Main Terminal UI interface implementation
 
-use crate::agent::{AgentId, AgentManager};
+use crate::agent::AgentId;
 use crate::tui::{events, rendering, state::TuiState};
 use crossterm::{
     event::{self, Event},
@@ -9,7 +9,6 @@ use crossterm::{
 };
 use ratatui::Terminal;
 use std::io;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// TUI interface for the Termineer application
@@ -22,10 +21,7 @@ pub struct TuiInterface {
 
 impl TuiInterface {
     /// Create a new TUI interface
-    pub fn new(
-        agent_manager: Arc<Mutex<AgentManager>>,
-        main_agent_id: AgentId,
-    ) -> Result<Self, io::Error> {
+    pub fn new(main_agent_id: AgentId) -> Result<Self, io::Error> {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
@@ -33,12 +29,11 @@ impl TuiInterface {
         let backend = ratatui::backend::CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
-        let buffer = agent_manager
-            .lock()
-            .unwrap()
-            .get_agent_buffer(main_agent_id)
-            .unwrap();
-        let state = TuiState::new(main_agent_id, buffer, agent_manager.clone());
+        // Get the buffer for the main agent
+        let buffer = crate::agent::get_agent_buffer(main_agent_id).unwrap();
+        
+        // Create the TUI state
+        let state = TuiState::new(main_agent_id, buffer);
 
         Ok(Self {
             terminal,
@@ -47,7 +42,7 @@ impl TuiInterface {
     }
 
     /// Run the TUI interface
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn run(&mut self) -> anyhow::Result<()> {
         while !self.state.should_quit {
             // Process all pending events first
             let mut events_processed = false;

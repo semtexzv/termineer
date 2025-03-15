@@ -27,7 +27,7 @@ pub type SetAppModeCallback = fn(String);
 pub async fn attempt_cached_auth(
     config: &mut AuthConfig,
     set_app_mode: SetAppModeCallback,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> anyhow::Result<()> {
     // Create the auth client with the server URL
     let auth_client = AuthClient::new(obfstr::obfstring!("https://termineer.io").to_string());
 
@@ -81,7 +81,7 @@ pub async fn attempt_cached_auth(
 pub async fn authenticate_user(
     config: &mut AuthConfig,
     set_app_mode: SetAppModeCallback,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> anyhow::Result<()> {
     // Initialize auth client
     let auth_client = AuthClient::new(obfstr::obfstring!("https://termineer.io").to_string());
 

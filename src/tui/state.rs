@@ -1,9 +1,8 @@
 //! State management for the Terminal UI
 
-use crate::agent::{AgentId, AgentManager, AgentState};
+use crate::agent::{AgentId, AgentState};
 use crate::output::SharedBuffer;
 use crate::tui::popup::{CommandSuggestionsPopup, TemporaryOutput};
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Maximum number of lines to keep in the conversation history view
@@ -30,8 +29,6 @@ pub struct TuiState {
     pub last_interrupt_time: Option<Instant>,
     /// Whether the last Ctrl+C was used to interrupt an agent/shell
     pub last_interrupt_was_process: bool,
-    /// Reference to the agent manager
-    pub agent_manager: Arc<Mutex<AgentManager>>,
     /// Scroll offset for the conversation view (0 = top of conversation)
     pub scroll_offset: usize,
     /// Maximum scroll offset based on content and view size
@@ -55,7 +52,6 @@ impl TuiState {
     pub fn new(
         selected_agent_id: AgentId,
         agent_buffer: SharedBuffer,
-        agent_manager: Arc<Mutex<AgentManager>>,
     ) -> Self {
         Self {
             input: String::new(),
@@ -67,7 +63,6 @@ impl TuiState {
             pound_command_mode: false,
             last_interrupt_time: None,
             last_interrupt_was_process: false,
-            agent_manager,
             scroll_offset: 0,
             max_scroll_offset: 0,
             visible_height: 0,
@@ -106,17 +101,20 @@ impl TuiState {
     /// Update the list of agents
     /// Ensure the selected agent exists, or select the first available agent
     pub fn ensure_selected_agent_valid(&mut self) {
-        if let Ok(manager) = self.agent_manager.lock() {
-            // Check if the currently selected agent exists
-            if manager.get_agent_handle(self.selected_agent_id).is_none() {
-                // If not, select the first available agent
-                if let Some((first_id, _)) = manager.get_agents().first() {
-                    self.selected_agent_id = *first_id;
-                    // Update buffer to the new agent
-                    if let Ok(buffer) = manager.get_agent_buffer(self.selected_agent_id) {
-                        self.agent_buffer = buffer;
-                    }
-                }
+        // Get the list of all agents
+        let agents = crate::agent::get_agents();
+        
+        // Check if the currently selected agent exists in the list
+        let agent_exists = agents.iter().any(|(id, _)| *id == self.selected_agent_id);
+        
+        if !agent_exists && !agents.is_empty() {
+            // If not, select the first available agent
+            let (first_id, _) = agents[0];
+            self.selected_agent_id = first_id;
+            
+            // Update buffer to the new agent
+            if let Ok(buffer) = crate::agent::get_agent_buffer(self.selected_agent_id) {
+                self.agent_buffer = buffer;
             }
         }
     }
@@ -208,10 +206,8 @@ impl TuiState {
         }
 
         // Try to get the state from the agent manager
-        if let Ok(manager) = self.agent_manager.lock() {
-            if let Ok(state) = manager.get_agent_state(self.selected_agent_id) {
-                return state.as_display_string();
-            }
+        if let Ok(state) = crate::agent::get_agent_state(self.selected_agent_id) {
+            return state.as_display_string();
         }
 
         // Fallback if we can't get the state

@@ -3,14 +3,13 @@
 use crate::agent::AgentMessage;
 use crate::tui::{commands, state::TuiState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use std::error::Error;
 use std::time::{Duration, Instant};
 
 /// Handle key events
 pub async fn handle_key_event(
     state: &mut TuiState,
     key: KeyEvent,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> anyhow::Result<()> {
     match key.code {
         // Multi-level interrupt with Ctrl+C
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -75,8 +74,7 @@ pub async fn handle_key_event(
                     // No need to prefix with chevron as the agent will format it properly
 
                     // Send to selected agent
-                    let manager = state.agent_manager.lock().unwrap();
-                    manager.send_message(
+                    crate::agent::send_message(
                         state.selected_agent_id,
                         AgentMessage::UserInput(input),
                     )?;
@@ -453,7 +451,7 @@ pub async fn handle_key_event(
 pub async fn handle_mouse_event(
     state: &mut TuiState,
     mouse: MouseEvent,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> anyhow::Result<()> {
     // Simple mouse wheel scrolling implementation
     match mouse.kind {
         MouseEventKind::ScrollDown => {
@@ -473,7 +471,7 @@ pub async fn handle_mouse_event(
 /// Handle Ctrl+C interrupt with multi-level behavior
 async fn handle_ctrl_c_interrupt(
     state: &mut TuiState,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> anyhow::Result<()> {
     // Define the double-press window (3 seconds)
     const DOUBLE_PRESS_WINDOW: Duration = Duration::from_secs(3);
 
@@ -497,10 +495,7 @@ async fn handle_ctrl_c_interrupt(
     }
 
     // Get current agent state
-    let agent_state = {
-        let manager = state.agent_manager.lock().unwrap();
-        manager.get_agent_state(state.selected_agent_id).ok()
-    };
+    let agent_state = crate::agent::get_agent_state(state.selected_agent_id).ok();
 
     let popup_title = "Interrupt".to_string();
     let popup_content;
@@ -508,9 +503,8 @@ async fn handle_ctrl_c_interrupt(
     match agent_state {
         // If running a shell command (interruptible tool) or if agent is actively processing
         Some(crate::agent::AgentState::RunningTool { .. }) | Some(crate::agent::AgentState::Processing) => {
-            // Use the dedicated interrupt channel with the agent manager
-            let manager = state.agent_manager.lock().unwrap();
-            manager.interrupt_agent_with_reason(
+            // Interrupt the agent
+            crate::agent::interrupt_agent_with_reason(
                 state.selected_agent_id,
                 "User pressed Ctrl+C".to_string(),
             )?;

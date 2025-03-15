@@ -76,6 +76,7 @@ impl WorkflowContext {
     }
     
     /// Get the query
+    #[allow(dead_code)]
     pub fn get_query(&self) -> Option<&String> {
         self.query.as_ref()
     }
@@ -92,6 +93,7 @@ impl WorkflowContext {
     }
     
     /// Get a variable value
+    #[allow(dead_code)]
     pub fn get_variable(&self, name: &str) -> Option<&String> {
         self.variables.get(name)
     }
@@ -102,11 +104,13 @@ impl WorkflowContext {
     }
     
     /// Set the agent response
+    #[allow(dead_code)]
     pub fn set_agent_response(&mut self, response: String) {
         self.agent_response = Some(response);
     }
     
     /// Get the agent response
+    #[allow(dead_code)]
     pub fn get_agent_response(&self) -> Option<&String> {
         self.agent_response.as_ref()
     }
