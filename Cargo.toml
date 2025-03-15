@@ -7,7 +7,6 @@ version = "0.2.2"
 edition = "2021"
 license = "MIT"
 
-
 [profile.dev.package."*"]
 opt-level = 3
 
@@ -40,7 +39,7 @@ crossterm = "0.27"
 ratatui = "0.26.1"
 atty = "0.2"
 chrono = "0.4"
-thiserror = "1.0"
+thiserror = "2.0.12"
 ctrlc = "3.4.1"
 lazy_static = "1.4.0"  # For static initialization
 handlebars = "6.3.1"  # Handlebars templating
@@ -49,10 +48,8 @@ aes-gcm = "0.10.3"     # AES-GCM encryption
 obfstr = "0.4.3"       # String obfuscation for sensitive constants
 rand = "0.8.5"         # For random number generation
 dirs = "5.0.1"         # For getting user directories
-webbrowser = "0.8.11"  # For opening browser in OAuth flow
-axum = "0.7.4"         # For creating local OAuth callback server
 base64 = "0.21.5"      # For encoding/decoding base64 in OAuth flow and screenshots
-screenshots = "0.8.6"  # For screen capture functionality
+xcap = "0.4.0"         # Cross-platform screen capture library (replaces screenshots)
 image = "0.24.7"       # For image processing and format conversion
 glob = "0.3.1"         # For glob pattern matching in autoinclude feature
 scraper = "0.23.1"
@@ -62,7 +59,6 @@ indexmap = "2.8.0"
 
 # Dependencies for Computer Use feature
 enigo = "0.1.3"        # Cross-platform keyboard and mouse control
-once_cell = "1.19.0"   # Improved lazy initialization for statics
 tempfile = "3.10.1"    # Temporary file/directory handling for tests
 
 # Platform-specific dependencies for Computer Use
@@ -74,7 +70,6 @@ core-graphics-types = "0.1.3"
 core-foundation = "0.10.0" # Core Foundation bindings
 accessibility-sys-ng = "0.1.3"
 accessibility-ng = "0.1.6"
-phf = { version = "0.11", features = ["macros"] } # For compile-time hash maps
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", features = ["winuser"] } # Windows API for cursor position
