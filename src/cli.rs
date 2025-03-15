@@ -79,6 +79,7 @@ pub enum Commands {
     },
 
     /// Dump prompt templates (hidden, debug-only feature)
+    #[cfg(debug_assertions)]
     #[command(hide = true)]
     DumpPrompts {
         /// Template name to dump
@@ -111,6 +112,7 @@ pub fn cli_to_config(cli: &Cli) -> crate::config::Config {
     config.skip_auth = cli.skip_auth;
     
     // Special commands
+    #[cfg(debug_assertions)]
     if let Some(Commands::DumpPrompts { template }) = &cli.command {
         config.dump_prompts = Some(template.clone());
     }

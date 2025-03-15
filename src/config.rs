@@ -71,6 +71,7 @@ pub struct Config {
     /// Whether to resume the last session
     pub resume_last_session: bool,
 
+    #[cfg(debug_assertions)]
     /// Whether to dump prompts and exit
     pub dump_prompts: Option<String>,
 
@@ -100,6 +101,7 @@ impl Config {
             thinking_budget: 16384,
             use_minimal_prompt: false,
             resume_last_session: false,
+            #[cfg(debug_assertions)]
             dump_prompts: None,
             grammar_type: None, // Will be resolved based on model
             user_email: None,

@@ -36,7 +36,7 @@ pub enum TemplateError {
 /// Manager for Handlebars templates with grammar integration
 pub struct TemplateManager {
     /// Handlebars registry
-    handlebars: Handlebars<'static>,
+    pub handlebars: Handlebars<'static>,
 
     /// Templates directory
     templates_dir: PathBuf,
@@ -276,12 +276,13 @@ impl TemplateManager {
         Ok(())
     }
 
-    /// Render a template with specific tools enabled and MCP servers
-    pub fn render_with_context(
+    /// Render a template with specific tools enabled, MCP servers, and detailed MCP tool information
+    pub fn render_with_mcp_details(
         &self,
         template_name: &str,
         enabled_tools: &[&str],
         mcp_servers: &[String],
+        mcp_tools_info: std::collections::HashMap<String, Vec<(String, String)>>,
     ) -> Result<String, TemplateError> {
         // Create data object for template variables
         let mut data = serde_json::Map::new();
@@ -294,11 +295,41 @@ impl TemplateManager {
 
         // Add the MCP servers array
         data.insert("mcp_servers".to_string(), json!(mcp_servers));
+        
+        // Add detailed MCP tools information
+        // Convert the HashMap<String, Vec<(String, String)>> to a format suitable for JSON
+        let mut mcp_tools_json = serde_json::Map::new();
+        
+        for (server_name, tools) in mcp_tools_info {
+            let mut tools_array = Vec::new();
+            
+            for (tool_name, description) in tools {
+                let mut tool_obj = serde_json::Map::new();
+                tool_obj.insert("name".to_string(), json!(tool_name));
+                tool_obj.insert("description".to_string(), json!(description));
+                tools_array.push(Value::Object(tool_obj));
+            }
+            
+            mcp_tools_json.insert(server_name, json!(tools_array));
+        }
+        
+        data.insert("mcp_tools".to_string(), json!(mcp_tools_json));
 
         // Render the template with the variables
         self.handlebars
             .render(template_name, &Value::Object(data))
             .map_err(|e| TemplateError::Render(e))
+    }
+
+    /// Render a template with specific tools enabled and MCP servers
+    pub fn render_with_context(
+        &self,
+        template_name: &str,
+        enabled_tools: &[&str],
+        mcp_servers: &[String],
+    ) -> Result<String, TemplateError> {
+        // Forward to the new method with empty MCP tool details
+        self.render_with_mcp_details(template_name, enabled_tools, mcp_servers, std::collections::HashMap::new())
     }
 
     /// Render a template with specific tools enabled (legacy method)
@@ -307,7 +338,7 @@ impl TemplateManager {
         template_name: &str,
         enabled_tools: &[&str],
     ) -> Result<String, TemplateError> {
-        // Forward to the new method with an empty MCP servers list
+        // Forward to the context method with an empty MCP servers list
         self.render_with_context(template_name, enabled_tools, &[])
     }
 
@@ -347,10 +378,72 @@ impl TemplateManager {
         
         // Register the available_kinds helper that lists all agent kinds
         handlebars.register_helper("available_kinds", Box::new(AvailableKindsHelper));
+        
+        // Register the mcptools helper that formats MCP tools
+        handlebars.register_helper("mcptools", Box::new(McpToolsHelper));
 
         handlebars.register_escape_fn(|s| s.to_string());
 
         handlebars
+    }
+}
+
+/// Helper for formatting MCP tools information in prompts
+struct McpToolsHelper;
+
+impl HelperDef for McpToolsHelper {
+    #[allow(unused_variables)]
+    fn call<'reg: 'rc, 'rc>(
+        &self,
+        h: &Helper<'rc>,
+        _r: &'reg Handlebars<'reg>,
+        ctx: &'rc Context,
+        _rc: &mut RenderContext<'reg, 'rc>,
+        out: &mut dyn Output,
+    ) -> HelperResult {
+        // Get the MCP tools information from context
+        let mcp_tools = ctx.data().get("mcp_tools").and_then(|v| v.as_object());
+        
+        if let Some(mcp_tools) = mcp_tools {
+            if mcp_tools.is_empty() {
+                // No MCP tools configured
+                out.write("No MCP servers are currently configured.")?;
+                return Ok(());
+            }
+            
+            // Format the MCP tools information
+            let mut output = String::new();
+            output.push_str("## Available MCP Tools\n\n");
+            
+            for (server_name, tools_value) in mcp_tools {
+                let tools = tools_value.as_array();
+                
+                if let Some(tools) = tools {
+                    if !tools.is_empty() {
+                        output.push_str(&format!("### Server: {}\n\n", server_name));
+                        
+                        for tool_value in tools {
+                            if let Some(tool) = tool_value.as_object() {
+                                let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                let description = tool.get("description").and_then(|v| v.as_str()).unwrap_or("No description");
+                                
+                                output.push_str(&format!("- **{}**: {}\n", name, description));
+                            }
+                        }
+                        
+                        output.push_str("\n");
+                    }
+                }
+            }
+            
+            // Write the formatted output
+            out.write(&output)?;
+        } else {
+            // No MCP tools available
+            out.write("No MCP servers are currently configured.")?;
+        }
+        
+        Ok(())
     }
 }
 

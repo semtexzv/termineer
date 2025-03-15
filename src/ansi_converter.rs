@@ -109,54 +109,96 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
         .strip_prefix("\x1b[")
         .and_then(|s| s.strip_suffix('m'))
     {
-        // Handle different codes
-        match code_str {
-            "0" => style.reset(),
-            "1" => style.bold = true,
-            "30" => style.fg_color = Some(Color::Black),
-            "31" => style.fg_color = Some(Color::Red),
-            "32" => style.fg_color = Some(Color::Green),
-            "33" => style.fg_color = Some(Color::Yellow),
-            "34" => style.fg_color = Some(Color::Blue),
-            "35" => style.fg_color = Some(Color::Magenta),
-            "36" => style.fg_color = Some(Color::Cyan),
-            "37" => style.fg_color = Some(Color::White),
-            "90" => style.fg_color = Some(Color::Gray),
-            "40" => style.bg_color = Some(Color::Black),
-            "41" => style.bg_color = Some(Color::Red),
-            "42" => style.bg_color = Some(Color::Green),
-            "43" => style.bg_color = Some(Color::Yellow),
-            "44" => style.bg_color = Some(Color::Blue),
-            "45" => style.bg_color = Some(Color::Magenta),
-            "46" => style.bg_color = Some(Color::Cyan),
-            "47" => style.bg_color = Some(Color::White),
-            _ => {
-                // Handle multiple codes separated by semicolons
-                for code in code_str.split(';') {
-                    match code {
-                        "0" => style.reset(),
-                        "1" => style.bold = true,
-                        "30" => style.fg_color = Some(Color::Black),
-                        "31" => style.fg_color = Some(Color::Red),
-                        "32" => style.fg_color = Some(Color::Green),
-                        "33" => style.fg_color = Some(Color::Yellow),
-                        "34" => style.fg_color = Some(Color::Blue),
-                        "35" => style.fg_color = Some(Color::Magenta),
-                        "36" => style.fg_color = Some(Color::Cyan),
-                        "37" => style.fg_color = Some(Color::White),
-                        "90" => style.fg_color = Some(Color::Gray),
-                        "40" => style.bg_color = Some(Color::Black),
-                        "41" => style.bg_color = Some(Color::Red),
-                        "42" => style.bg_color = Some(Color::Green),
-                        "43" => style.bg_color = Some(Color::Yellow),
-                        "44" => style.bg_color = Some(Color::Blue),
-                        "45" => style.bg_color = Some(Color::Magenta),
-                        "46" => style.bg_color = Some(Color::Cyan),
-                        "47" => style.bg_color = Some(Color::White),
-                        _ => {} // Ignore unsupported codes
+        // Check if this is an empty code (which resets formatting)
+        if code_str.is_empty() {
+            style.reset();
+            return;
+        }
+        
+        // Process the code parts
+        let parts: Vec<&str> = code_str.split(';').collect();
+        let mut i = 0;
+        
+        while i < parts.len() {
+            let part = parts[i];
+            
+            match part {
+                "0" => style.reset(),
+                "1" => style.bold = true,
+                
+                // Basic foreground colors
+                "30" => style.fg_color = Some(Color::Black),
+                "31" => style.fg_color = Some(Color::Red),
+                "32" => style.fg_color = Some(Color::Green),
+                "33" => style.fg_color = Some(Color::Yellow),
+                "34" => style.fg_color = Some(Color::Blue),
+                "35" => style.fg_color = Some(Color::Magenta),
+                "36" => style.fg_color = Some(Color::Cyan),
+                "37" => style.fg_color = Some(Color::White),
+                "90" => style.fg_color = Some(Color::Gray),
+                
+                // Basic background colors
+                "40" => style.bg_color = Some(Color::Black),
+                "41" => style.bg_color = Some(Color::Red),
+                "42" => style.bg_color = Some(Color::Green),
+                "43" => style.bg_color = Some(Color::Yellow),
+                "44" => style.bg_color = Some(Color::Blue),
+                "45" => style.bg_color = Some(Color::Magenta),
+                "46" => style.bg_color = Some(Color::Cyan),
+                "47" => style.bg_color = Some(Color::White),
+                
+                // Extended color codes for foreground and background
+                "38" => {
+                    if i + 2 < parts.len() {
+                        // 256 color mode uses "5" as the first parameter
+                        if parts[i + 1] == "5" {
+                            if let Ok(color_index) = parts[i + 2].parse::<u8>() {
+                                style.fg_color = Some(Color::Indexed(color_index));
+                                i += 2; // Skip the next two parts
+                            }
+                        } 
+                        // RGB color mode uses "2" as the first parameter
+                        else if parts[i + 1] == "2" && i + 4 < parts.len() {
+                            if let (Ok(r), Ok(g), Ok(b)) = (
+                                parts[i + 2].parse::<u8>(),
+                                parts[i + 3].parse::<u8>(),
+                                parts[i + 4].parse::<u8>(),
+                            ) {
+                                style.fg_color = Some(Color::Rgb(r, g, b));
+                                i += 4; // Skip the next four parts
+                            }
+                        }
                     }
-                }
+                },
+                
+                // Extended background colors
+                "48" => {
+                    if i + 2 < parts.len() {
+                        // 256 color mode uses "5" as the first parameter
+                        if parts[i + 1] == "5" {
+                            if let Ok(color_index) = parts[i + 2].parse::<u8>() {
+                                style.bg_color = Some(Color::Indexed(color_index));
+                                i += 2; // Skip the next two parts
+                            }
+                        } 
+                        // RGB color mode uses "2" as the first parameter
+                        else if parts[i + 1] == "2" && i + 4 < parts.len() {
+                            if let (Ok(r), Ok(g), Ok(b)) = (
+                                parts[i + 2].parse::<u8>(),
+                                parts[i + 3].parse::<u8>(),
+                                parts[i + 4].parse::<u8>(),
+                            ) {
+                                style.bg_color = Some(Color::Rgb(r, g, b));
+                                i += 4; // Skip the next four parts
+                            }
+                        }
+                    }
+                },
+                
+                _ => {} // Ignore unsupported codes
             }
+            
+            i += 1;
         }
     }
 }
