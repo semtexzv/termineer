@@ -33,12 +33,6 @@ jobs:
             use_container: true
             container_image: "ghcr.io/rust-cross/manylinux2014-cross:x86_64"
             
-          - name: linux-x64-musl
-            os: ubuntu-latest
-            rust_target: x86_64-unknown-linux-musl
-            binary_name: termineer
-            asset_name: termineer-x86_64-linux-musl
-            
           - name: windows-x64
             os: windows-latest
             rust_target: x86_64-pc-windows-msvc
@@ -98,18 +92,7 @@ jobs:
             echo "Binary size after stripping:"
             du -h "$BINARY_PATH"
       
-      # Special case for Linux MUSL (static build)
-      - name: Build for Linux MUSL
-        if: matrix.target.name == 'linux-x64-musl'
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          
-          # Install musl tools if needed
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          
-          # Build fully static binary with MUSL
-          RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-musl
+      # Linux MUSL build removed as it doesn't work properly
       
       # Special case for macOS ARM
       - name: Build for macOS ARM64
