@@ -333,9 +333,6 @@ impl ToolExecutor {
             name,
             "read"
                 | "shell"
-                | "asyncshell"
-                | "asyncshell-list"
-                | "asyncshell-kill"
                 | "fetch"
                 | "search"
                 | "screenshot"

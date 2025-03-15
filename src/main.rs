@@ -343,7 +343,7 @@ async fn run_interactive_mode(
     let id_for_update_check = main_agent_id;
     tokio::spawn(async move {
         match version_check::check_for_updates().await {
-            Ok((has_update, latest_version, message)) => {
+            Ok((has_update, _latest_version, message)) => {
                 if has_update {
                     if let Some(msg) = message {
                         // Get the agent buffer and print the update message

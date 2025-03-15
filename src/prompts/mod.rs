@@ -20,7 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", 
+    "shell",
     "read", "write", "patch", "fetch", "search",
     #[cfg(target_os = "macos")]
     "screenshot",
@@ -35,7 +35,7 @@ pub const PLUS_TOOLS: &[&str] = &["agent"];
 
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
-    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", "read", "fetch", "search", "screenshot", "screendump", "done", "wait",
+    "shell", "read", "fetch", "search", "screenshot", "screendump", "done", "wait",
     // Note: 'input' is not included as it modifies application state
 ];
 
@@ -125,10 +125,8 @@ pub fn generate_system_prompt(
     let requested_kind = if let Some(name) = kind_name {
         // If a specific template is provided, validate it
         if !is_valid_kind(name) {
-            // Create helpful error message with suggestions
-            let mut error_msg = format!("Invalid agent kind: '{}'", name);
             // Return the error with suggestions
-            bail!(error_msg);
+            bail!(format!("Invalid agent kind: '{}'", name));
         }
 
         // Kind is valid, use it

@@ -49,15 +49,11 @@ fn get_model_token_limit(model_name: &str) -> usize {
 
     // Handle Anthropic models
     if provider == "anthropic" || model.starts_with("claude-") {
-        if model.contains("claude-3-opus") {
+        if model.contains("claude-3") {
+            // All Claude 3 models support 200k tokens
             return 200_000; // 200k tokens
-        } else if model.contains("claude-3-sonnet") {
-            return 200_000; // 200k tokens
-        } else if model.contains("claude-3-haiku") {
-            return 200_000; // 200k tokens
-        } else if model.contains("claude-2") {
-            return 100_000; // 100k tokens
-        } else if model.contains("claude-instant") {
+        } else if model.contains("claude-2") || model.contains("claude-instant") {
+            // Claude 2 and Claude Instant support 100k tokens
             return 100_000; // 100k tokens
         }
     }

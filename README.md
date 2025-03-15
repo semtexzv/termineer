@@ -2,8 +2,6 @@
 
 Termineer is a powerful command-line interface that brings conversational AI capabilities to your terminal, enhancing productivity for developers, data analysts, and power users.
 
-![Termineer Screenshot](./docs/screenshots/terminal-demo.png)
-
 ## Overview
 
 Termineer creates a seamless bridge between the terminal environment and state-of-the-art AI models, allowing power users to leverage natural language for a variety of tasks while remaining in their preferred workflow environment.

@@ -25,23 +25,21 @@ fn extract_template_description(file_path: &Path) -> Option<String> {
     let reader = BufReader::new(file);
 
     // Look for the first line that starts with "{{!"
-    for line in reader.lines() {
-        if let Ok(line) = line {
-            let trimmed = line.trim();
-            if trimmed.starts_with("{{!") {
-                // Extract the description part (after the dash)
-                if let Some(dash_pos) = trimmed.find('-') {
-                    // Get text between the dash and the closing comment
-                    let mut description = trimmed[(dash_pos + 1)..].trim();
+    for line in reader.lines().flatten() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("{{!") {
+            // Extract the description part (after the dash)
+            if let Some(dash_pos) = trimmed.find('-') {
+                // Get text between the dash and the closing comment
+                let mut description = trimmed[(dash_pos + 1)..].trim();
 
-                    // Remove closing Handlebars comment tag if it exists
-                    if let Some(end_pos) = description.find("}}") {
-                        description = description[..end_pos].trim();
-                    }
+                // Remove closing Handlebars comment tag if it exists
+                if let Some(end_pos) = description.find("}}") {
+                    description = description[..end_pos].trim();
+                }
 
-                    if !description.is_empty() {
-                        return Some(description.to_string());
-                    }
+                if !description.is_empty() {
+                    return Some(description.to_string());
                 }
             }
         }
@@ -94,7 +92,7 @@ fn main() {
             );
 
             // If it's a handlebars template (.hbs extension)
-            if entry.path().extension().map_or(false, |ext| ext == "hbs") {
+            if entry.path().extension().is_some_and(|ext| ext == "hbs") {
                 // Get the template path without the extension (for kind identification)
                 let template_path = rel_path.with_extension("");
                 let kind_id = template_path.to_string_lossy().replace('\\', "/");
@@ -126,7 +124,7 @@ fn main() {
             // Encrypt content
             let encrypted = cipher
                 .encrypt(&nonce, content.as_ref())
-                .expect(&format!("Failed to encrypt: {}", entry.path().display()));
+                .unwrap_or_else(|_| panic!("Failed to encrypt: {}", entry.path().display()));
 
             // Prepare destination path
             let dest_path = encrypted_dir.join(rel_path);
@@ -150,7 +148,7 @@ fn main() {
     }
 
     // Generate a Rust file with the encrypted prompts data and kinds list
-    generate_encrypted_prompts_module(&out_dir, &encrypted_files, &kinds, &descriptions);
+    generate_encrypted_prompts_module(out_dir, &encrypted_files, &kinds, &descriptions);
 }
 
 /// Generate a Rust file containing the encrypted prompts data and kinds list
@@ -207,8 +205,8 @@ fn generate_encrypted_prompts_module(
         let full_path = format!("kind/{}", template);
         let description = descriptions
             .get(&full_path)
-            .map(|desc| format!("{}", desc))
-            .unwrap_or_else(|| "".to_string());
+            .map(|desc| desc.to_string())
+            .unwrap_or_default();
 
         // Calculate spaces needed for alignment
         let spaces = " ".repeat(column_width - template.len());
@@ -221,8 +219,8 @@ fn generate_encrypted_prompts_module(
         let full_path = format!("kind/plus/{}", template);
         let description = descriptions
             .get(&full_path)
-            .map(|desc| format!("{}", desc))
-            .unwrap_or_else(|| "".to_string());
+            .map(|desc| desc.to_string())
+            .unwrap_or_default();
 
         // Calculate spaces needed for alignment
         let spaces = " ".repeat(column_width - template.len());

@@ -92,7 +92,7 @@ pub fn spawn_interrupt_monitor(
 ) -> JoinHandle<()> {
     crate::output::spawn(async move {
         loop {
-            if let Some(_) = interrupt_receiver.recv().await {
+            if (interrupt_receiver.recv().await).is_some() {
                 // Handle the interrupt using the coordinator
                 coordinator.handle_interrupt().await;
             }

@@ -6,9 +6,10 @@
 use crate::llm::{Content, ImageSource};
 use crate::tools::ToolResult;
 use base64::{engine::general_purpose, Engine as _};
-use image::{DynamicImage, GenericImageView, ImageOutputFormat};
+use image::{DynamicImage, GenericImageView};
+use image::ImageOutputFormat;
 use std::io::Cursor;
-use xcap::{Monitor, Window, XCapResult};
+use xcap::{Monitor, Window};
 
 /// Execute the Windows screenshot tool
 pub async fn execute_windows_screenshot(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
@@ -268,20 +269,14 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
         let windows = Window::all()?;
         if window_index < windows.len() {
             let window = &windows[window_index];
-            crate::bprintln!(dev: "Found window '{}' by index {}", window.title(), window_index);
+            let title = window.title()?;
+            crate::bprintln!(dev: "Found window '{}' by index {}", title, window_index);
 
             // Capture the window
-            let image = window.capture()?;
+            let image = window.capture_image()?;
 
             // Convert to DynamicImage
-            let dynamic_image = DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(
-                    image.width() as u32,
-                    image.height() as u32,
-                    image.data().to_vec(),
-                )
-                .ok_or("Failed to convert image data")?,
-            );
+            let dynamic_image = DynamicImage::ImageRgba8(image);
 
             return process_image(dynamic_image);
         }
@@ -290,23 +285,18 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
     // Try finding window by title match
     let windows = Window::all()?;
     for window in windows {
-        if window.title().contains(window_id) {
-            crate::bprintln!(dev: "Found window '{}' by title match", window.title());
+        if let Ok(title) = window.title() {
+            if title.contains(window_id) {
+                crate::bprintln!(dev: "Found window '{}' by title match", title);
 
-            // Capture the window
-            let image = window.capture()?;
+                // Capture the window
+                let image = window.capture_image()?;
 
-            // Convert to DynamicImage
-            let dynamic_image = DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(
-                    image.width() as u32,
-                    image.height() as u32,
-                    image.data().to_vec(),
-                )
-                .ok_or("Failed to convert image data")?,
-            );
+                // Convert to DynamicImage
+                let dynamic_image = DynamicImage::ImageRgba8(image);
 
-            return process_image(dynamic_image);
+                return process_image(dynamic_image);
+            }
         }
     }
 

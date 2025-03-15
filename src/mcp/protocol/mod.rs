@@ -12,4 +12,3 @@ pub use messages::{
     JsonRpcMessage, MessageContent, Request, RootsCapabilities, ServerInfo,
 };
 pub use tools::{CallToolParams, CallToolResult, ListToolsResult, Tool};
-pub use schema::{JsonSchema, PropertySchema};

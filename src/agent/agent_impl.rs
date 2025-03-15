@@ -482,7 +482,7 @@ impl Agent {
         // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
         let mut rx =
-            match execute_shell(&cmd_args, &body, interrupt_data.clone(), silent_mode).await {
+            match execute_shell(&cmd_args, body, interrupt_data.clone(), silent_mode).await {
                 Ok(rx) => rx,
                 Err(e) => {
                     // Make sure to clean up interrupt state if startup fails
@@ -1383,7 +1383,7 @@ impl Agent {
 
             // Use a new dedicated interrupt channel
             let shell_result = self
-                .execute_streaming_shell(&tool_args, &tool_body, &interrupt_coordinator)
+                .execute_streaming_shell(&tool_args, &tool_body, interrupt_coordinator)
                 .await?;
             return Ok(shell_result);
         }

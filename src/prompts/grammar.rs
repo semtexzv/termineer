@@ -395,7 +395,7 @@ impl Grammar for MarkdownGrammar {
                 };
 
                 // Parse the tool name and args from the header
-                let mut args = header.trim().split_whitespace().collect::<Vec<&str>>();
+                let mut args = header.split_whitespace().collect::<Vec<&str>>();
 
                 if args.is_empty() {
                     // No tool name found - return the original text

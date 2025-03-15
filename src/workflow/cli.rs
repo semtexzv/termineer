@@ -8,44 +8,10 @@ use anyhow::{format_err, Result};
 use serde_yaml::Value as YamlValue;
 
 use crate::workflow::loader::{ensure_workflows_directory, list_workflows, load_workflow};
-use crate::config;
 use crate::workflow::executor;
 use crate::workflow::context::WorkflowError;
 
 /// Handle the workflow command from the CLI
-pub async fn handle_workflow_command(
-    name: &Option<String>,
-    param_values: &[String],
-    query: Option<String>,
-    agent_id: crate::agent::AgentId,
-) -> anyhow::Result<()> {
-    // Check if user has Pro access - workflows are a Pro-only feature
-    if crate::config::get_app_mode() != crate::config::AppMode::Pro {
-        return Err(format_err!("Workflows are a Pro-only feature. Upgrade to Pro for access."));
-    }
-    
-    // Ensure the workflows directory exists
-    ensure_workflows_directory()?;
-    
-    // If no workflow name is provided, list available workflows
-    if name.is_none() {
-        return list_available_workflows().await;
-    }
-    
-    // Get the workflow name
-    let workflow_name = name.as_ref().ok_or(format_err!("No workflow specified"))?;
-    
-    // Load the workflow
-    let workflow = load_workflow(workflow_name)?;
-    
-    // Parse parameters
-    let parameters = parse_parameters_from_values(param_values, &workflow)?;
-    
-    // Execute the workflow
-    executor::execute_workflow(&workflow, parameters, query, agent_id).await?;
-    
-    Ok(())
-}
 
 /// List all available workflows
 async fn list_available_workflows() -> anyhow::Result<()> {

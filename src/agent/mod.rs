@@ -7,7 +7,7 @@
 //! - Interrupt handling
 
 // Define submodules
-mod agent;
+mod agent_impl;
 mod interrupt;
 mod manager;
 pub mod types;

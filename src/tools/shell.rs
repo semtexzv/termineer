@@ -311,7 +311,7 @@ pub async fn execute_shell(
             true // Interruption is successful
         } else {
             // Use the stored exit status
-            exit_status.map_or(false, |status| status.success())
+            exit_status.is_some_and(|status| status.success())
         };
 
         // Combined output
@@ -320,12 +320,10 @@ pub async fn execute_shell(
                 "Command '{}' was interrupted: {}.",
                 main_command_str, interrupt_reason,
             )
+        } else if success {
+            format!("Command '{}' finished with success", main_command_str)
         } else {
-            if success {
-                format!("Command '{}' finished with success", main_command_str)
-            } else {
-                format!("Command '{}' finished with error", main_command_str)
-            }
+            format!("Command '{}' finished with error", main_command_str)
         };
 
         // Log execution time

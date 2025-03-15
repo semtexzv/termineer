@@ -7,7 +7,7 @@ use crate::auth::session::{create_session, clear_session};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
-    response::{IntoResponse, Redirect},
+    response::{Redirect},
     routing::get,
     Router,
 };

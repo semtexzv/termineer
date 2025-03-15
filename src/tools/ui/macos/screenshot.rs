@@ -9,8 +9,9 @@ use crate::llm::ImageSource;
 use crate::tools::ui::screendump;
 use base64::{engine::general_purpose, Engine as _};
 use std::io::Cursor;
-use image::{DynamicImage, GenericImageView, ImageOutputFormat};
-use xcap::{Monitor, Window, XCapResult};
+use image::{DynamicImage, GenericImageView};
+use image::ImageFormat;
+use xcap::{Monitor, Window};
 
 /// Execute the macOS screenshot tool
 pub async fn execute_macos_screenshot(args: &str, _body: &str, silent_mode: bool) -> ToolResult {
@@ -128,12 +129,14 @@ fn parse_command(args: &str) -> ScreenshotCommand {
         id if id.parse::<usize>().is_ok() => {
             let index = id.parse::<usize>().unwrap();
             // Check if monitors exist before deciding
-            let monitors = Monitor::all();
-            if index < monitors.len() {
-                ScreenshotCommand::SingleScreen(index)
-            } else {
-                // Treat as window ID if index is out of bounds
-                ScreenshotCommand::Window(args.to_string())
+            match Monitor::all() {
+                Ok(monitors) if index < monitors.len() => {
+                    ScreenshotCommand::SingleScreen(index)
+                },
+                _ => {
+                    // Treat as window ID if index is out of bounds or error
+                    ScreenshotCommand::Window(args.to_string())
+                }
             }
         }
         // Otherwise, if there's text, assume it's a window identifier
@@ -170,7 +173,7 @@ fn capture_screenshots(
 /// Capture all screens as separate images
 fn capture_all_screens() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     // Get all monitors
-    let monitors = Monitor::all();
+    let monitors = Monitor::all()?;
 
     if monitors.is_empty() {
         return Err("No screens found".into());
@@ -180,19 +183,23 @@ fn capture_all_screens() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut results = Vec::new();
 
     for (i, monitor) in monitors.iter().enumerate() {
-        crate::bprintln!(dev: "Capturing screen {} ({}x{})", i, monitor.width(), monitor.height());
+        // Get dimensions - properly handle Result
+        let width = monitor.width()?;
+        let height = monitor.height()?;
+        
+        crate::bprintln!(
+            dev: "Capturing screen {} ({}x{})", 
+            i, 
+            width, 
+            height
+        );
 
         // Capture the screen
-        let image = monitor.capture()?;
+        let image = monitor.capture_image()?;
         
         // Convert xcap::image::Image to DynamicImage
-        let dynamic_image = DynamicImage::ImageRgba8(
-            image::RgbaImage::from_raw(
-                image.width() as u32, 
-                image.height() as u32, 
-                image.data().to_vec()
-            ).ok_or("Failed to convert image data")?
-        );
+        // The image from xcap is already an RgbaImage from the image crate
+        let dynamic_image = DynamicImage::ImageRgba8(image);
         
         // Process the image
         let base64_image = process_image(dynamic_image)?;
@@ -205,7 +212,7 @@ fn capture_all_screens() -> Result<Vec<String>, Box<dyn std::error::Error>> {
 /// Capture a single screen by index
 fn capture_single_screen(index: usize) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     // Get all monitors
-    let monitors = Monitor::all();
+    let monitors = Monitor::all()?;
 
     if monitors.is_empty() {
         return Err("No screens found".into());
@@ -221,19 +228,24 @@ fn capture_single_screen(index: usize) -> Result<Vec<String>, Box<dyn std::error
 
     // Capture the specified monitor
     let monitor = &monitors[index];
-    crate::bprintln!(dev: "Capturing screen {} ({}x{})", index, monitor.width(), monitor.height());
+    
+    // Get dimensions - properly handle Result
+    let width = monitor.width()?;
+    let height = monitor.height()?;
+    
+    crate::bprintln!(
+        dev: "Capturing screen {} ({}x{})", 
+        index, 
+        width, 
+        height
+    );
 
     // Capture the screen
-    let image = monitor.capture()?;
+    let image = monitor.capture_image()?;
     
-    // Convert xcap::image::Image to DynamicImage
-    let dynamic_image = DynamicImage::ImageRgba8(
-        image::RgbaImage::from_raw(
-            image.width() as u32, 
-            image.height() as u32, 
-            image.data().to_vec()
-        ).ok_or("Failed to convert image data")?
-    );
+    // Convert to DynamicImage
+    // The image from xcap is already an RgbaImage from the image crate
+    let dynamic_image = DynamicImage::ImageRgba8(image);
     
     // Process the image
     let base64_image = process_image(dynamic_image)?;
@@ -250,19 +262,14 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
         let windows = Window::all()?;
         if window_index < windows.len() {
             let window = &windows[window_index];
-            crate::bprintln!(dev: "Found window '{}' by index {}", window.title(), window_index);
+            let title = window.title()?;
+            crate::bprintln!(dev: "Found window '{}' by index {}", title, window_index);
             
             // Capture the window
-            let image = window.capture()?;
+            let image = window.capture_image()?;
             
-            // Convert to DynamicImage
-            let dynamic_image = DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(
-                    image.width() as u32, 
-                    image.height() as u32, 
-                    image.data().to_vec()
-                ).ok_or("Failed to convert image data")?
-            );
+            // Convert to DynamicImage - image is already an RgbaImage
+            let dynamic_image = DynamicImage::ImageRgba8(image);
             
             return process_image(dynamic_image);
         }
@@ -271,22 +278,18 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
     // Try finding window by title match
     let windows = Window::all()?;
     for window in windows {
-        if window.title().contains(window_id) {
-            crate::bprintln!(dev: "Found window '{}' by title match", window.title());
-            
-            // Capture the window
-            let image = window.capture()?;
-            
-            // Convert to DynamicImage
-            let dynamic_image = DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(
-                    image.width() as u32, 
-                    image.height() as u32, 
-                    image.data().to_vec()
-                ).ok_or("Failed to convert image data")?
-            );
-            
-            return process_image(dynamic_image);
+        if let Ok(title) = window.title() {
+            if title.contains(window_id) {
+                crate::bprintln!(dev: "Found window '{}' by title match", title);
+                
+                // Capture the window
+                let image = window.capture_image()?;
+                
+                // Convert to DynamicImage - image is already an RgbaImage
+                let dynamic_image = DynamicImage::ImageRgba8(image);
+                
+                return process_image(dynamic_image);
+            }
         }
     }
     
@@ -301,15 +304,15 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
         window_title, app_name, x, y, width, height);
 
     // Capture the region using monitor.capture_area
-    let monitors = Monitor::all();
+    let monitors = Monitor::all()?;
     
     // Find which monitor contains this window
     let mut found_monitor = None;
     for monitor in &monitors {
-        let monitor_x = monitor.x();
-        let monitor_y = monitor.y();
-        let monitor_width = monitor.width() as i32;
-        let monitor_height = monitor.height() as i32;
+        let monitor_x = monitor.x()?;
+        let monitor_y = monitor.y()?;
+        let monitor_width = monitor.width()? as i32;
+        let monitor_height = monitor.height()? as i32;
 
         // Check if the window is at least partially on this monitor
         if x < monitor_x + monitor_width
@@ -325,24 +328,30 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
     let monitor = found_monitor.ok_or_else(|| "Window not on any screen".to_string())?;
 
     // Calculate coordinates relative to the monitor
-    let rel_x = (x - monitor.x()).max(0);
-    let rel_y = (y - monitor.y()).max(0);
+    let rel_x = (x - monitor.x()?).max(0);
+    let rel_y = (y - monitor.y()?).max(0);
 
     // Ensure width and height stay within monitor bounds
-    let cap_width = (width as u32).min((monitor.width() as i32 - rel_x) as u32);
-    let cap_height = (height as u32).min((monitor.height() as i32 - rel_y) as u32);
+    let width_pixels = monitor.width()? as i32;
+    let height_pixels = monitor.height()? as i32;
+    
+    let cap_width = (width as u32).min((width_pixels - rel_x) as u32);
+    let cap_height = (height as u32).min((height_pixels - rel_y) as u32);
 
-    // Capture the region
-    let image = monitor.capture_area(rel_x, rel_y, cap_width as i32, cap_height as i32)?;
+    // Capture the entire monitor and crop the region
+    let full_image = monitor.capture_image()?;
+    
+    // Crop the image to the desired area
+    let cropped_image = image::imageops::crop_imm(
+        &full_image, 
+        rel_x as u32, 
+        rel_y as u32, 
+        cap_width, 
+        cap_height
+    ).to_image();
     
     // Convert to DynamicImage
-    let dynamic_image = DynamicImage::ImageRgba8(
-        image::RgbaImage::from_raw(
-            image.width() as u32, 
-            image.height() as u32, 
-            image.data().to_vec()
-        ).ok_or("Failed to convert image data")?
-    );
+    let dynamic_image = DynamicImage::ImageRgba8(cropped_image);
     
     // Process the image
     process_image(dynamic_image)
@@ -367,7 +376,7 @@ fn process_image(img: DynamicImage) -> Result<String, Box<dyn std::error::Error>
     // Convert to JPEG format with quality adjustment for reasonable size
     let mut jpeg_data = Vec::new();
     let mut cursor = Cursor::new(&mut jpeg_data);
-    resized_img.write_to(&mut cursor, ImageOutputFormat::Jpeg(75))?;
+    resized_img.write_to(&mut cursor, ImageFormat::Jpeg)?;
 
     // Encode as base64
     let base64_image = general_purpose::STANDARD.encode(&jpeg_data);

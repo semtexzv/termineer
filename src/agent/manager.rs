@@ -1,6 +1,6 @@
 //! Manager for multiple agent instances
 
-use super::agent::Agent;
+use super::agent_impl::Agent;
 use super::types::{
     AgentError, AgentId, AgentMessage, AgentSender, AgentState, InterruptReceiver, InterruptSender,
     InterruptSignal, StateReceiver,

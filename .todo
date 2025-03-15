@@ -15,6 +15,3 @@ should be able to start a shell, then would receive the output periodically, and
 # Tool input rewrites
 Tool should be able to clean up its own invocation, rewrite it to be shorter, parse ambiguous syntax and replace it with
 structured one.
-
-# MCP as native tools
-MCP should be integrated as native tools (Not under MCP umbrella).
