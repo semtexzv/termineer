@@ -84,10 +84,30 @@ pub fn validate_directory(path: &str) -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn test_safe_path() {
-        let result = validate_path("Cargo.toml");
+        // Create a temporary directory and file for testing
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test-file.txt");
+        
+        // Create the test file
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "Test content").unwrap();
+        
+        // Change to the temp directory
+        let original_dir = env::current_dir().unwrap();
+        env::set_current_dir(&temp_dir).unwrap();
+        
+        // Test with a file we know exists in our current directory
+        let result = validate_path("test-file.txt");
+        
+        // Restore the original working directory
+        env::set_current_dir(original_dir).unwrap();
+        
         assert!(result.is_ok());
     }
 

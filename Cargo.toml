@@ -3,7 +3,7 @@ members = [".", "server"]
 
 [package]
 name = "termineer"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT"
 
@@ -48,6 +48,7 @@ indexmap = "2.8.0"
 # Dependencies for Computer Use feature
 enigo = "0.1.3"        # Cross-platform keyboard and mouse control
 once_cell = "1.19.0"   # Improved lazy initialization for statics
+tempfile = "3.10.1"    # Temporary file/directory handling for tests
 
 # Platform-specific dependencies for Computer Use
 [target.'cfg(target_os = "macos")'.dependencies]

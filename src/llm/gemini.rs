@@ -157,8 +157,22 @@ impl GeminiBackend {
     ) -> Vec<GeminiContent> {
         let mut gemini_contents = Vec::new();
         
-        // Process the optional system message
-        let system_text = system.unwrap_or("").to_string();
+        // Get the system message either from the parameter or from the messages
+        let mut system_text = system.unwrap_or("").to_string();
+        
+        // If no system message provided as parameter, look for it in the messages
+        if system_text.is_empty() {
+            // Find the first system message in the array
+            for message in messages {
+                if message.role == "system" {
+                    if let Content::Text { text } = &message.content {
+                        system_text = text.clone();
+                        break;
+                    }
+                }
+            }
+        }
+        
         let has_system = !system_text.is_empty();
         
         // Track if we've prepended the system message to a user message
@@ -528,7 +542,8 @@ mod tests {
             },
         ];
         
-        let system_prompt = None; // System message is in the messages array
+        // First test with no external system prompt (uses the one from messages)
+        let system_prompt = None;
         
         let gemini_contents = client.convert_messages_to_gemini_format(&messages, system_prompt);
         
@@ -538,6 +553,19 @@ mod tests {
         assert_eq!(
             gemini_contents[0].parts[0].text, 
             Some("You are a helpful assistant.\n\nHello, how are you?".to_string())
+        );
+        
+        // Test with an explicit system prompt which should override the one in messages
+        let explicit_system = Some("I am an explicit system prompt.");
+        
+        let gemini_contents = client.convert_messages_to_gemini_format(&messages, explicit_system);
+        
+        assert_eq!(gemini_contents.len(), 1);
+        assert_eq!(gemini_contents[0].role, Some("user".to_string()));
+        assert_eq!(gemini_contents[0].parts.len(), 1);
+        assert_eq!(
+            gemini_contents[0].parts[0].text, 
+            Some("I am an explicit system prompt.\n\nHello, how are you?".to_string())
         );
     }
     
