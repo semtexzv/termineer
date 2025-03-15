@@ -3,7 +3,7 @@ members = [".", "server"]
 
 [package]
 name = "termineer"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "MIT"
 
@@ -50,7 +50,7 @@ rand = "0.8.5"         # For random number generation
 dirs = "5.0.1"         # For getting user directories
 base64 = "0.21.5"      # For encoding/decoding base64 in OAuth flow and screenshots
 xcap = "0.4.0"         # Cross-platform screen capture library (replaces screenshots)
-image = "0.24.7"       # For image processing and format conversion
+image = "0.25.5"       # For image processing and format conversion
 glob = "0.3.1"         # For glob pattern matching in autoinclude feature
 scraper = "0.23.1"
 clap = { version = "4.4", features = ["derive"] }  # Command-line argument parsing
