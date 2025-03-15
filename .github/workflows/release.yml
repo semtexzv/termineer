@@ -137,6 +137,17 @@ jobs:
             ```
             
             The package includes binaries for Linux, macOS (Intel & Apple Silicon), and Windows.
+            
+            ## Linux Binary Options
+            
+            Two Linux binaries are provided:
+            
+            - **termineer-x86_64-linux-musl**: Statically linked MUSL binary that works on virtually any Linux distribution. This is the one used in the NPM package.
+            - **termineer-x86_64-linux-gnu**: Built with an older glibc version for broad compatibility with most Linux distributions.
+            
+            ## Debug Symbols
+            
+            Debug symbols are available as separate `.debug-info.tar.gz` files if you need to troubleshoot issues.
           files: |
             **/termineer-*
             # Include debug info archives
@@ -169,9 +180,21 @@ jobs:
           # Copy the binaries to respective platform directories
           # Note: Debug info files (*.debug-info.tar.gz) are intentionally excluded from NPM packages
           # They're still available as separate download artifacts in the GitHub release
-          cp prebuilds/termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu npm-package/bin/platform/linux-x64/termineer
+          
+          # Linux: Prefer MUSL build for better compatibility, fall back to GNU build if not available
+          if [ -f "prebuilds/termineer-x86_64-linux-musl/termineer-x86_64-linux-musl" ]; then
+            cp prebuilds/termineer-x86_64-linux-musl/termineer-x86_64-linux-musl npm-package/bin/platform/linux-x64/termineer
+            echo "Using MUSL static build for Linux package (better compatibility)"
+          else
+            cp prebuilds/termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu npm-package/bin/platform/linux-x64/termineer
+            echo "Using GNU build for Linux package"
+          fi
+          
+          # macOS builds
           cp prebuilds/termineer-x86_64-apple-darwin/termineer-x86_64-apple-darwin npm-package/bin/platform/darwin-x64/termineer
           cp prebuilds/termineer-aarch64-apple-darwin/termineer-aarch64-apple-darwin npm-package/bin/platform/darwin-arm64/termineer
+          
+          # Windows build
           cp prebuilds/termineer-x86_64-windows-msvc/termineer-x86_64-windows-msvc npm-package/bin/platform/win32-x64/termineer.exe
           
           # Set executable permissions

@@ -25,11 +25,19 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - name: linux-x64
+          - name: linux-x64-gnu
             os: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             binary_name: termineer
             asset_name: termineer-x86_64-linux-gnu
+            use_container: true
+            container_image: "ghcr.io/rust-cross/manylinux2014-cross:x86_64"
+            
+          - name: linux-x64-musl
+            os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-musl
+            binary_name: termineer
+            asset_name: termineer-x86_64-linux-musl
             
           - name: windows-x64
             os: windows-latest
@@ -57,10 +65,51 @@ jobs:
         with:
           targets: ${{ matrix.target.rust_target }}
       
-      # Run tests before building
+      # Run tests before building (only once, on standard Linux target)
       - name: Run tests
-        if: matrix.target.name == 'linux-x64'  # Only run tests once
+        if: matrix.target.name == 'linux-x64-gnu'  # Only run tests once
         run: cargo test --all
+      
+      # Set up container for older glibc build
+      - name: Set up Docker container for GNU Linux build
+        if: matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ matrix.target.container_image }}
+          options: -v ${{ github.workspace }}:/work
+          run: |
+            cd /work
+            # Install build dependencies
+            yum install -y openssl-devel pkgconfig clang
+            
+            # Install Rust
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source $HOME/.cargo/env
+            
+            # Build with older glibc version
+            rustup target add ${{ matrix.target.rust_target }}
+            RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target ${{ matrix.target.rust_target }}
+            
+            # Strip the binary to reduce size
+            BINARY_PATH="target/${{ matrix.target.rust_target }}/release/${{ matrix.target.binary_name }}"
+            echo "Binary size before stripping:"
+            du -h "$BINARY_PATH"
+            strip "$BINARY_PATH"
+            echo "Binary size after stripping:"
+            du -h "$BINARY_PATH"
+      
+      # Special case for Linux MUSL (static build)
+      - name: Build for Linux MUSL
+        if: matrix.target.name == 'linux-x64-musl'
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          
+          # Install musl tools if needed
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          
+          # Build fully static binary with MUSL
+          RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-musl
       
       # Special case for macOS ARM
       - name: Build for macOS ARM64
@@ -71,14 +120,15 @@ jobs:
       
       # For all other targets
       - name: Build binary
-        if: matrix.target.name != 'macos-arm64'
+        if: matrix.target.name != 'macos-arm64' && matrix.target.name != 'linux-x64-musl' && !(matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container)
         run: cargo build --release --target ${{ matrix.target.rust_target }}
       
       # Handle split debug info and strip binaries on Linux and macOS
       - name: Process debug info and strip binaries
         shell: bash
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !((matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container))
         run: |
+          # Skip this step for container-based builds as they're handled in the container
           if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
             TARGET_DIR="target/aarch64-apple-darwin/release"
             BINARY_PATH="$TARGET_DIR/${{ matrix.target.binary_name }}"
@@ -140,13 +190,21 @@ jobs:
           # Create target directory
           mkdir -p artifacts
           
-          # Determine target directory
+          # Determine target directory based on build type
           if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
             TARGET_DIR="target/aarch64-apple-darwin/release"
-            cp $TARGET_DIR/${{ matrix.target.binary_name }} artifacts/${{ matrix.target.asset_name }}
           else
             TARGET_DIR="target/${{ matrix.target.rust_target }}/release"
-            cp $TARGET_DIR/${{ matrix.target.binary_name }} artifacts/${{ matrix.target.asset_name }}
+          fi
+          
+          # Ensure file exists and is copied correctly
+          if [ -f "$TARGET_DIR/${{ matrix.target.binary_name }}" ]; then
+            cp "$TARGET_DIR/${{ matrix.target.binary_name }}" "artifacts/${{ matrix.target.asset_name }}"
+            echo "Copied binary from $TARGET_DIR/${{ matrix.target.binary_name }} to artifacts/${{ matrix.target.asset_name }}"
+          else
+            echo "ERROR: Binary not found at $TARGET_DIR/${{ matrix.target.binary_name }}"
+            ls -la "$TARGET_DIR/"
+            exit 1
           fi
           
           # Copy debug info archive if it exists
