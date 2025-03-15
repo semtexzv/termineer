@@ -1,6 +1,44 @@
 {% extends "base.html" %}
 
+{% block title %}Termineer User Manual - Complete Guide to the Terminal AI Assistant{% endblock %}
+{% block meta_description %}Comprehensive guide to configuring and using Termineer, the self-directing AI coding engineer for your terminal. Learn installation, API setup, advanced configuration, and usage tips.{% endblock %}
+
 {% block content %}
+<!-- How-To Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to Use Termineer AI Terminal Assistant",
+  "description": "Learn how to install, configure, and use Termineer - the self-directing AI coding engineer for your terminal.",
+  "step": [
+    {
+      "@type": "HowToStep",
+      "name": "Installation",
+      "text": "Install Termineer globally using NPM: npm install -g termineer",
+      "url": "https://termineer.io/manual#installation"
+    },
+    {
+      "@type": "HowToStep",
+      "name": "API Key Configuration",
+      "text": "Configure your API keys in the .env file",
+      "url": "https://termineer.io/manual#api-keys"
+    },
+    {
+      "@type": "HowToStep",
+      "name": "Project Setup",
+      "text": "Create a .termineer directory with project information",
+      "url": "https://termineer.io/manual#project-information"
+    },
+    {
+      "@type": "HowToStep",
+      "name": "Using Command-Line Options",
+      "text": "Learn the various command-line options to customize Termineer behavior",
+      "url": "https://termineer.io/manual#command-line-options"
+    }
+  ]
+}
+</script>
 <div class="py-8 px-4 max-w-4xl mx-auto">
     <h1 class="text-3xl font-bold text-gray-900 mb-8">Termineer User Manual</h1>
     

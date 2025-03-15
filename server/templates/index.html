@@ -1,23 +1,51 @@
 {% extends "base.html" %}
 
+{% block meta_description %}Termineer - The AI terminal assistant that turns natural language into working code. A self-directing coding engineer that analyzes codebases, implements features, writes tests, and debugs issues with minimal guidance.{% endblock %}
+
 {% block content %}
+<!-- Structured Data for AI Software Product -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Termineer",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Cross-platform",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD",
+    "availability": "https://schema.org/InStock"
+  },
+  "description": "A self-directing AI coding engineer that operates from your terminal, providing complete solutions by analyzing codebases, implementing features, and debugging with minimal guidance.",
+  "softwareVersion": "0.1.0",
+  "keywords": "AI terminal, coding assistant, AI developer, terminal agent, CLI AI",
+  "author": {
+    "@type": "Organization",
+    "name": "Termineer",
+    "url": "https://termineer.io"
+  }
+}
+</script>
+
 <div class="text-center mb-16">
-    <h1 class="text-4xl font-bold text-gray-900 mb-4">Termineer</h1>
+    <h1 class="text-4xl font-bold text-gray-900 mb-4">Termineer AI Terminal Assistant</h1>
     <p class="text-xl font-medium text-gray-800 max-w-2xl mx-auto">
-        Your self-directing coding engineer in the terminal
+        Your self-directing AI coding engineer that turns natural language into working code, right in your terminal
     </p>
     <div class="mt-6 max-w-2xl mx-auto text-left">
         <p class="mb-3 text-lg text-gray-700">
-            Termineer is your AI engineer that takes initiative and delivers complete solutions, not just suggestions. Think of it as a developer on your team who:
+            Termineer combines advanced AI with terminal accessibility to deliver complete solutions, not just suggestions. Unlike other coding assistants, Termineer:
         </p>
         <ul class="list-disc list-inside text-lg text-gray-700 space-y-2 pl-4">
-            <li>Analyzes codebases and understands your project structure</li>
-            <li>Implements new features and refactors existing code</li>
-            <li>Writes tests and documentation</li>
-            <li>Debugs issues with minimal guidance</li>
+            <li>Autonomously analyzes entire codebases with deep understanding of project structure</li>
+            <li>Implements production-ready features with proper error handling and tests</li>
+            <li>Refactors existing code while maintaining compatibility and performance</li>
+            <li>Debugs complex issues by tracing through execution paths and logs</li>
+            <li>Generates comprehensive documentation that follows best practices</li>
         </ul>
         <p class="mt-4 text-lg text-gray-700">
-          Termineer was <a href="https://x.com/karpathy/status/1886192184808149383" class="text-primary-600 hover:text-primary-800 font-medium underline underline-offset-2">vibe coded</a> by using itself in just under one week.
+          Termineer was <a href="https://x.com/karpathy/status/1886192184808149383" class="text-primary-600 hover:text-primary-800 font-medium underline underline-offset-2">vibe coded</a> by using itself in just under one week, demonstrating its ability to build production-quality software.
         </p>
     </div>
 </div>
@@ -101,4 +129,78 @@
         </div>
     </div>
 </section>
+
+<!-- FAQ Section with Structured Data -->
+<section class="bg-white rounded-xl shadow-md overflow-hidden mb-10" id="faq">
+    <div class="p-6 md:p-8">
+        <h2 class="text-2xl font-semibold text-gray-900 mb-6">Frequently Asked Questions</h2>
+        
+        <div class="space-y-6">
+            <div>
+                <h3 class="font-medium text-lg text-gray-900">How is Termineer different from ChatGPT or other AI coding assistants?</h3>
+                <p class="text-gray-700 mt-2">
+                    Unlike web-based AI assistants, Termineer operates directly in your terminal with access to your codebase and command-line tools. It can autonomously execute tasks, read and modify files, run tests, and implements complete solutions rather than just providing code snippets.
+                </p>
+            </div>
+            
+            <div>
+                <h3 class="font-medium text-lg text-gray-900">What AI models does Termineer use?</h3>
+                <p class="text-gray-700 mt-2">
+                    Termineer supports multiple LLM providers including Claude models from Anthropic, Gemini from Google, and various models through OpenRouter, giving you flexibility to choose based on your needs and API access.
+                </p>
+            </div>
+            
+            <div>
+                <h3 class="font-medium text-lg text-gray-900">Is my code secure when using Termineer?</h3>
+                <p class="text-gray-700 mt-2">
+                    Termineer runs locally on your machine and only sends the specific context needed for each task to the AI models. Your API keys and sensitive information stay on your machine, and Termineer provides full visibility into what data is being sent.
+                </p>
+            </div>
+            
+            <div>
+                <h3 class="font-medium text-lg text-gray-900">What languages and frameworks does Termineer support?</h3>
+                <p class="text-gray-700 mt-2">
+                    Termineer can work with virtually any programming language, framework, or technology stack that you can use in your terminal. It's especially effective with JavaScript/TypeScript, Python, Rust, Go, Java, and other mainstream languages.
+                </p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FAQ Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [{
+    "@type": "Question",
+    "name": "How is Termineer different from ChatGPT or other AI coding assistants?",
+    "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Unlike web-based AI assistants, Termineer operates directly in your terminal with access to your codebase and command-line tools. It can autonomously execute tasks, read and modify files, run tests, and implements complete solutions rather than just providing code snippets."
+    }
+  }, {
+    "@type": "Question",
+    "name": "What AI models does Termineer use?",
+    "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Termineer supports multiple LLM providers including Claude models from Anthropic, Gemini from Google, and various models through OpenRouter, giving you flexibility to choose based on your needs and API access."
+    }
+  }, {
+    "@type": "Question",
+    "name": "Is my code secure when using Termineer?",
+    "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Termineer runs locally on your machine and only sends the specific context needed for each task to the AI models. Your API keys and sensitive information stay on your machine, and Termineer provides full visibility into what data is being sent."
+    }
+  }, {
+    "@type": "Question",
+    "name": "What languages and frameworks does Termineer support?",
+    "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Termineer can work with virtually any programming language, framework, or technology stack that you can use in your terminal. It's especially effective with JavaScript/TypeScript, Python, Rust, Go, Java, and other mainstream languages."
+    }
+  }]
+}
+</script>
 {% endblock %}

@@ -92,20 +92,6 @@ git push origin "$TAG_NAME"
 echo "Pushing commits"
 git push origin
 
-# Create a .cargo/config.toml file to set profile options for all builds
-mkdir -p .cargo
-cat > .cargo/config.toml << EOF
-[profile.release]
-# Enable stripping of debug symbols (supported since Rust 1.59)
-strip = true
-# Optimize for size (z is smaller than s in most cases)
-opt-level = "z"
-# Enable Link Time Optimization
-lto = true
-# Reduce parallel code generation units to increase optimization
-codegen-units = 1
-EOF
-
 echo "Created .cargo/config.toml with optimized release settings"
 git add .cargo/config.toml
 git commit -m "Add cargo config for optimized binary size"
@@ -114,9 +100,3 @@ git push origin
 echo "Release process initiated for version $NEW_VERSION"
 echo "GitHub Actions workflow should now be running to build and publish the release"
 echo "You can monitor progress at: https://github.com/$(git config --get remote.origin.url | sed 's/.*github.com[:\/]\(.*\)\.git/\1/')/actions"
-echo ""
-echo "Binary optimization settings enabled:"
-echo "- strip: true (removes debug symbols)"
-echo "- opt-level: \"z\" (optimizes for size)"
-echo "- lto: true (enables Link Time Optimization)"
-echo "- codegen-units: 1 (maximizes optimization)"

@@ -1,6 +1,6 @@
 [package]
 name = "termineer-server"
-version = "0.2.2"
+version = "0.2.5" # Updated to match the main package version
 edition = "2021"
 description = "Simple server for Termineer"
 
@@ -9,10 +9,8 @@ description = "Simple server for Termineer"
 axum = { version = "0.7.4", features = ["macros"] }
 tower = "0.4.13"
 tower-http = { version = "0.5.1", features = ["fs", "cors", "trace"] }
-tokio = { version = "1.33.0", features = ["full"] }
-hyper = "1.2.0"
-http-body-util = "0.1.0"
-bytes = "1.5.0"
+tokio.workspace = true
+
 
 # Templating
 askama = "0.12.1"
@@ -22,23 +20,23 @@ askama_axum = "0.4.0"
 sqlx = { version = "0.7.1", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid", "json", "migrate"] }
 
 # Utilities
-serde = { version = "1.0.188", features = ["derive"] }
-serde_json = "1.0.107"
+serde = { workspace = true }
+serde_json = { workspace = true }
 dotenv = "0.15.0"
-chrono = { version = "0.4.31", features = ["serde"] }
+chrono = { workspace = true }
 env_logger = "0.10.0"
-log = "0.4.20"
-thiserror = "1.0.48"
-uuid = { version = "1.4.1", features = ["v4", "serde"] }
-reqwest = { version = "0.11.22", features = ["json"] }
+log = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }
 config = "0.13.3"
-tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # Authentication
 tower-cookies = "0.10.0"
-jsonwebtoken = "8.3.0"
-oauth2 = { version = "4.4.2", features = ["reqwest"] }
+jsonwebtoken = { workspace = true }
+oauth2 = { workspace = true }
 time = "0.3.20"
 
 [dev-dependencies]

@@ -3,7 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Termineer - Your Terminal AI Assistant{% endblock %}</title>
+    
+    <!-- Primary Meta Tags -->
+    <meta name="description" content="{% block meta_description %}Termineer - A self-directing AI coding engineer that operates from your terminal with comprehensive project analysis, feature implementation, debugging, and testing capabilities.{% endblock %}">
+    <meta name="keywords" content="AI terminal, coding assistant, AI developer, terminal agent, CLI AI, AI pair programming, terminal automation, AI programming assistant, code generation">
+    <meta name="author" content="Termineer">
+    <meta name="robots" content="index, follow">
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://termineer.io{{ request.path }}">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://termineer.io{{ request.path }}">
+    <meta property="og:title" content="{% block og_title %}Termineer - Your Self-Directing Terminal AI Engineer{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}A terminal-based AI coding engineer that delivers complete solutions, not just suggestions. Analyzes codebases, implements features, and debugs issues with minimal guidance.{% endblock %}">
+    <meta property="og:image" content="{% block og_image %}https://termineer.io/static/images/termineer-og-image.png{% endblock %}">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://termineer.io{{ request.path }}">
+    <meta property="twitter:title" content="{% block twitter_title %}Termineer - Your Self-Directing Terminal AI Engineer{% endblock %}">
+    <meta property="twitter:description" content="{% block twitter_description %}A terminal-based AI coding engineer that delivers complete solutions, not just suggestions.{% endblock %}">
+    <meta property="twitter:image" content="{% block twitter_image %}https://termineer.io/static/images/termineer-twitter-card.png{% endblock %}">
+    
+    <!-- Preconnect and Preload Resources -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preload" href="/static/js/auth.js" as="script">
+    
+    <title>{% block title %}Termineer - Your Self-Directing Terminal AI Engineer{% endblock %}</title>
     <!-- Include Tailwind directly via CDN for simplicity -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Auth JS -->
