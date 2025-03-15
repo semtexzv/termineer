@@ -14,12 +14,13 @@
                     To get started, you'll need to configure your API keys and understand the basic configuration options.
                 </p>
                 
-                <h3 class="text-xl font-medium text-gray-900 mb-3">Required API Keys</h3>
+                <h3 class="text-xl font-medium text-gray-900 mb-3">API Keys</h3>
+                <p class="text-gray-700 mb-3">Termineer supports multiple LLM providers. You'll need at least one API key to use the application.</p>
                 <div class="space-y-4 mb-6">
                     <div class="bg-gray-50 rounded-lg p-4">
                         <h4 class="font-medium text-gray-900">ANTHROPIC_API_KEY</h4>
                         <p class="text-gray-700 text-sm mt-1">
-                            Required for accessing Claude models, which power Termineer's core functionality.
+                            Required for using Claude models like 'claude-3-opus', 'claude-3-sonnet', and 'claude-3-haiku'.
                             <a href="https://console.anthropic.com/settings/keys" class="text-primary-600 hover:text-primary-800" target="_blank">
                                 Get your API key from Anthropic
                             </a>
@@ -29,9 +30,36 @@
                     <div class="bg-gray-50 rounded-lg p-4">
                         <h4 class="font-medium text-gray-900">GOOGLE_API_KEY</h4>
                         <p class="text-gray-700 text-sm mt-1">
-                            Required for web search functionality. Enables Termineer to search the web for documentation, solutions, and references.
+                            Serves two purposes: (1) For web search functionality and (2) For using Google's Gemini models like 'gemini-1.5-pro'.
                             <a href="https://console.cloud.google.com/apis/credentials" class="text-primary-600 hover:text-primary-800" target="_blank">
                                 Get your API key from Google Cloud
+                            </a>
+                        </p>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="font-medium text-gray-900">OPENROUTER_API_KEY</h4>
+                        <p class="text-gray-700 text-sm mt-1">
+                            Required for accessing models through OpenRouter, which provides a unified API for various models including GPT-4o, Claude, and more.
+                            <a href="https://openrouter.ai/keys" class="text-primary-600 hover:text-primary-800" target="_blank">
+                                Get your API key from OpenRouter
+                            </a>
+                        </p>
+                        <p class="text-gray-700 text-sm mt-2">
+                            <strong>Optional settings:</strong>
+                        </p>
+                        <ul class="list-disc list-inside text-gray-700 text-sm mt-1">
+                            <li><code>OPENROUTER_SITE_URL</code> - Your application's URL (for request ranking)</li>
+                            <li><code>OPENROUTER_SITE_NAME</code> - Your application's name (for request ranking)</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="font-medium text-gray-900">DEEPSEEK_API_KEY</h4>
+                        <p class="text-gray-700 text-sm mt-1">
+                            Required for using DeepSeek models like 'deepseek-chat' and 'deepseek-reasoner'.
+                            <a href="https://platform.deepseek.com/" class="text-primary-600 hover:text-primary-800" target="_blank">
+                                Get your API key from DeepSeek
                             </a>
                         </p>
                     </div>
@@ -88,7 +116,7 @@ export GOOGLE_API_KEY=your-google-key-here</code>
                 <div class="bg-gray-50 rounded-lg p-4 mb-6">
                     <h4 class="font-medium text-gray-900">Project Information</h4>
                     <p class="text-gray-700 text-sm mt-1">
-                        Create an <code>info</code> file in the <code>.termineer</code> directory with project information:
+                        Create an <code>info</code> file in the <code>.termineer</code> directory with project information. This will be loaded automatically at the start of each agent conversation.
                     </p>
                     <div class="code-block mt-2">
                         <code># Project information:
@@ -101,30 +129,69 @@ This is a description of my project that Termineer will use to understand the co
 - PostgreSQL
 
 ## Architecture
-The project follows a standard MVC architecture...</code>
+The project follows a standard MVC architecture with:
+- models/ - Database models and business logic
+- views/ - Request handlers and response formatting
+- templates/ - HTML templates for rendering
+- static/ - CSS, JavaScript, and other static assets
+
+## API Endpoints
+- GET /api/users - List all users
+- POST /api/users - Create a new user
+- GET /api/users/:id - Get a specific user</code>
                     </div>
+                    <p class="text-gray-700 text-sm mt-3">
+                        The content should follow Markdown formatting guidelines. Termineer will automatically include your current working directory and prefix this information with "Project information:".
+                    </p>
+                </div>
+                
+                <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                    <h4 class="font-medium text-gray-900">Automatic File Inclusion</h4>
+                    <p class="text-gray-700 text-sm mt-1">
+                        Create an <code>autoinclude</code> file in the <code>.termineer</code> directory to automatically include files in your context. Each line is treated as a glob pattern:
+                    </p>
+                    <div class="code-block mt-2">
+                        <code># Include key configuration files
+config/*.json
+README.md
+
+# Include important source files
+src/main.rs
+src/config.rs
+
+# Include all API-related files
+src/api/*.rs
+
+# Comments start with #
+# Empty lines are ignored</code>
+                    </div>
+                    <p class="text-gray-700 text-sm mt-3">
+                        Files matching these patterns will be automatically loaded and added to the agent's context at startup. Binary files and certain extensions (.exe, .jpg, etc.) are automatically excluded. Use this feature to give your agent immediate access to important project files.
+                    </p>
                 </div>
                 
                 <h3 class="text-xl font-medium text-gray-900 mb-3">Model Context Protocol (MCP) - Experimental</h3>
                 <p class="text-gray-700 mb-4">
                     MCP is an experimental feature that allows Termineer to interact with specialized tools and services through a protocol.
-                    This enables advanced functionalities beyond the built-in tools.
+                    This enables advanced functionalities beyond the built-in tools. <strong>Note:</strong> Termineer currently only supports standard input/output MCP servers.
                 </p>
                 
                 <div class="bg-gray-50 rounded-lg p-4">
                     <h4 class="font-medium text-gray-900">Configuring MCP Servers</h4>
                     <p class="text-gray-700 text-sm mt-1">
-                        MCP servers are configured using:
+                        MCP servers are configured in one or both of these locations:
                     </p>
                     <ul class="list-disc list-inside text-gray-700 text-sm mt-1 mb-2">
                         <li>Home directory: <code>~/.termineer/mcp/config.json</code></li>
                         <li>Local project directory: <code>.termineer/config.json</code></li>
                     </ul>
                     <p class="text-gray-700 text-sm mt-1">
-                        Configurations from both locations are merged, with local settings taking precedence.
+                        Configurations from both locations are merged, with local settings taking precedence. This allows for system-wide defaults with project-specific overrides.
                     </p>
-                    <p class="text-gray-700 text-sm mt-1">Example MCP configuration:</p>
-                    <div class="code-block mt-2">
+                    <p class="text-gray-700 text-sm mt-1">Example MCP configurations:</p>
+                    
+                    <p class="text-gray-700 text-sm mt-3 font-medium">Home config (~/.termineer/mcp/config.json):</p>
+                    <div class="code-block mt-1 mb-3">
                         <code>{
   "mcpServers": {
     "filesystem": {
@@ -132,21 +199,72 @@ The project follows a standard MVC architecture...</code>
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/username/Desktop",
+        "/Users/username/Documents",
         "/Users/username/Downloads"
       ],
       "env": {
         "NODE_ENV": "production",
-        "DEBUG": "mcp:*",
-        "API_KEY": "your-secret-key-here"
+        "DEBUG": "mcp:*"
+      }
+    },
+    "openapi": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-openapi"
+      ],
+      "env": {
+        "PORT": "9001"
       }
     }
   }
 }</code>
                     </div>
+                    
+                    <p class="text-gray-700 text-sm mt-3 font-medium">Project-specific config (.termineer/config.json):</p>
+                    <div class="code-block mt-1">
+                        <code>{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "./project-files",
+        "/tmp/cache"
+      ],
+      "env": {
+        "API_KEY": "project-specific-key"
+      }
+    },
+    "project-tool": {
+      "command": "./tools/my-custom-tool.js",
+      "args": ["--serve"],
+      "env": {
+        "PORT": "9002"
+      }
+    }
+  }
+}</code>
+                    </div>
+                    
+                    <p class="text-gray-700 text-sm mt-3 font-medium">Resulting merged configuration:</p>
+                    <p class="text-gray-700 text-sm mt-1">
+                      When both configurations exist, they'll be merged as follows:
+                    </p>
+                    <ul class="list-disc list-inside text-gray-700 text-sm mt-1 mb-2">
+                      <li>"filesystem" from the project config overrides the home config (local takes precedence)</li>
+                      <li>"openapi" from the home config is preserved</li>
+                      <li>"project-tool" from the project config is added</li>
+                    </ul>
+                    
                     <p class="text-gray-700 text-sm mt-3">
                       <strong>Environment Variables:</strong> You can specify environment variables to be passed to MCP servers using the <code>env</code> field.
                       This is useful for setting API keys, debug modes, or other configuration without exposing them in command arguments.
+                    </p>
+                    
+                    <p class="text-gray-700 text-sm mt-3">
+                      <strong>Tip:</strong> Use the <code>.termineer/autoinclude</code> file (described in the Automatic File Inclusion section above) to include your MCP configuration files in the agent's context at startup. This can be helpful when working with custom MCP tools that require specific documentation or examples.
                     </p>
                 </div>
             </div>
