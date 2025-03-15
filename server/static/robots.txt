@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /checkout
+Disallow: /cancel-checkout
+
+Sitemap: https://termineer.io/static/seo/sitemap.xml

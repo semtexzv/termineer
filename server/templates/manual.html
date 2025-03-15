@@ -2,9 +2,32 @@
 
 {% block title %}Termineer User Manual - Complete Guide to the Terminal AI Assistant{% endblock %}
 {% block meta_description %}Comprehensive guide to configuring and using Termineer, the self-directing AI coding engineer for your terminal. Learn installation, API setup, advanced configuration, and usage tips.{% endblock %}
+{% block canonical_path %}/manual{% endblock %}
+{% block og_url %}/manual{% endblock %}
+{% block twitter_url %}/manual{% endblock %}
 
 {% block content %}
 <!-- How-To Structured Data -->
+<!-- Breadcrumbs Schema -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [{
+    "@type": "ListItem",
+    "position": 1,
+    "name": "Home",
+    "item": "https://termineer.io/"
+  },{
+    "@type": "ListItem",
+    "position": 2,
+    "name": "User Manual",
+    "item": "https://termineer.io/manual"
+  }]
+}
+</script>
+
+<!-- HowTo Schema -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",

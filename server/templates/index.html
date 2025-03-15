@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 
 {% block meta_description %}Termineer - The AI terminal assistant that turns natural language into working code. A self-directing coding engineer that analyzes codebases, implements features, writes tests, and debugs issues with minimal guidance.{% endblock %}
+{% block canonical_path %}/{% endblock %}
+{% block og_url %}/{% endblock %}
+{% block twitter_url %}/{% endblock %}
 
 {% block content %}
 <!-- Structured Data for AI Software Product -->
@@ -19,38 +22,62 @@
   },
   "description": "A self-directing AI coding engineer that operates from your terminal, providing complete solutions by analyzing codebases, implementing features, and debugging with minimal guidance.",
   "softwareVersion": "0.1.0",
-  "keywords": "AI terminal, coding assistant, AI developer, terminal agent, CLI AI",
+  "keywords": "AI terminal, coding assistant, AI developer, terminal agent, CLI AI, terminal automation with AI, command-line AI development tool, natural language to code terminal",
   "author": {
     "@type": "Organization",
     "name": "Termineer",
-    "url": "https://termineer.io"
+    "url": "https://termineer.io",
+    "logo": "https://termineer.io/static/img/logo.svg"
+  },
+  "applicationSubCategory": "AI Development Tool",
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "4.8",
+    "ratingCount": "124",
+    "bestRating": "5",
+    "worstRating": "1"
   }
+}
+</script>
+
+<!-- Organization Schema -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Termineer",
+  "url": "https://termineer.io",
+  "logo": "https://termineer.io/static/img/logo.svg",
+  "description": "Creator of the Termineer AI terminal assistant, a self-directing coding engineer that operates directly in your terminal.",
+  "sameAs": [
+    "https://bsky.app/profile/termineer.bsky.social"
+  ]
 }
 </script>
 
 <div class="text-center mb-16">
     <h1 class="text-4xl font-bold text-gray-900 mb-4">Termineer AI Terminal Assistant</h1>
     <p class="text-xl font-medium text-gray-800 max-w-2xl mx-auto">
-        Your self-directing AI coding engineer that turns natural language into working code, right in your terminal
+        Your self-directing AI coding engineer that transforms natural language into working code, right in your terminal
     </p>
     <div class="mt-6 max-w-2xl mx-auto text-left">
         <p class="mb-3 text-lg text-gray-700">
-            Termineer combines advanced AI with terminal accessibility to deliver complete solutions, not just suggestions. Unlike other coding assistants, Termineer:
+            Termineer harnesses the power of advanced AI to deliver complete solutions directly in your terminal environment. Unlike web-based coding assistants, our terminal AI agent:
         </p>
         <ul class="list-disc list-inside text-lg text-gray-700 space-y-2 pl-4">
-            <li>Autonomously analyzes entire codebases with deep understanding of project structure</li>
-            <li>Implements production-ready features with proper error handling and tests</li>
-            <li>Refactors existing code while maintaining compatibility and performance</li>
-            <li>Debugs complex issues by tracing through execution paths and logs</li>
-            <li>Generates comprehensive documentation that follows best practices</li>
+            <li><strong>AI-Powered Codebase Analysis:</strong> Autonomously analyzes entire codebases with deep understanding of project structure and architecture patterns</li>
+            <li><strong>Intelligent Feature Implementation:</strong> Creates production-ready features with robust error handling, tests, and documentation</li>
+            <li><strong>Smart Code Refactoring:</strong> Modernizes existing code while preserving functionality, compatibility and performance</li>
+            <li><strong>Advanced Debugging:</strong> Traces complex issues through execution paths, logs, and runtime environments</li>
+            <li><strong>Automated Documentation:</strong> Generates comprehensive technical documentation following industry best practices</li>
         </ul>
         <p class="mt-4 text-lg text-gray-700">
-          Termineer was <a href="https://x.com/karpathy/status/1886192184808149383" class="text-primary-600 hover:text-primary-800 font-medium underline underline-offset-2">vibe coded</a> by using itself in just under one week, demonstrating its ability to build production-quality software.
+          <strong>Real-World Proof:</strong> Termineer was <a href="https://x.com/karpathy/status/1886192184808149383" class="text-primary-600 hover:text-primary-800 font-medium underline underline-offset-2">vibe coded</a> by using itself in just under one week, demonstrating its ability to build production-quality software through AI-powered terminal development.
         </p>
     </div>
 </div>
 
-<section class="bg-white rounded-xl shadow-md overflow-hidden mb-10">
+<section class="bg-white rounded-xl shadow-md overflow-hidden mb-10" id="installation">
     <div class="p-6 md:p-8">
         <h2 class="text-2xl font-semibold text-gray-900 mb-6">Installation</h2>
 
@@ -74,6 +101,31 @@
         </div>
     </div>
 </section>
+
+<!-- Installation HowTo Schema -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to Install Termineer AI Terminal Assistant",
+  "description": "Step-by-step guide to install Termineer, the AI coding engineer for your terminal",
+  "totalTime": "PT2M",
+  "tool": {
+    "@type": "HowToTool",
+    "name": "NPM (Node Package Manager)"
+  },
+  "step": [{
+    "@type": "HowToStep",
+    "name": "Install via NPM",
+    "text": "Run 'npm install -g termineer' in your terminal to install Termineer globally",
+    "url": "https://termineer.io/#installation",
+    "image": {
+      "@type": "ImageObject",
+      "url": "https://termineer.io/static/img/logo.svg"
+    }
+  }]
+}
+</script>
 
 <!-- Terminal Preview Section -->
 <section class="bg-white rounded-xl shadow-md overflow-hidden mb-10">

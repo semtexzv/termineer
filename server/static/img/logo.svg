@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Simple terminal-shaped background -->
+  <rect x="32" y="32" width="448" height="448" rx="30" ry="30" fill="#1e1e1e" />
+  
+  <!-- Simplified terminal header bar -->
+  <rect x="32" y="32" width="448" height="60" rx="30" ry="30" fill="#333333" />
+  
+  <!-- Three distinct traffic lights with larger radius -->
+  <circle cx="80" cy="62" r="15" fill="#ff5f57" />
+  <circle cx="130" cy="62" r="15" fill="#febc2e" />
+  <circle cx="180" cy="62" r="15" fill="#28c840" />
+  
+  <!-- Maximally large "t" to fill the window -->
+  <text x="256" y="300" font-family="Arial, sans-serif" font-size="360" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">t</text>
+</svg>

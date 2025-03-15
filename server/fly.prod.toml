@@ -4,7 +4,7 @@ app = "autoswe-server"
 primary_region = "sjc"
 
 [build]
-dockerfile = "Dockerfile.prod"
+dockerfile = "Dockerfile.workspace"
 
 [http_service]
   internal_port = 8080

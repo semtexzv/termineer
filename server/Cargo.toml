@@ -7,8 +7,8 @@ description = "Simple server for Termineer"
 [dependencies]
 # Web framework
 axum = { version = "0.7.4", features = ["macros"] }
-tower = "0.4.13"
-tower-http = { version = "0.5.1", features = ["fs", "cors", "trace"] }
+tower = "0.5.2"
+tower-http = { version = "0.6.2", features = ["fs", "cors", "trace"] }
 tokio.workspace = true
 
 
@@ -17,14 +17,12 @@ askama = "0.12.1"
 askama_axum = "0.4.0"
 
 # Database
-sqlx = { version = "0.7.1", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid", "json", "migrate"] }
+sqlx = { version = "0.8.3", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid", "json", "migrate"] }
 
 # Utilities
 serde = { workspace = true }
 serde_json = { workspace = true }
-dotenv = "0.15.0"
 chrono = { workspace = true }
-env_logger = "0.10.0"
 log = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }

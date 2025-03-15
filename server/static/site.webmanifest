@@ -1,0 +1,17 @@
+{
+  "name": "Termineer",
+  "short_name": "Termineer",
+  "description": "A self-directing AI coding engineer for your terminal",
+  "icons": [
+    {
+      "src": "/static/img/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#0ea5e9",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/"
+}

@@ -33,40 +33,40 @@ use tui::TuiInterface;
 use crate::agent::AgentId;
 
 /// Get comprehensive information about all MCP tools
-/// 
+///
 /// This function returns structured information about all available MCP tools,
 /// including their names, descriptions, and server associations.
-/// 
+///
 /// Returns a map of server names to vectors of (tool_name, description) tuples
 pub async fn get_mcp_tools_info() -> HashMap<String, Vec<(String, String)>> {
     // Get the list of provider names using the MCP API
     let provider_names = crate::mcp::get_provider_names();
     let mut result = HashMap::new();
-    
+
     // For each provider, get all tools and their descriptions
     for server_name in provider_names {
         // Get the provider and list its tools
         if let Some(provider) = crate::mcp::get_provider(&server_name) {
             let tools = provider.list_tools();
-            
+
             if !tools.is_empty() {
                 let mut tool_info = Vec::new();
-                
+
                 for tool in tools {
                     let description = if tool.description.is_empty() {
                         "No description".to_string()
                     } else {
                         tool.description.clone()
                     };
-                    
+
                     tool_info.push((tool.name.clone(), description));
                 }
-                
+
                 result.insert(server_name, tool_info);
             }
         }
     }
-    
+
     result
 }
 
@@ -80,27 +80,27 @@ async fn initialize_and_log_mcp() {
         bprintln!(error: "Failed to initialize MCP connections: {}", e);
         // Continue even if MCP initialization fails
     }
-    
+
     // Check if we have any providers
     if !crate::mcp::has_providers() {
         // No providers available, nothing to log
         return;
     }
-    
+
     // Get the list of provider names
     let provider_names = crate::mcp::get_provider_names();
-    
+
     // Log header
     bprintln!("\n🔌 {}Available MCP tools:{}",
         crate::constants::FORMAT_BOLD,
         crate::constants::FORMAT_RESET
     );
-    
+
     // Get all tools for all providers
     for provider_name in provider_names {
         // Get tools for this provider using the MCP API
         let tools = crate::mcp::get_provider(&provider_name).unwrap().list_tools();
-        
+
         if !tools.is_empty() {
             // Log provider name and tool count
             bprintln!("{}📦 {} ({} tools){}",
@@ -109,7 +109,7 @@ async fn initialize_and_log_mcp() {
                 tools.len(),
                 crate::constants::FORMAT_RESET
             );
-            
+
             // Log each tool with its description
             for tool in tools {
                 let description = if tool.description.is_empty() {
@@ -117,7 +117,7 @@ async fn initialize_and_log_mcp() {
                 } else {
                     tool.description.clone()
                 };
-                
+
                 bprintln!("  • {}{}{}: {}",
                     crate::constants::FORMAT_BOLD,
                     tool.name,
@@ -127,7 +127,7 @@ async fn initialize_and_log_mcp() {
             }
         }
     }
-    
+
     // Add a blank line at the end
     bprintln!("");
 }
@@ -145,10 +145,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Parse command line arguments using clap
     let cli = Cli::parse();
-    
+
     // Convert to application config
     let config = cli_to_config(&cli);
-    
+
     // Set the app mode based on build configuration
     #[cfg(debug_assertions)]
     {
@@ -160,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
         // In release builds, use Free mode (authentication removed)
         config::set_app_mode(config::AppMode::Free);
     }
-    
+
     // Note: MCP servers will now be initialized with a buffer right before agent creation
 
     // Handle different command/argument combinations
@@ -174,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
                 ResetColor,
                 cursor::MoveToNextLine(1),
             )
-            .unwrap();
+                .unwrap();
             println!("All functionality is available without authentication.");
             return Ok(());
         }
@@ -195,23 +195,23 @@ async fn main() -> anyhow::Result<()> {
                     ResetColor,
                     cursor::MoveToNextLine(1),
                 )
-                .unwrap();
+                    .unwrap();
                 println!("Upgrade to Pro for access to workflows and advanced orchestration features.");
                 return Ok(());
             }
-            
+
             // Convert the query vector to an Option<String> by joining with spaces
             let query_string = if !query.is_empty() {
                 Some(query.join(" "))
             } else {
                 None
             };
-            
+
             // Run in workflow mode
             run_workflow_mode(config, name.clone(), parameters.clone(), query_string).await.map_err(|e| {
                 format_err!("Error in workflow mode: {}", e)
             })?;
-            
+
             return Ok(());
         }
         #[cfg(debug_assertions)]
@@ -224,17 +224,17 @@ async fn main() -> anyhow::Result<()> {
                         // Print the template content to stdout
                         println!("// Template: {}", template_name);
                         println!("{}", template_content);
-                    },
+                    }
                     None => {
                         // Template not found
                         eprintln!("Error: Template '{}' not found", template_name);
-                        
+
                         // List available templates to help the user
                         eprintln!("\nAvailable templates:");
                         for available in prompts::protected::list_available_templates() {
                             eprintln!("  - {}", available);
                         }
-                        
+
                         std::process::exit(1);
                     }
                 }
@@ -296,17 +296,17 @@ async fn run_interactive_mode(
         // Non-interactive mode requires a TTY for the TUI
         eprintln!("TUI interface requires an interactive terminal. Exiting...");
         return // Explicit use of Result with the expected return type
-    Ok(());
+            Ok(());
     }
 
     // Create a default buffer to be shared between the main agent and TUI
     let default_buffer = crate::output::SharedBuffer::new(200);
-    
+
     // Use a single buffer scope for both MCP initialization and agent creation
     let main_agent_id = crate::output::CURRENT_BUFFER.scope(default_buffer.clone(), async {
         // Initialize MCP servers and log available methods in a single operation
         initialize_and_log_mcp().await;
-        
+
         // Create the main agent and capture its ID
         let result: anyhow::Result<AgentId> = match agent::create_agent_with_buffer("main".to_string(), config, default_buffer.clone()) {
             Ok(id) => {
@@ -316,11 +316,11 @@ async fn run_interactive_mode(
                     id
                 );
                 Ok(id)
-            },
+            }
             Err(e) => {
                 // Use buffer printing for the error
                 bprintln!(error: "Failed to create main agent: {}", e);
-                
+
                 // Also print to stderr for TUI visibility
                 execute!(
                     io::stderr(),
@@ -329,7 +329,7 @@ async fn run_interactive_mode(
                     ResetColor,
                     cursor::MoveToNextLine(1)
                 )?;
-                
+
                 Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     format!("Failed to create main agent: {}", e),
@@ -338,28 +338,22 @@ async fn run_interactive_mode(
         };
         result
     }).await?;
-    
-    // Check for updates - run in the background
-    let id_for_update_check = main_agent_id;
-    tokio::spawn(async move {
+
+    output::spawn_with_buffer(default_buffer.clone(), async move {
+        bprintln!("Ver");
         match version_check::check_for_updates().await {
             Ok((has_update, _latest_version, message)) => {
                 if has_update {
                     if let Some(msg) = message {
-                        // Get the agent buffer and print the update message
-                        if let Ok(buffer) = agent::get_agent_buffer(id_for_update_check) {
-                            crate::output::CURRENT_BUFFER.scope(buffer, async {
-                                bprintln!("\n{}{}{}\n", 
+                        bprintln!("\n{}{}{}\n",
                                     crate::constants::FORMAT_YELLOW,
                                     msg,
                                     crate::constants::FORMAT_RESET
                                 );
-                            }).await;
-                        }
-                    }
+                    };
                 }
-            },
-            Err(_) => {} // Silently ignore errors in update check
+            }
+            Err(e) => bprintln!(error: "Failed to check for updates: {:?}", e),
         }
     });
 
@@ -383,12 +377,12 @@ async fn run_workflow_mode(
 ) -> anyhow::Result<()> {
     // Create a default buffer for output
     let default_buffer = crate::output::SharedBuffer::new(200);
-    
+
     // Use a single buffer scope for both MCP initialization and agent creation
     let main_agent_id = crate::output::CURRENT_BUFFER.scope(default_buffer.clone(), async {
         // Initialize MCP servers and log available methods in a single operation
         initialize_and_log_mcp().await;
-        
+
         // Create the main agent and capture its ID
         let result: anyhow::Result<AgentId> = match agent::create_agent_with_buffer("main".to_string(), config.clone(), default_buffer.clone()) {
             Ok(id) => {
@@ -398,7 +392,7 @@ async fn run_workflow_mode(
                     id
                 );
                 Ok(id)
-            },
+            }
             Err(e) => {
                 bprintln!(error: "Failed to create main agent: {}", e);
                 Err(std::io::Error::new(
@@ -409,7 +403,7 @@ async fn run_workflow_mode(
         };
         result
     }).await?;
-    
+
     // Load the workflow
     match workflow::loader::load_workflow(&name.clone().unwrap_or_default()) {
         Ok(workflow) => {
@@ -420,23 +414,23 @@ async fn run_workflow_mode(
                     params.insert(key.to_string(), serde_yaml::Value::String(value.to_string()));
                 }
             }
-            
+
             // Execute workflow
             if let Err(e) = workflow::executor::execute_workflow(&workflow, params, query_string.clone(), main_agent_id).await {
                 bprintln!(error: "Workflow error: {}", e);
             }
-            
+
             // Clean up: terminate all agents
             agent::terminate_all().await;
-            
+
             Ok(())
-        },
+        }
         Err(e) => {
             bprintln!(error: "Failed to load workflow: {}", e);
-            
+
             // Clean up: terminate all agents
             agent::terminate_all().await;
-            
+
             Err(anyhow::anyhow!("Failed to load workflow: {}", e))
         }
     }
@@ -452,16 +446,16 @@ async fn run_single_query_mode(
         eprintln!("\nOperation interrupted by user");
         std::process::exit(130); // Standard exit code for Ctrl+C termination
     })
-    .expect("Failed to set Ctrl+C handler");
+        .expect("Failed to set Ctrl+C handler");
 
     // Create a default buffer for output
     let default_buffer = crate::output::SharedBuffer::new(200);
-    
+
     // Use a single buffer scope for both MCP initialization and agent creation
     let main_agent_id = crate::output::CURRENT_BUFFER.scope(default_buffer.clone(), async {
         // Initialize MCP servers and log available methods in a single operation
         initialize_and_log_mcp().await;
-        
+
         // Create the main agent and capture its ID
         let result: anyhow::Result<AgentId> = match agent::create_agent_with_buffer("main".to_string(), config, default_buffer.clone()) {
             Ok(id) => {
@@ -471,14 +465,14 @@ async fn run_single_query_mode(
                     id
                 );
                 Ok(id)
-            },
+            }
             Err(e) => {
                 // Use buffer printing for the error
                 bprintln!(error: "Failed to create main agent: {}", e);
-                
+
                 // Also print to stderr for CLI visibility
                 eprintln!("Failed to create main agent: {}", e);
-                
+
                 Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     format!("Failed to create main agent: {}", e),
@@ -491,19 +485,19 @@ async fn run_single_query_mode(
     // Set up buffer streaming for real-time feedback
     let mut last_line_count = 0;
     let mut buffer_check_time = std::time::Instant::now();
-    
+
     // Spawn a task to continuously stream buffer content to stderr
     let buffer_task = tokio::spawn(async move {
         loop {
             // Check every 100ms
             if buffer_check_time.elapsed() >= Duration::from_millis(100) {
                 buffer_check_time = std::time::Instant::now();
-                
+
                 // Get the current buffer content
                 if let Ok(buffer) = agent::get_agent_buffer(main_agent_id) {
                     let lines = buffer.lines();
                     let current_count = lines.len();
-                    
+
                     // If there are new lines, print them to stderr
                     if current_count > last_line_count {
                         for i in last_line_count..current_count {
@@ -515,7 +509,7 @@ async fn run_single_query_mode(
                     }
                 }
             }
-            
+
             // Sleep briefly to avoid tight loop
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -528,7 +522,7 @@ async fn run_single_query_mode(
     let final_response = match agent::run_agent_to_completion(
         main_agent_id,
         query,
-        Some(timeout_seconds)
+        Some(timeout_seconds),
     ).await {
         Ok(response) => response,
         Err(e) => {
@@ -539,7 +533,7 @@ async fn run_single_query_mode(
 
     // Abort the buffer task
     buffer_task.abort();
-    
+
     // Clean up: terminate all agents
     agent::terminate_all().await;
 

@@ -88,15 +88,6 @@ echo "Creating and pushing tag: $TAG_NAME"
 git tag "$TAG_NAME"
 git push origin "$TAG_NAME"
 
-# Push commits
-echo "Pushing commits"
-git push origin
-
-echo "Created .cargo/config.toml with optimized release settings"
-git add .cargo/config.toml
-git commit -m "Add cargo config for optimized binary size"
-git push origin
-
 echo "Release process initiated for version $NEW_VERSION"
 echo "GitHub Actions workflow should now be running to build and publish the release"
 echo "You can monitor progress at: https://github.com/$(git config --get remote.origin.url | sed 's/.*github.com[:\/]\(.*\)\.git/\1/')/actions"
