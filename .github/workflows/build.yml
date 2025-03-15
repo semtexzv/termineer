@@ -110,6 +110,7 @@ jobs:
       # For all other targets
       - name: Build binary
         if: matrix.target.name != 'macos-arm64' && matrix.target.name != 'linux-x64-musl' && !(matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container)
+        shell: bash
         run: |
           # Ensure we have the target installed
           if [[ "${{ matrix.target.name }}" == "linux-x64-gnu" ]]; then
