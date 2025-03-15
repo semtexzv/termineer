@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod done;
+pub mod dynamic_mcp;
 pub mod fetch;
 pub mod patch;
 pub mod path_utils;
@@ -14,6 +15,7 @@ pub mod write;
 // Re-export all tool functions
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
+pub use dynamic_mcp::execute_dynamic_mcp_tool;
 pub use fetch::execute_fetch;
 pub use patch::execute_patch;
 pub use read::execute_read;
@@ -105,6 +107,13 @@ impl ToolResult {
             state_change: AgentStateChange::Continue,
             content: vec![crate::llm::Content::Text { text: message.into() }],
         }
+    }
+
+    /// Create an error tool result with a formatted message
+    pub fn error_formatted(message: impl Into<String>) -> Self {
+        let message = message.into();
+        bprintln!(error: "{}", message);
+        Self::error(message)
     }
 
     /// Create a tool result that puts the agent in waiting state
@@ -216,11 +225,28 @@ impl ToolExecutor {
             "screendump" => execute_screendump(args, body, self.silent_mode).await,
             "wait" => execute_wait(args, body, self.silent_mode),
             _ => {
-                if !self.silent_mode {
-                    // Always use buffer-based printing with direct formatting
-                    bprintln !(error:"Unknown tool: {:?}, args:{}, body:{}", tool_name, args, body);
+                // Check if tool_name is an MCP server name
+                if crate::mcp::has_provider(&tool_name) {
+                    // In readonly mode, MCP tools are not available for safety
+                    if self.readonly_mode {
+                        if !self.silent_mode {
+                            bprintln!(error: "MCP tool '{}' is not available in read-only mode", tool_name);
+                        }
+                        return ToolResult::error(format!(
+                            "MCP tool '{}' is not available in read-only mode",
+                            tool_name
+                        ));
+                    }
+                    
+                    // It's an MCP server name, so handle it as a dynamic MCP tool
+                    execute_dynamic_mcp_tool(&tool_name, args, body, self.silent_mode).await
+                } else {
+                    if !self.silent_mode {
+                        // Always use buffer-based printing with direct formatting
+                        bprintln !(error:"Unknown tool: {:?}, args:{}, body:{}", tool_name, args, body);
+                    }
+                    ToolResult::error(format!("Unknown tool: {:?}", tool_name))
                 }
-                ToolResult::error(format!("Unknown tool: {:?}", tool_name))
             }
         };
 
