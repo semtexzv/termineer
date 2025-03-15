@@ -1,0 +1,9 @@
+[profile.release]
+# Enable stripping of debug symbols (supported since Rust 1.59)
+strip = true
+# Optimize for size (z is smaller than s in most cases)
+opt-level = "z"
+# Enable Link Time Optimization
+lto = true
+# Reduce parallel code generation units to increase optimization
+codegen-units = 1
