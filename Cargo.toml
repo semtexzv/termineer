@@ -11,6 +11,17 @@ license = "MIT"
 [profile.dev.package."*"]
 opt-level = 3
 
+# Release profile optimizations for binary size
+[profile.release]
+# Enable stripping of debug symbols
+strip = true
+# Optimize for size
+opt-level = "z"
+# Enable Link Time Optimization
+lto = true
+# Reduce parallel code generation units to increase optimization
+codegen-units = 1
+
 [dependencies]
 anyhow = "1.0"  # Error handling
 serde = { version = "1.0", features = ["derive"] }
