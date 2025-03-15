@@ -262,7 +262,6 @@ async fn initialize_mcp_server(
     silent_mode: bool,
 ) -> ToolResult {
     use crate::mcp::tool_provider::McpToolProvider;
-    use crate::tools::mcp::MCP_PROVIDERS;
     use std::sync::Arc;
 
     // Extract command and arguments
@@ -279,20 +278,17 @@ async fn initialize_mcp_server(
     }
 
     // Check if already connected
-    {
-        let providers = MCP_PROVIDERS.lock().await;
-        if providers.contains_key(server_name) {
-            if !silent_mode {
-                bprintln !(tool: "mcp",
-                    "Already connected to MCP server: {}",
-                    server_name
-                );
-            }
-            return ToolResult::success(format!(
+    if crate::tools::mcp::has_provider(server_name) {
+        if !silent_mode {
+            bprintln !(tool: "mcp",
                 "Already connected to MCP server: {}",
                 server_name
-            ));
+            );
         }
+        return ToolResult::success(format!(
+            "Already connected to MCP server: {}",
+            server_name
+        ));
     }
 
     // Create provider with environment variables
@@ -300,14 +296,12 @@ async fn initialize_mcp_server(
         Ok(provider) => {
             let provider: Arc<McpToolProvider> = Arc::new(provider);
 
-            // Get tool count
-            let tool_count = provider.list_tools().await.len();
+            // Get tools from the provider to count them
+            let tools = provider.list_tools().await;
+            let tool_count = tools.len();
 
-            // Store provider using the friendly server name
-            {
-                let mut providers = MCP_PROVIDERS.lock().await;
-                providers.insert(server_name.to_string(), provider);
-            }
+            // Register the provider with the McpManager
+            crate::tools::mcp::register_provider(server_name, Arc::clone(&provider));
 
             if !silent_mode {
                 bprintln !(tool: "mcp",

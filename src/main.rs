@@ -31,26 +31,63 @@ use crossterm::{
 use tui::TuiInterface;
 use crate::agent::AgentId;
 
+/// Get comprehensive information about all MCP tools
+/// 
+/// This function returns structured information about all available MCP tools,
+/// including their names, descriptions, and server associations.
+/// 
+/// Returns a map of server names to vectors of (tool_name, description) tuples
+pub async fn get_mcp_tools_info() -> HashMap<String, Vec<(String, String)>> {
+    // Get the list of provider names using the McpManager API
+    let provider_names = crate::tools::mcp::get_provider_names();
+    let mut result = HashMap::new();
+    
+    // For each provider, get all tools and their descriptions
+    for server_name in provider_names {
+        // Get the provider and list its tools
+        if let Some(provider) = crate::tools::mcp::get_provider(&server_name) {
+            let tools = provider.list_tools().await;
+            
+            if !tools.is_empty() {
+                let mut tool_info = Vec::new();
+                
+                for tool in tools {
+                    let description = if tool.description.is_empty() {
+                        "No description".to_string()
+                    } else {
+                        tool.description.clone()
+                    };
+                    
+                    tool_info.push((tool.name.clone(), description));
+                }
+                
+                result.insert(server_name, tool_info);
+            }
+        }
+    }
+    
+    result
+}
+
 /// Initialize MCP servers and log available methods to the current buffer
 ///
 /// This function handles both initialization and logging in a single operation
-/// to avoid locking the MCP_PROVIDERS multiple times.
+/// using the McpManager API.
 async fn initialize_and_log_mcp() {
-    use crate::tools::mcp::MCP_PROVIDERS;
-    
     // Initialize MCP connections from config (silent mode = true)
     if let Err(e) = crate::mcp::config::initialize_mcp_from_config(true).await {
         bprintln!(error: "Failed to initialize MCP connections: {}", e);
         // Continue even if MCP initialization fails
     }
     
-    // Get list of available MCP servers (second lock, but after initialization)
-    let providers = MCP_PROVIDERS.lock().await;
-    
-    if providers.is_empty() {
+    // Check if we have any providers
+    if !crate::tools::mcp::has_providers() {
         // No providers available, nothing to log
         return;
     }
+    
+    // Get the list of provider names
+    let provider_names = crate::tools::mcp::get_provider_names();
     
     // Log header
     bprintln!("\n🔌 {}Available MCP tools:{}",
@@ -58,16 +95,25 @@ async fn initialize_and_log_mcp() {
         crate::constants::FORMAT_RESET
     );
     
-    // Iterate through each provider and list its tools
-    for (server_name, provider) in providers.iter() {
-        // Get tools for this provider
-        let tools = provider.list_tools().await;
+    // Get all tools for all providers
+    for provider_name in provider_names {
+        // Get tools for this provider using the new API
+        let tools = crate::tools::mcp::get_provider(&provider_name)
+            .map(|provider| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                    
+                runtime.block_on(provider.list_tools())
+            })
+            .unwrap_or_default();
         
         if !tools.is_empty() {
             // Log provider name and tool count
             bprintln!("{}📦 {} ({} tools){}",
                 crate::constants::FORMAT_BLUE,
-                server_name,
+                provider_name,
                 tools.len(),
                 crate::constants::FORMAT_RESET
             );
