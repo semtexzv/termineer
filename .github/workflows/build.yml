@@ -30,6 +30,7 @@ jobs:
             rust_target: x86_64-unknown-linux-gnu
             binary_name: termineer
             asset_name: termineer-x86_64-linux-gnu
+            use_container: false
 
           - name: windows-x64
             os: windows-latest
@@ -62,6 +63,13 @@ jobs:
         if: matrix.target.name == 'linux-x64-gnu'  # Only run tests once
         run: cargo test --all
       
+      # Install Linux dependencies
+      - name: Install Linux dependencies
+        if: matrix.target.name == 'linux-x64-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb1-dev
+      
       # Set up container for older glibc build
       - name: Set up Docker container for GNU Linux build
         if: matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container
@@ -72,7 +80,7 @@ jobs:
           run: |
             cd /work
             # Install build dependencies
-            yum install -y openssl-devel pkgconfig clang
+            yum install -y openssl-devel pkgconfig clang dbus-devel libxcb-devel
             
             # Install Rust
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -102,7 +110,12 @@ jobs:
       # For all other targets
       - name: Build binary
         if: matrix.target.name != 'macos-arm64' && matrix.target.name != 'linux-x64-musl' && !(matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container)
-        run: cargo build --release --target ${{ matrix.target.rust_target }}
+        run: |
+          # Ensure we have the target installed
+          if [[ "${{ matrix.target.name }}" == "linux-x64-gnu" ]]; then
+            rustup target add ${{ matrix.target.rust_target }}
+          fi
+          cargo build --release --target ${{ matrix.target.rust_target }}
       
       # Handle split debug info and strip binaries on Linux and macOS
       - name: Process debug info and strip binaries
