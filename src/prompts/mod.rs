@@ -20,7 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", "read", "write", "patch", "fetch", "search", "screenshot", "screendump", "input", "mcp", "task", "done", "wait",
+    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", "read", "write", "patch", "fetch", "search", "screenshot", "screendump", "input", "task", "done", "wait",
 ];
 
 /// List of tools available to Plus/Pro users only
@@ -28,7 +28,7 @@ pub const PLUS_TOOLS: &[&str] = &["agent"];
 
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
-    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", "read", "fetch", "search", "screenshot", "screendump", "mcp", "done", "wait",
+    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", "read", "fetch", "search", "screenshot", "screendump", "done", "wait",
     // Note: 'input' is not included as it modifies application state
 ];
 
@@ -43,30 +43,6 @@ pub fn is_valid_kind(kind_name: &str) -> bool {
         .is_some()
 }
 
-/// Get suggestions for kinds based on partial match
-///
-/// This function returns up to 3 suggestions that contain the query string.
-///
-/// # Arguments
-/// * `query` - The partial kind name to match
-///
-/// # Returns
-/// Vector of kind name suggestions (empty if no matches)
-pub fn get_kind_suggestions(query: &str) -> Vec<String> {
-    let query = query.to_lowercase();
-    let mut matches: Vec<String> = AVAILABLE_KINDS_ARRAY
-        .iter()
-        .filter(|kind| kind.to_lowercase().contains(&query))
-        .cloned()
-        .collect();
-
-    // Limit to 3 suggestions
-    if matches.len() > 3 {
-        matches.truncate(3);
-    }
-
-    matches
-}
 
 /// Render a template with specific tools enabled
 ///
@@ -105,7 +81,10 @@ pub fn render_template(
             
             // Render the template with the variables
             match template_manager.handlebars.render(template_name, &data_value) {
-                Ok(rendered) => Ok(rendered),
+                Ok(rendered) => {
+                    // bprintln!(dev: "{}", rendered);
+                    Ok(rendered)
+                },
                 Err(_) => {
                     bail!("Error generating system prompt: {}", template_name);
                 }
@@ -137,18 +116,8 @@ pub fn generate_system_prompt(
     let requested_kind = if let Some(name) = kind_name {
         // If a specific template is provided, validate it
         if !is_valid_kind(name) {
-            // Get suggestions for similar kinds
-            let suggestions = get_kind_suggestions(name);
-
             // Create helpful error message with suggestions
             let mut error_msg = format!("Invalid agent kind: '{}'", name);
-            if !suggestions.is_empty() {
-                error_msg.push_str("\n\nDid you mean one of these?");
-                for suggestion in suggestions {
-                    error_msg.push_str(&format!("\n  - {}", suggestion));
-                }
-            }
-
             // Return the error with suggestions
             bail!(error_msg);
         }

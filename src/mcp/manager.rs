@@ -2,11 +2,19 @@
 
 use anyhow::format_err;
 use lazy_static::lazy_static;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use serde_json::json;
 use crate::mcp::protocol::tools::Tool;
 use crate::mcp::tool_provider::McpToolProvider;
+
+/// Enhanced tool information with examples for documentation
+#[derive(Clone, Debug)]
+pub struct ToolInfo {
+    pub name: String,
+    pub description: String,
+    pub example_request: String,
+}
 
 /// Singleton manager for all MCP tool providers
 pub struct McpManager {
@@ -55,20 +63,15 @@ impl McpManager {
         self.providers.is_empty()
     }
     
-    /// Get detailed tool information for all providers
-    pub fn get_tools_info(&self) -> HashMap<String, Vec<(String, String)>> {
+    /// Get detailed tool information for all providers with examples
+    pub fn get_tools_info(&self) -> HashMap<String, Vec<ToolInfo>> {
         let mut tools_map = HashMap::new();
-        
-        // Create a runtime for calling async methods on providers
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        
+
         // Get tool information from each provider
         for (server_name, provider) in self.providers.iter() {
+
             // We need to use runtime for this async call
-            let tools = runtime.block_on(provider.list_tools());
+            let tools = provider.list_tools();
             
             if !tools.is_empty() {
                 let mut tool_info = Vec::new();
@@ -80,7 +83,33 @@ impl McpManager {
                         tool.description.clone()
                     };
                     
-                    tool_info.push((tool.name.clone(), description));
+                    // Generate example request based on parameters
+                    let mut example_request = HashMap::new();
+                    
+                    // Check if the tool has a schema with properties
+                    let input_schema = &tool.input_schema;
+                    if let Some(properties) = &input_schema.properties {
+                        if !properties.is_empty() {
+                            
+                            for (param_name, schema) in properties.iter() {
+                                
+                                // Get example value for this parameter
+                                let example_value = get_example_value(
+                                    schema, 
+                                    param_name
+                                );
+                                
+                                example_request.insert(param_name.clone(), example_value);
+                                
+                            }
+                        }
+                    }
+
+                    tool_info.push(ToolInfo {
+                        name: tool.name.clone(),
+                        description,
+                        example_request: serde_json::to_string_pretty(&example_request).unwrap() + "\n",
+                    });
                 }
                 
                 tools_map.insert(server_name.clone(), tool_info);
@@ -93,12 +122,7 @@ impl McpManager {
     /// Get all tools for a specific provider
     pub fn get_tools_for_provider(&self, provider_name: &str) -> Vec<Tool> {
         if let Some(provider) = self.get_provider(provider_name) {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            
-            runtime.block_on(provider.list_tools())
+            provider.list_tools()
         } else {
             Vec::new()
         }
@@ -109,7 +133,7 @@ impl McpManager {
         let mut result = HashMap::new();
         
         for (name, provider) in &self.providers {
-            let tools = provider.list_tools().await;
+            let tools = provider.list_tools();
             if !tools.is_empty() {
                 result.insert(name.clone(), tools);
             }
@@ -128,12 +152,91 @@ lazy_static! {
 // Public API - all interaction with MCP providers happens through these functions
 
 /// Register a provider with the MCP manager
+/// Returns true if registration was successful, false if it failed or was rejected
 pub fn register_provider(name: &str, provider: Arc<McpToolProvider>) -> bool {
+    // Check if the name collides with a built-in tool name
+    if is_built_in_tool_name(name) {
+        // Log the rejection
+        bprintln!(error:
+            "MCP server name '{}' rejected: Name collides with a built-in tool",
+            name
+        );
+        return false;
+    }
+
+    // Register the provider
     if let Ok(mut manager) = MCP_MANAGER.lock() {
         manager.register(name, provider);
         true
     } else {
         false
+    }
+}
+
+/// Check if a name conflicts with a built-in tool name
+fn is_built_in_tool_name(name: &str) -> bool {
+    // Convert name to lowercase for case-insensitive comparison
+    let name_lower = name.to_lowercase();
+    
+    // Check against standard tools
+    let standard_tools = crate::prompts::ALL_TOOLS;
+    for tool in standard_tools {
+        if tool.to_lowercase() == name_lower {
+            return true;
+        }
+    }
+    
+    // Check against plus tools
+    let plus_tools = crate::prompts::PLUS_TOOLS;
+    for tool in plus_tools {
+        if tool.to_lowercase() == name_lower {
+            return true;
+        }
+    }
+    
+    // No collision found
+    false
+}
+
+/// Generate a representative example value for a schema property type
+/// following JSON Schema conventions used in MCP
+fn get_example_value(
+    property_schema: &crate::mcp::protocol::schema::PropertySchema,
+    param_name: &str
+) -> serde_json::Value {
+    use crate::mcp::protocol::schema::SchemaType;
+    
+    // Format values as JSON for tool examples
+    match &property_schema.property_type {
+        Some(SchemaType::String) => {
+            // Use enum values if available
+            if let Some(enum_values) = &property_schema.enum_values {
+                if !enum_values.is_empty() {
+                    return json!("example"); // Simple string example
+                }
+            }
+            
+            // Use format hints if available
+            if let Some(format) = &property_schema.format {
+                match format.as_str() {
+                    "date" => return json!("2024-05-01"),
+                    "date-time" => return json!("2024-05-01T12:00:00Z"),
+                    "email" => return json!("user@example.com"),
+                    "uri" => return json!("https://example.com"),
+                    "uuid" => return json!("123e4567-e89b-12d3-a456-426614174000"),
+                    _ => {}
+                }
+            }
+            
+            json!(format!("example_{}", param_name))
+        },
+        Some(SchemaType::Integer) => json!(42),
+        Some(SchemaType::Number) => json!(42.3),
+        Some(SchemaType::Boolean) => json!(true),
+        Some(SchemaType::Object) => json!({"prop": false}),
+        Some(SchemaType::Array) => json!([]),
+        Some(SchemaType::Null) => json!(null),
+        _ => json!(null),
     }
 }
 
@@ -177,8 +280,8 @@ pub fn has_providers() -> bool {
 /// 
 /// Returns a tuple of:
 /// - List of server names
-/// - Map of server names to tool information (name, description)
-pub fn get_mcp_tools_for_prompt() -> (Vec<String>, HashMap<String, Vec<(String, String)>>) {
+/// - Map of server names to tool information (ToolInfo objects)
+pub fn get_mcp_tools_for_prompt() -> (Vec<String>, HashMap<String, Vec<ToolInfo>>) {
     if let Ok(manager) = MCP_MANAGER.lock() {
         let names = manager.get_provider_names();
         let tools_info = manager.get_tools_info();
@@ -203,25 +306,22 @@ pub fn add_mcp_tools_to_prompt(template_data: &mut serde_json::Value) {
     
     // Add server names array to template data
     if let Some(obj) = template_data.as_object_mut() {
-        // Add MCP server names
-        obj.insert("mcp_servers".to_string(), serde_json::json!(server_names));
         
         // Add detailed tools information
-        let mut mcp_tools_json = serde_json::Map::new();
+        let mut tools_array = Vec::new();
         
         for (server_name, tools) in tools_info {
-            let mut tools_array = Vec::new();
             
-            for (tool_name, description) in tools {
+            for tool_info in tools {
                 let mut tool_obj = serde_json::Map::new();
-                tool_obj.insert("name".to_string(), serde_json::json!(tool_name));
-                tool_obj.insert("description".to_string(), serde_json::json!(description));
+                tool_obj.insert("server".to_string(), serde_json::json!(server_name));
+                tool_obj.insert("name".to_string(), serde_json::json!(tool_info.name));
+                tool_obj.insert("description".to_string(), serde_json::json!(tool_info.description));
+                tool_obj.insert("example_request".to_string(), serde_json::json!(tool_info.example_request));
                 tools_array.push(serde_json::json!(tool_obj));
             }
-            
-            mcp_tools_json.insert(server_name, serde_json::json!(tools_array));
         }
         
-        obj.insert("mcp_tools".to_string(), serde_json::json!(mcp_tools_json));
+        obj.insert("mcp_tools".to_string(), serde_json::json!(tools_array));
     }
 }

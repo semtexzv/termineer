@@ -411,7 +411,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
             FORMAT_RESET,
             url
         );
-        bprintln !(debug: "{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
+        bprintln !(dev: "{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
     }
 
     ToolResult::success(format!("Fetched from {}:\n\n{}", url, processed_text))

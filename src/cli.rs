@@ -80,7 +80,6 @@ pub enum Commands {
 
     /// Dump prompt templates (hidden, debug-only feature)
     #[cfg(debug_assertions)]
-    #[command(hide = true)]
     DumpPrompts {
         /// Template name to dump
         template: String,

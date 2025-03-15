@@ -46,24 +46,6 @@ impl McpClient {
             server_info: Arc::new(Mutex::new(None)),
         }
     }
-
-    /*
-    /// Connect to an MCP server using WebSockets
-    #[allow(dead_code)]
-    pub async fn connect(&self, url: &str) -> McpResult<()> {
-        // Create WebSocket connection
-        let ws_conn = WebSocketConnection::connect(url).await?;
-
-        // Store the connection
-        let mut conn_guard = self.connection.lock().await;
-        *conn_guard = Some(Box::new(ws_conn));
-
-        Ok(())
-    }
-    */
-
-    
-    /// Connect to an MCP server using a subprocess with custom environment variables
     pub async fn connect_process_with_env(
         &self,
         name: &str,

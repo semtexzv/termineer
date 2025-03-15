@@ -1,5 +1,6 @@
 //! Tool-related structures for MCP protocol
 
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Represents a tool provided by an MCP server
@@ -9,8 +10,9 @@ pub struct Tool {
     pub name: String,
     pub description: String,
     #[serde(rename = "inputSchema")]
-    pub input_schema: serde_json::Value, // JSON Schema for tool input
+    pub input_schema: super::schema::JsonSchema, // JSON Schema for tool input
 }
+
 
 /// Parameters for a ListToolsRequest
 #[derive(Debug, Clone, Serialize, Deserialize)]

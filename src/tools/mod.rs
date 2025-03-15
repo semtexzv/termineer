@@ -1,6 +1,6 @@
 pub mod agent;
 pub mod done;
-pub mod dynamic_mcp;
+pub mod mcp;
 pub mod fetch;
 pub mod patch;
 pub mod path_utils;
@@ -15,7 +15,7 @@ pub mod write;
 // Re-export all tool functions
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
-pub use dynamic_mcp::execute_dynamic_mcp_tool;
+pub use mcp::execute_dynamic_mcp_tool;
 pub use fetch::execute_fetch;
 pub use patch::execute_patch;
 pub use read::execute_read;

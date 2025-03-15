@@ -20,6 +20,5 @@ pub use manager::{
     get_provider,
     get_provider_names,
     has_providers,
-    get_mcp_tools_for_prompt,
     add_mcp_tools_to_prompt
 };

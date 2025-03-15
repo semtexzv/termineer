@@ -80,26 +80,14 @@ impl McpToolProvider {
         Ok(())
     }
 
-    /// Start listening for tool and resource list changes
-    pub async fn start_listening_for_updates(&self) -> McpResult<()> {
-        // This would normally set up notification handlers
-        // Not directly implementable in the current architecture
-        // Would require additional changes to the connection logic
-
-        bprintln!(info: "MCP tool provider now listening for updates from the server");
-        Ok(())
-    }
-
     /// List available tools
-    pub async fn list_tools(&self) -> Vec<Tool> {
-        let tools_map = self.tools.lock().unwrap();
-        tools_map.values().cloned().collect()
+    pub fn list_tools(&self) -> Vec<Tool> {
+        self.tools.lock().unwrap().values().cloned().collect()
     }
 
     /// Get a tool by ID
-    pub async fn get_tool(&self, id: &str) -> Option<Tool> {
-        let tools_map = self.tools.lock().unwrap();
-        tools_map.get(id).cloned()
+    pub fn get_tool(&self, id: &str) -> Option<Tool> {
+        self.tools.lock().unwrap().get(id).cloned()
     }
 
     /// Execute a tool with the given arguments

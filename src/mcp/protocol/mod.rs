@@ -3,6 +3,7 @@
 pub mod common;
 pub mod content;
 pub mod messages;
+pub mod schema;
 pub mod tools;
 
 // Re-export common types for easier imports
@@ -11,3 +12,4 @@ pub use messages::{
     JsonRpcMessage, MessageContent, Request, RootsCapabilities, ServerInfo,
 };
 pub use tools::{CallToolParams, CallToolResult, ListToolsResult, Tool};
+pub use schema::{JsonSchema, PropertySchema};

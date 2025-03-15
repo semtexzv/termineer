@@ -712,43 +712,6 @@ How it works:
 - Uses a consistent window identification system via App:Index IDs
 {{/iftool}}
 
-{{! ================ INTEGRATION ================ }}
-{{#iftool "mcp"}}
-### MCP Servers
-
-{{#if mcp_servers}}
-The following Model Context Protocol (MCP) servers are available:
-{{#each mcp_servers}}
-- {{this}}
-{{/each}}
-
-For advanced operations, you can call MCP tools directly using:
-```
-mcp call <server_name> <tool_id>
-{
-  "param1": "value1",
-  "param2": "value2"
-}
-```
-
-You can view available tools on a server with:
-```
-mcp list <server_name>
-```
-
-Example:
-{{#tool "mcp"}}list {{#each mcp_servers}}{{#if @first}}{{this}}{{/if}}{{/each}}{{/tool}}
-
-{{else}}
-No MCP servers are currently configured.
-{{/if}}
-
-When using MCP servers:
-- Use the exact server names as shown above
-- Format JSON parameters according to the tool's requirements
-- Provide all required parameters for the tool
-- Refer to available MCP servers when discussing capabilities
-{{/iftool}}
 
 {{! ================ WORKFLOW ================ }}
 {{#iftool "task"}}
@@ -919,3 +882,24 @@ All requested changes have been implemented successfully.
 
 {{#done "done" 1}}{{/done}}
 {{/iftool}}
+
+{{! ================ MCP TOOLS ================ }}
+{{#if mcp_tools}}
+## MCP Tools
+
+{{#each mcp_tools}}
+{{#each this}}
+{{/each}}
+## {{this.server}} {{this.name}}
+{{this.description}}
+{{#tool this.server}}{{this.name}}
+{{this.example_request}}
+{{/tool}}
+
+{{#done this.server 0}}
+
+[tool output...]
+{{/done}}
+
+{{/each}}
+{{/if}}

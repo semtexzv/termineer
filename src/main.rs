@@ -46,7 +46,7 @@ pub async fn get_mcp_tools_info() -> HashMap<String, Vec<(String, String)>> {
     for server_name in provider_names {
         // Get the provider and list its tools
         if let Some(provider) = crate::mcp::get_provider(&server_name) {
-            let tools = provider.list_tools().await;
+            let tools = provider.list_tools();
             
             if !tools.is_empty() {
                 let mut tool_info = Vec::new();
@@ -98,16 +98,7 @@ async fn initialize_and_log_mcp() {
     // Get all tools for all providers
     for provider_name in provider_names {
         // Get tools for this provider using the MCP API
-        let tools = crate::mcp::get_provider(&provider_name)
-            .map(|provider| {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                    
-                runtime.block_on(provider.list_tools())
-            })
-            .unwrap_or_default();
+        let tools = crate::mcp::get_provider(&provider_name).unwrap().list_tools();
         
         if !tools.is_empty() {
             // Log provider name and tool count

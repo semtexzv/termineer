@@ -145,14 +145,6 @@ pub async fn process_command(
             )?;
         }
 
-        "mcp" => {
-            show_command_result(
-                state,
-                "MCP Configuration".to_string(), 
-                "MCP servers must be configured in .termineer/config.json file. Direct connection via command is no longer supported.".to_string()
-            );
-        }
-
         // Unknown command
         _ => {
             // Log error message to buffer

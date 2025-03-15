@@ -297,24 +297,38 @@ async fn initialize_mcp_server(
             let provider: Arc<McpToolProvider> = Arc::new(provider);
 
             // Get tools from the provider to count them
-            let tools = provider.list_tools().await;
+            let tools = provider.list_tools();
             let tool_count = tools.len();
 
             // Register the provider with the MCP manager
-            crate::mcp::register_provider(server_name, Arc::clone(&provider));
+            // Check if registration was successful
+            if crate::mcp::register_provider(server_name, Arc::clone(&provider)) {
+                if !silent_mode {
+                    bprintln !(tool: "mcp",
+                        "Connected to MCP server: {}. Found {} tools.",
+                        server_name,
+                        tool_count
+                    );
+                }
 
-            if !silent_mode {
-                bprintln !(tool: "mcp",
+                ToolResult::success(format!(
                     "Connected to MCP server: {}. Found {} tools.",
-                    server_name,
-                    tool_count
-                );
-            }
+                    server_name, tool_count
+                ))
+            } else {
+                // Registration failed, likely due to name collision
+                if !silent_mode {
+                    bprintln !(error:
+                        "Failed to register MCP server '{}': Name collides with a built-in tool",
+                        server_name
+                    );
+                }
 
-            ToolResult::success(format!(
-                "Connected to MCP server: {}. Found {} tools.",
-                server_name, tool_count
-            ))
+                ToolResult::error(format!(
+                    "Failed to register MCP server '{}': Name collides with a built-in tool",
+                    server_name
+                ))
+            }
         }
         Err(err) => {
             if !silent_mode {

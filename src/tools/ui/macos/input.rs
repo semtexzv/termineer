@@ -218,7 +218,7 @@ async fn send_mouse_click(
     let abs_y = win_y + y;
     crate::bprintln!(dev: "💻 INPUT: Calculated absolute coordinates: ({}, {})", abs_x, abs_y);
     
-    // Use tokio's block_in_place to avoid blocking the runtime
+    
     crate::bprintln!(dev: "💻 INPUT: Executing mouse click with Enigo (blocking)");
     let result = tokio::task::block_in_place(|| -> Result<(), String> {
         // Create a new Enigo instance
