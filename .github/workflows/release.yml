@@ -139,6 +139,8 @@ jobs:
             The package includes binaries for Linux, macOS (Intel & Apple Silicon), and Windows.
           files: |
             **/termineer-*
+            # Include debug info archives
+            **/termineer-*.debug-info.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -165,6 +167,8 @@ jobs:
           ls -la npm-package
           
           # Copy the binaries to respective platform directories
+          # Note: Debug info files (*.debug-info.tar.gz) are intentionally excluded from NPM packages
+          # They're still available as separate download artifacts in the GitHub release
           cp prebuilds/termineer-x86_64-linux-gnu/termineer-x86_64-linux-gnu npm-package/bin/platform/linux-x64/termineer
           cp prebuilds/termineer-x86_64-apple-darwin/termineer-x86_64-apple-darwin npm-package/bin/platform/darwin-x64/termineer
           cp prebuilds/termineer-aarch64-apple-darwin/termineer-aarch64-apple-darwin npm-package/bin/platform/darwin-arm64/termineer

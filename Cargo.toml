@@ -13,7 +13,11 @@ opt-level = 3
 
 # Release profile optimizations for binary size
 [profile.release]
-# Enable stripping of debug symbols
+# Generate debug info for better troubleshooting
+debug = true
+# Split debug info into separate files to keep binary small
+split-debuginfo = "packed"
+# Enable stripping of debug symbols from the main binary
 strip = true
 # Optimize for size
 opt-level = "z"
