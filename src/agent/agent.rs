@@ -97,11 +97,30 @@ impl Agent {
         // Initialize system prompt if not already set
         if config.system_prompt.is_none() {
             // Convert enabled_tools setting to the appropriate list of tool names
-            let enabled_tools = if config.enable_tools {
+            let mut enabled_tools = if config.enable_tools {
                 crate::prompts::ALL_TOOLS.to_vec()
             } else {
                 crate::prompts::READONLY_TOOLS.to_vec()
             };
+            
+            // Filter out specifically disabled tools
+            if !config.disabled_tools.is_empty() {
+                // Create a set of disabled tools for efficient lookups
+                let disabled_set: std::collections::HashSet<String> = 
+                    config.disabled_tools.iter().map(|s| s.to_lowercase()).collect();
+                
+                // Filter out disabled tools
+                enabled_tools.retain(|&tool| !disabled_set.contains(&tool.to_lowercase()));
+                
+                // Log which tools were disabled
+                bprintln!(
+                    "ℹ️ {}{} tools disabled{}: {}",
+                    crate::constants::FORMAT_BOLD,
+                    config.disabled_tools.len(),
+                    crate::constants::FORMAT_RESET,
+                    config.disabled_tools.join(", ")
+                );
+            }
 
             // Generate the system prompt based on kind or minimal flag
             match crate::prompts::generate_system_prompt(
@@ -109,6 +128,7 @@ impl Agent {
                 config.use_minimal_prompt,
                 config.kind.as_deref(),
                 grammar.clone(),
+                Some(&config.disabled_tools),
             ) {
                 Ok(prompt) => {
                     // Set the system prompt in the config's system_prompt field
@@ -134,7 +154,10 @@ impl Agent {
 
         // Initialize tool executor (not readonly, not silent)
         // Note: Agent manager will be set later in the run method
-        let tool_executor = ToolExecutor::new(false, false);
+        let mut tool_executor = ToolExecutor::new(false, false);
+        
+        // Set the list of disabled tools in the tool executor
+        tool_executor.set_disabled_tools(config.disabled_tools.clone());
 
         Ok(Self {
             id,
@@ -180,7 +203,13 @@ impl Agent {
         let _interrupt_monitor = spawn_interrupt_monitor(coordinator.clone(), interrupt_receiver);
 
         // Set up the tool executor with this agent's ID
-        self.tool_executor = ToolExecutor::with_agent_id(false, false, self.id);
+        let mut new_tool_executor = ToolExecutor::with_agent_id(false, false, self.id);
+        
+        // Transfer the disabled tools list to the new executor
+        new_tool_executor.set_disabled_tools(self.config.disabled_tools.clone());
+        
+        // Replace the tool executor
+        self.tool_executor = new_tool_executor;
 
         // MCP connections are now initialized at application startup before any agents
         // We don't add MCP server information to the conversation context anymore
@@ -864,7 +893,7 @@ impl Agent {
                 Some(&stop_sequences),
                 None,
                 Some(&current_cache_points),
-                Some(max_tokens_for_check),
+                Some(max_tokens_for_check), // Always use the small token limit for interruption checks
             ),
         )
         .await
@@ -1252,7 +1281,7 @@ impl Agent {
                 self.stop_sequences.as_deref(),
                 thinking_budget,
                 Some(&self.cache_points),
-                None, // Use default max_tokens
+                self.config.max_token_output, // Use configured max_tokens if provided
             )
             .await
         {

@@ -4,10 +4,11 @@
 //! executing workflows from the CLI.
 
 use std::collections::HashMap;
-use anyhow::format_err;
+use anyhow::{format_err, Result};
 use serde_yaml::Value as YamlValue;
 
 use crate::workflow::loader::{ensure_workflows_directory, list_workflows, load_workflow};
+use crate::config;
 use crate::workflow::executor;
 use crate::workflow::context::WorkflowError;
 
@@ -18,6 +19,11 @@ pub async fn handle_workflow_command(
     query: Option<String>,
     agent_id: crate::agent::AgentId,
 ) -> anyhow::Result<()> {
+    // Check if user has Pro access - workflows are a Pro-only feature
+    if crate::config::get_app_mode() != crate::config::AppMode::Pro {
+        return Err(format_err!("Workflows are a Pro-only feature. Upgrade to Pro for access."));
+    }
+    
     // Ensure the workflows directory exists
     ensure_workflows_directory()?;
     
@@ -43,6 +49,11 @@ pub async fn handle_workflow_command(
 
 /// List all available workflows
 async fn list_available_workflows() -> anyhow::Result<()> {
+    // Check if user has Pro access - workflows are a Pro-only feature
+    if crate::config::get_app_mode() != crate::config::AppMode::Pro {
+        return Err(format_err!("Workflows are a Pro-only feature. Upgrade to Pro for access."));
+    }
+    
     let workflows = list_workflows()?;
     
     if workflows.is_empty() {

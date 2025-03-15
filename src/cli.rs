@@ -26,21 +26,25 @@ pub struct Cli {
     #[arg(long)]
     pub kind: Option<String>,
 
-    /// Disable tools
+    /// Disable all tools
     #[arg(long)]
     pub no_tools: bool,
+
+    /// Disable specific tools by name (can be used multiple times)
+    #[arg(long = "disable-tool", value_name = "TOOL_NAME")]
+    pub disabled_tools: Vec<String>,
 
     /// The thinking budget in tokens
     #[arg(long, default_value_t = 8192)]
     pub thinking_budget: usize,
 
+    /// Maximum tokens to generate in the response
+    #[arg(long)]
+    pub max_tokens: Option<usize>,
+
     /// Use minimal prompt
     #[arg(long)]
     pub minimal_prompt: bool,
-
-    /// Resume last session
-    #[arg(long)]
-    pub resume: bool,
 
     /// Grammar type to use (xml, markdown, auto)
     #[arg(long, value_parser = parse_grammar_type)]
@@ -59,12 +63,14 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Login to Termineer account
+    #[clap(hide = true)]
     Login,
 
     /// List available agent kinds/templates
     ListKinds,
 
     /// Run a workflow from the .termineer/workflows directory
+    #[clap(hide = true)]
     Workflow {
         /// Name of the workflow to run
         name: Option<String>,
@@ -104,9 +110,10 @@ pub fn cli_to_config(cli: &Cli) -> crate::config::Config {
     config.model = cli.model.clone();
     config.kind = cli.kind.clone();
     config.enable_tools = !cli.no_tools;
+    config.disabled_tools = cli.disabled_tools.clone();
     config.thinking_budget = cli.thinking_budget;
+    config.max_token_output = cli.max_tokens;
     config.use_minimal_prompt = cli.minimal_prompt;
-    config.resume_last_session = cli.resume;
     config.grammar_type = cli.grammar;
     config.skip_auth = cli.skip_auth;
     

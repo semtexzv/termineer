@@ -20,7 +20,14 @@ include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
-    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", "read", "write", "patch", "fetch", "search", "screenshot", "screendump", "input", "task", "done", "wait",
+    "shell", "asyncshell", "asyncshell-list", "asyncshell-kill", 
+    "read", "write", "patch", "fetch", "search",
+    #[cfg(target_os = "macos")]
+    "screenshot",
+    #[cfg(target_os = "macos")]
+    "screendump",
+    #[cfg(target_os = "macos")]
+    "input", "task", "done", "wait",
 ];
 
 /// List of tools available to Plus/Pro users only
@@ -103,6 +110,7 @@ use crate::config::{get_app_mode, AppMode};
 /// * `use_minimal` - Whether to use the minimal prompt template (legacy behavior)
 /// * `kind_name` - Optional specific template to use (overrides use_minimal)
 /// * `grammar` - The grammar implementation to use for formatting
+/// * `disabled_tools` - Optional list of tools that should be excluded
 ///
 /// # Returns
 /// The generated system prompt as a string, or an error with suggestions
@@ -111,6 +119,7 @@ pub fn generate_system_prompt(
     use_minimal: bool,
     kind_name: Option<&str>,
     grammar: Arc<dyn Grammar>,
+    disabled_tools: Option<&[String]>,
 ) -> Result<String, anyhow::Error> {
     // Determine which template to use
     let requested_kind = if let Some(name) = kind_name {
@@ -173,19 +182,36 @@ pub fn generate_system_prompt(
         combined_tools.push(*tool);
     }
     
+    // Log the final list of tools included in the prompt (for debugging)
+    bprintln!(dev: "{}Including {} tools in prompt:{} {}",
+        crate::constants::FORMAT_BOLD,
+        combined_tools.len(),
+        crate::constants::FORMAT_RESET,
+        combined_tools.join(", ")
+    );
+    
+    // Create a helper function to check if a tool is disabled
+    let is_tool_disabled = |tool: &str| -> bool {
+        if let Some(disabled) = disabled_tools {
+            disabled.iter().any(|d| d.to_lowercase() == tool.to_lowercase())
+        } else {
+            false
+        }
+    };
+    
     // If user has Plus/Pro, add appropriate Plus-only tools
     if has_plus {
         if using_readonly {
             for tool in READONLY_PLUS_TOOLS {
-                // Avoid adding duplicates
-                if !combined_tools.contains(tool) {
+                // Avoid adding duplicates or disabled tools
+                if !combined_tools.contains(tool) && !is_tool_disabled(tool) {
                     combined_tools.push(*tool);
                 }
             }
         } else {
             for tool in PLUS_TOOLS {
-                // Avoid adding duplicates
-                if !combined_tools.contains(tool) {
+                // Avoid adding duplicates or disabled tools
+                if !combined_tools.contains(tool) && !is_tool_disabled(tool) {
                     combined_tools.push(*tool);
                 }
             }

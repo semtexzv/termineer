@@ -62,14 +62,17 @@ pub struct Config {
     /// Whether to enable tools
     pub enable_tools: bool,
 
+    /// List of specific tools to disable by name
+    pub disabled_tools: Vec<String>,
+
     /// Budget for "thinking" capabilities
     pub thinking_budget: usize,
 
+    /// Maximum tokens to generate in the response (None = use model default)
+    pub max_token_output: Option<usize>,
+
     /// Whether to use a minimal system prompt
     pub use_minimal_prompt: bool,
-
-    /// Whether to resume the last session
-    pub resume_last_session: bool,
 
     #[cfg(debug_assertions)]
     /// Whether to dump prompts and exit
@@ -98,9 +101,10 @@ impl Config {
             kind: None, // Default actor kind (will use "basic" if not specified)
             system_prompt: None,
             enable_tools: true,
-            thinking_budget: 16384,
+            disabled_tools: Vec::new(), // No tools disabled by default
+            thinking_budget: 8192,
+            max_token_output: None, // No limit by default, use model's default
             use_minimal_prompt: false,
-            resume_last_session: false,
             #[cfg(debug_assertions)]
             dump_prompts: None,
             grammar_type: None, // Will be resolved based on model

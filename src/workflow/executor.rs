@@ -29,6 +29,13 @@ impl WorkflowExecutor {
         parameters: HashMap<String, serde_yaml::Value>,
         query: Option<String>,
     ) -> Result<(), WorkflowError> {
+        // Check if user has Pro access - workflows are a Pro-only feature
+        if crate::config::get_app_mode() != crate::config::AppMode::Pro {
+            return Err(WorkflowError::PermissionDenied(
+                "Workflows are a Pro-only feature. Upgrade to Pro for access.".to_string()
+            ));
+        }
+        
         // Create workflow context
         let mut context = WorkflowContext::new(parameters, query.clone());
         
@@ -350,6 +357,13 @@ pub async fn execute_workflow(
     query: Option<String>,
     main_agent_id: AgentId,
 ) -> Result<(), WorkflowError> {
+    // Check if user has Pro access - workflows are a Pro-only feature
+    if crate::config::get_app_mode() != crate::config::AppMode::Pro {
+        return Err(WorkflowError::PermissionDenied(
+            "Workflows are a Pro-only feature. Upgrade to Pro for access.".to_string()
+        ));
+    }
+    
     let executor = WorkflowExecutor::new(main_agent_id);
     executor.execute_workflow(workflow, parameters, query).await
 }

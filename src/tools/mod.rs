@@ -8,6 +8,7 @@ pub mod read;
 pub mod search;
 pub mod shell;
 pub mod task;
+#[cfg(target_os = "macos")]
 pub mod ui;
 pub mod wait;
 pub mod write;
@@ -22,8 +23,11 @@ pub use read::execute_read;
 pub use search::execute_search;
 pub use shell::InterruptData;
 pub use task::execute_task;
+#[cfg(target_os = "macos")]
 pub use ui::input::execute_input;
+#[cfg(target_os = "macos")]
 pub use ui::screendump::execute_screendump;
+#[cfg(target_os = "macos")]
 pub use ui::screenshot::execute_screenshot;
 pub use wait::execute_wait;
 pub use write::execute_write;
@@ -167,6 +171,8 @@ pub struct ToolExecutor {
     silent_mode: bool,
     /// ID of the agent that owns this tool executor
     agent_id: Option<AgentId>,
+    /// List of tools that are specifically disabled
+    disabled_tools: Vec<String>,
 }
 
 impl ToolExecutor {
@@ -176,6 +182,7 @@ impl ToolExecutor {
             readonly_mode,
             silent_mode,
             agent_id: None,
+            disabled_tools: Vec::new(),
         }
     }
 
@@ -185,7 +192,13 @@ impl ToolExecutor {
             readonly_mode,
             silent_mode,
             agent_id: Some(agent_id),
+            disabled_tools: Vec::new(),
         }
+    }
+    
+    /// Set the list of disabled tools
+    pub fn set_disabled_tools(&mut self, disabled_tools: Vec<String>) {
+        self.disabled_tools = disabled_tools;
     }
 
     /// Check if executor is in silent mode
@@ -193,10 +206,28 @@ impl ToolExecutor {
         self.silent_mode
     }
     
+    /// Check if a specific tool is disabled
+    fn is_tool_disabled(&self, tool_name: &str) -> bool {
+        self.disabled_tools
+            .iter()
+            .any(|disabled| disabled.trim().to_lowercase() == tool_name.trim().to_lowercase())
+    }
+    
     /// Execute a tool based on name, args, and body provided by the LLM
     pub async fn execute_with_parts(&self, tool_name: &str, args: &str, body: &str) -> ToolResult {
         // Using pre-parsed components directly
         let tool_name = tool_name.trim().to_lowercase();
+
+        // Check if the tool is specifically disabled
+        if self.is_tool_disabled(&tool_name) {
+            if !self.silent_mode {
+                bprintln !(error:"Tool '{}' has been disabled by user configuration", tool_name);
+            }
+            return ToolResult::error(format!(
+                "Tool '{}' has been disabled by user configuration",
+                tool_name
+            ));
+        }
 
         // In readonly mode, only allow read-only tools (and task which will create readonly subagents)
         if self.readonly_mode && !self.is_readonly_tool(&tool_name) {
@@ -218,10 +249,13 @@ impl ToolExecutor {
             "patch" => execute_patch(args, body, self.silent_mode).await,
             "fetch" => execute_fetch(args, body, self.silent_mode).await,
             "search" => execute_search(args, body, self.silent_mode).await,
+            #[cfg(target_os = "macos")]
             "screenshot" => execute_screenshot(args, body, self.silent_mode).await,
+            #[cfg(target_os = "macos")]
             "input" => execute_input(args, body, self.silent_mode).await,
             "done" => execute_done(args, body, self.silent_mode),
-            "task" => execute_task(args, body, self.silent_mode).await,
+            "task" => execute_task(args, body, self.silent_mode, self.agent_id).await,
+            #[cfg(target_os = "macos")]
             "screendump" => execute_screendump(args, body, self.silent_mode).await,
             "wait" => execute_wait(args, body, self.silent_mode),
             _ => {

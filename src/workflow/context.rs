@@ -39,6 +39,9 @@ pub enum WorkflowError {
     
     #[error("YAML error: {0}")]
     YamlError(#[from] serde_yaml::Error),
+    
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
 }
 
 /// Context for workflow execution

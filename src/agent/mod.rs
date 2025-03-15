@@ -67,6 +67,12 @@ pub fn get_agents() -> Vec<(AgentId, String)> {
     manager.get_agents()
 }
 
+/// Get an agent's configuration
+pub fn get_agent_config(id: AgentId) -> Result<Config, types::AgentError> {
+    let manager = AGENT_MANAGER.lock().unwrap();
+    manager.get_agent_config(id)
+}
+
 /// Get an agent ID by name
 pub fn get_agent_id_by_name(name: &str) -> Option<AgentId> {
     let manager = AGENT_MANAGER.lock().unwrap();

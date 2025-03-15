@@ -185,6 +185,20 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Some(Commands::Workflow { name, parameters, query }) => {
+            // Check if user has Pro access - workflows are a Pro-only feature
+            if config::get_app_mode() != config::AppMode::Pro {
+                execute!(
+                    io::stdout(),
+                    SetForegroundColor(Color::Yellow),
+                    Print("⚠️ Workflows are a Pro-only feature"),
+                    ResetColor,
+                    cursor::MoveToNextLine(1),
+                )
+                .unwrap();
+                println!("Upgrade to Pro for access to workflows and advanced orchestration features.");
+                return Ok(());
+            }
+            
             // Convert the query vector to an Option<String> by joining with spaces
             let query_string = if !query.is_empty() {
                 Some(query.join(" "))
