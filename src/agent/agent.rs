@@ -6,7 +6,6 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use anyhow::format_err;
 use super::interrupt::{spawn_interrupt_monitor, InterruptCoordinator};
 use super::types::{
     AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, InterruptReceiver, StateSender,
@@ -183,13 +182,9 @@ impl Agent {
         // Set up the tool executor with this agent's ID
         self.tool_executor = ToolExecutor::with_agent_id(false, false, self.id);
 
-        // Initialize MCP connections from .termineer/config.json
-        if self.name == "main" {
-            // Only initialize on the main agent
-            if let Err(e) = self.initialize_mcp_connections().await {
-                bprintln !(error:"Failed to initialize MCP connections: {}", e);
-            }
-        }
+        // MCP connections are now initialized at application startup before any agents
+        // We don't add MCP server information to the conversation context anymore
+        // as it will be handled through prompt generation
         
         // No session loading - sessions are disabled
         
@@ -1563,93 +1558,5 @@ impl Agent {
         // Reset cache points since model changed
         self.reset_cache_points();
         Ok(())
-    }
-
-    /// Initialize MCP connections from configuration file
-    async fn initialize_mcp_connections(
-        &mut self,
-    ) -> anyhow::Result<()> {
-        // Use the silent mode setting from the tool executor
-        let silent_mode = self.tool_executor.is_silent();
-
-        // Get the list of configured MCP servers
-        let mcp_servers = match crate::mcp::config::get_server_list() {
-            Ok(servers) => servers,
-            Err(_) => Vec::new(), // Empty list if there's an error
-        };
-
-        // Print a single line about configured servers if any
-        if !mcp_servers.is_empty() && !silent_mode {
-            bprintln!(
-                "ℹ️ {}Configured MCP servers: {}{}",
-                crate::constants::FORMAT_CYAN,
-                mcp_servers.join(", "),
-                crate::constants::FORMAT_RESET
-            );
-        }
-
-        // Initialize MCP connections from config
-        match crate::mcp::config::initialize_mcp_from_config(silent_mode).await {
-            Ok(results) => {
-                // Add information about configured and connected MCP servers to the conversation
-                if !mcp_servers.is_empty() {
-                    // First add the list of configured servers
-                    let servers_list = mcp_servers.join(", ");
-                    let configured_message =
-                        format!("The following MCP servers are available: {}", servers_list);
-
-                    // Add to conversation
-                    self.conversation.push(Message::text(
-                        "user",
-                        configured_message.clone(),
-                        MessageInfo::System,
-                    ));
-
-                    // Also print to console if not silent
-                    if !silent_mode {
-                        bprintln!(
-                            "ℹ️ {}{}{}",
-                            crate::constants::FORMAT_CYAN,
-                            configured_message,
-                            crate::constants::FORMAT_RESET
-                        );
-                    }
-
-                    // Then add information about successfully connected servers
-                    if !results.is_empty() {
-                        let mut connection_info = String::new();
-
-                        for result in &results {
-                            if result.success {
-                                // Add to the connection info string
-                                connection_info
-                                    .push_str(&format!("✅ {}\n", result.to_text().trim()));
-
-                                // Also print to console if not silent
-                                if !silent_mode {
-                                    bprintln!(
-                                        "✅ {}{}{}",
-                                        crate::constants::FORMAT_GREEN,
-                                        result.to_text().trim(),
-                                        crate::constants::FORMAT_RESET
-                                    );
-                                }
-                            }
-                        }
-
-                        // Add connection info to conversation if there were successful connections
-                        if !connection_info.is_empty() {
-                            self.conversation.push(Message::text(
-                                "user",
-                                connection_info,
-                                MessageInfo::System,
-                            ));
-                        }
-                    }
-                }
-                Ok(())
-            }
-            Err(e) => Err(format_err!("Failed to initialize MCP connections: {}", e)),
-        }
     }
 }

@@ -70,8 +70,22 @@ impl AgentManager {
         }
     }
 
-    /// Create a new agent
+    /// Create a new agent with a new buffer
     pub fn create_agent(&mut self, name: String, config: Config) -> Result<AgentId, AgentError> {
+        // Create a new buffer
+        let buffer = SharedBuffer::new(100);
+        
+        // Call the shared implementation with the new buffer
+        self.create_agent_with_buffer(name, config, buffer)
+    }
+    
+    /// Create a new agent with an existing buffer
+    pub fn create_agent_with_buffer(
+        &mut self, 
+        name: String, 
+        config: Config, 
+        buffer: SharedBuffer
+    ) -> Result<AgentId, AgentError> {
         // Create message channel for this agent
         let (sender, receiver) = mpsc::channel(100);
 
@@ -84,15 +98,13 @@ impl AgentManager {
         let id = AgentId(self.next_id);
         self.next_id += 1;
 
-        let buffer = SharedBuffer::new(100);
-
         // Create the agent with state channel
         let agent = match Agent::new(id, name.clone(), config, state_sender) {
             Ok(agent) => agent,
             Err(e) => return Err(AgentError::CreationFailed(e.to_string())),
         };
 
-        // Spawn agent as a task with its own buffer
+        // Spawn agent as a task with the provided buffer
         let join_handle = spawn_agent_task(agent, buffer.clone(), receiver, interrupt_receiver);
 
         // Create and store handle with both senders

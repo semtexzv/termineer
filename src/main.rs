@@ -29,6 +29,72 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetForegroundColor},
 };
 use tui::TuiInterface;
+use crate::agent::AgentId;
+
+/// Initialize MCP servers and log available methods to the current buffer
+///
+/// This function handles both initialization and logging in a single operation
+/// to avoid locking the MCP_PROVIDERS multiple times.
+async fn initialize_and_log_mcp() {
+    use crate::tools::mcp::MCP_PROVIDERS;
+    
+    // Initialize MCP connections from config (silent mode = true)
+    if let Err(e) = crate::mcp::config::initialize_mcp_from_config(true).await {
+        bprintln!(error: "Failed to initialize MCP connections: {}", e);
+        // Continue even if MCP initialization fails
+    }
+    
+    // Get list of available MCP servers (second lock, but after initialization)
+    let providers = MCP_PROVIDERS.lock().await;
+    
+    if providers.is_empty() {
+        // No providers available, nothing to log
+        return;
+    }
+    
+    // Log header
+    bprintln!("\n🔌 {}Available MCP tools:{}",
+        crate::constants::FORMAT_BOLD,
+        crate::constants::FORMAT_RESET
+    );
+    
+    // Iterate through each provider and list its tools
+    for (server_name, provider) in providers.iter() {
+        // Get tools for this provider
+        let tools = provider.list_tools().await;
+        
+        if !tools.is_empty() {
+            // Log provider name and tool count
+            bprintln!("{}📦 {} ({} tools){}",
+                crate::constants::FORMAT_BLUE,
+                server_name,
+                tools.len(),
+                crate::constants::FORMAT_RESET
+            );
+            
+            // Log each tool with its description
+            for tool in tools {
+                let description = if tool.description.is_empty() {
+                    "No description".to_string()
+                } else {
+                    tool.description.clone()
+                };
+                
+                bprintln!("  • {}{}{}: {}",
+                    crate::constants::FORMAT_BOLD,
+                    tool.name,
+                    crate::constants::FORMAT_RESET,
+                    description
+                );
+            }
+        }
+    }
+    
+    // Add a blank line at the end
+    bprintln!("");
+}
+
+// MCP initialization is now done directly within each execution context's buffer scope
 
 /// Main entry point for the application
 ///
@@ -56,6 +122,8 @@ async fn main() -> anyhow::Result<()> {
         // In release builds, use Free mode (authentication removed)
         config::set_app_mode(config::AppMode::Free);
     }
+    
+    // Note: MCP servers will now be initialized with a buffer right before agent creation
 
     // Handle different command/argument combinations
     match &cli.command {
@@ -87,49 +155,14 @@ async fn main() -> anyhow::Result<()> {
                 None
             };
             
-            // Create the main agent
-            let main_agent_id = match agent::create_agent("main".to_string(), config.clone()) {
-                Ok(id) => id,
-                Err(e) => {
-                    eprintln!("Failed to create main agent: {}", e);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to create main agent: {}", e),
-                    ).into());
-                }
-            };
+            // Run in workflow mode
+            run_workflow_mode(config, name.clone(), parameters.clone(), query_string).await.map_err(|e| {
+                format_err!("Error in workflow mode: {}", e)
+            })?;
             
-            // Load the workflow
-            match workflow::loader::load_workflow(&name.clone().unwrap_or_default()) {
-                Ok(workflow) => {
-                    // Parse parameters
-                    let mut params = HashMap::new();
-                    for param in parameters {
-                        if let Some((key, value)) = param.split_once('=') {
-                            params.insert(key.to_string(), serde_yaml::Value::String(value.to_string()));
-                        }
-                    }
-                    
-                    // Execute workflow
-                    if let Err(e) = workflow::executor::execute_workflow(&workflow, params, query_string.clone(), main_agent_id).await {
-                        eprintln!("Workflow error: {}", e);
-                    }
-                    
-                    // Clean up: terminate all agents
-                    agent::terminate_all().await;
-                    
-                    return Ok(());
-                },
-                Err(e) => {
-                    eprintln!("Failed to load workflow: {}", e);
-                    
-                    // Clean up: terminate all agents
-                    agent::terminate_all().await;
-                    
-                    return Ok(());
-                }
-            }
+            return Ok(());
         }
+        #[cfg(debug_assertions)]
         Some(Commands::DumpPrompts { .. }) => {
             // Dump prompt templates and exit
             // The template name is already in the config
@@ -214,25 +247,47 @@ async fn run_interactive_mode(
     Ok(());
     }
 
-    // Create the main agent
-    let main_agent_id = match agent::create_agent("main".to_string(), config) {
-        Ok(id) => id,
-        Err(e) => {
-            execute!(
-                io::stderr(),
-                SetForegroundColor(Color::Red),
-                Print(format!("Failed to create main agent: {}", e)),
-                ResetColor,
-                cursor::MoveToNextLine(1)
-            )?;
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create main agent: {}", e),
-            )).into());
-        }
-    };
+    // Create a default buffer to be shared between the main agent and TUI
+    let default_buffer = crate::output::SharedBuffer::new(200);
+    
+    // Use a single buffer scope for both MCP initialization and agent creation
+    let main_agent_id = crate::output::CURRENT_BUFFER.scope(default_buffer.clone(), async {
+        // Initialize MCP servers and log available methods in a single operation
+        initialize_and_log_mcp().await;
+        
+        // Create the main agent and capture its ID
+        let result: anyhow::Result<AgentId> = match agent::create_agent_with_buffer("main".to_string(), config, default_buffer.clone()) {
+            Ok(id) => {
+                bprintln!("🤖 {}Agent{} 'main' created successfully with ID: {}",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    id
+                );
+                Ok(id)
+            },
+            Err(e) => {
+                // Use buffer printing for the error
+                bprintln!(error: "Failed to create main agent: {}", e);
+                
+                // Also print to stderr for TUI visibility
+                execute!(
+                    io::stderr(),
+                    SetForegroundColor(Color::Red),
+                    Print(format!("Failed to create main agent: {}", e)),
+                    ResetColor,
+                    cursor::MoveToNextLine(1)
+                )?;
+                
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create main agent: {}", e),
+                )).into())
+            }
+        };
+        result
+    }).await?;
 
-    // Initialize and run the TUI interface
+    // Initialize and run the TUI interface with the same buffer
     let mut tui = TuiInterface::new(main_agent_id)?;
     tui.run().await.unwrap();
 
@@ -241,6 +296,74 @@ async fn run_interactive_mode(
 
     // Explicit use of Result with the expected return type
     Ok(())
+}
+
+/// Run the application in workflow mode
+async fn run_workflow_mode(
+    config: Config,
+    name: Option<String>,
+    parameters: Vec<String>,
+    query_string: Option<String>,
+) -> anyhow::Result<()> {
+    // Create a default buffer for output
+    let default_buffer = crate::output::SharedBuffer::new(200);
+    
+    // Use a single buffer scope for both MCP initialization and agent creation
+    let main_agent_id = crate::output::CURRENT_BUFFER.scope(default_buffer.clone(), async {
+        // Initialize MCP servers and log available methods in a single operation
+        initialize_and_log_mcp().await;
+        
+        // Create the main agent and capture its ID
+        let result: anyhow::Result<AgentId> = match agent::create_agent_with_buffer("main".to_string(), config.clone(), default_buffer.clone()) {
+            Ok(id) => {
+                bprintln!("🤖 {}Agent{} 'main' created successfully with ID: {}",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    id
+                );
+                Ok(id)
+            },
+            Err(e) => {
+                bprintln!(error: "Failed to create main agent: {}", e);
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create main agent: {}", e),
+                ).into())
+            }
+        };
+        result
+    }).await?;
+    
+    // Load the workflow
+    match workflow::loader::load_workflow(&name.clone().unwrap_or_default()) {
+        Ok(workflow) => {
+            // Parse parameters
+            let mut params = HashMap::new();
+            for param in parameters {
+                if let Some((key, value)) = param.split_once('=') {
+                    params.insert(key.to_string(), serde_yaml::Value::String(value.to_string()));
+                }
+            }
+            
+            // Execute workflow
+            if let Err(e) = workflow::executor::execute_workflow(&workflow, params, query_string.clone(), main_agent_id).await {
+                bprintln!(error: "Workflow error: {}", e);
+            }
+            
+            // Clean up: terminate all agents
+            agent::terminate_all().await;
+            
+            Ok(())
+        },
+        Err(e) => {
+            bprintln!(error: "Failed to load workflow: {}", e);
+            
+            // Clean up: terminate all agents
+            agent::terminate_all().await;
+            
+            Err(anyhow::anyhow!("Failed to load workflow: {}", e))
+        }
+    }
 }
 
 /// Run the application in single query mode (non-interactive)
@@ -255,17 +378,39 @@ async fn run_single_query_mode(
     })
     .expect("Failed to set Ctrl+C handler");
 
-    // Create the main agent
-    let main_agent_id = match agent::create_agent("main".to_string(), config) {
-        Ok(id) => id,
-        Err(e) => {
-            eprintln!("Failed to create main agent: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create main agent: {}", e),
-            ).into());
-        }
-    };
+    // Create a default buffer for output
+    let default_buffer = crate::output::SharedBuffer::new(200);
+    
+    // Use a single buffer scope for both MCP initialization and agent creation
+    let main_agent_id = crate::output::CURRENT_BUFFER.scope(default_buffer.clone(), async {
+        // Initialize MCP servers and log available methods in a single operation
+        initialize_and_log_mcp().await;
+        
+        // Create the main agent and capture its ID
+        let result: anyhow::Result<AgentId> = match agent::create_agent_with_buffer("main".to_string(), config, default_buffer.clone()) {
+            Ok(id) => {
+                bprintln!("🤖 {}Agent{} 'main' created successfully with ID: {}",
+                    crate::constants::FORMAT_BOLD,
+                    crate::constants::FORMAT_RESET,
+                    id
+                );
+                Ok(id)
+            },
+            Err(e) => {
+                // Use buffer printing for the error
+                bprintln!(error: "Failed to create main agent: {}", e);
+                
+                // Also print to stderr for CLI visibility
+                eprintln!("Failed to create main agent: {}", e);
+                
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create main agent: {}", e),
+                ).into())
+            }
+        };
+        result
+    }).await?;
 
     // Set up buffer streaming for real-time feedback
     let mut last_line_count = 0;

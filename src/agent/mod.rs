@@ -37,6 +37,12 @@ pub fn create_agent(name: String, config: Config) -> Result<AgentId, types::Agen
     manager.create_agent(name, config)
 }
 
+/// Create a new agent with the given name, configuration, and buffer
+pub fn create_agent_with_buffer(name: String, config: Config, buffer: SharedBuffer) -> Result<AgentId, types::AgentError> {
+    let mut manager = AGENT_MANAGER.lock().unwrap();
+    manager.create_agent_with_buffer(name, config, buffer)
+}
+
 /// Send a message to an agent
 pub fn send_message(id: AgentId, message: AgentMessage) -> Result<(), types::AgentError> {
     let manager = AGENT_MANAGER.lock().unwrap();
