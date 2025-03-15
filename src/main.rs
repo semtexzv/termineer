@@ -38,14 +38,14 @@ use crate::agent::AgentId;
 /// 
 /// Returns a map of server names to vectors of (tool_name, description) tuples
 pub async fn get_mcp_tools_info() -> HashMap<String, Vec<(String, String)>> {
-    // Get the list of provider names using the McpManager API
-    let provider_names = crate::tools::mcp::get_provider_names();
+    // Get the list of provider names using the MCP API
+    let provider_names = crate::mcp::get_provider_names();
     let mut result = HashMap::new();
     
     // For each provider, get all tools and their descriptions
     for server_name in provider_names {
         // Get the provider and list its tools
-        if let Some(provider) = crate::tools::mcp::get_provider(&server_name) {
+        if let Some(provider) = crate::mcp::get_provider(&server_name) {
             let tools = provider.list_tools().await;
             
             if !tools.is_empty() {
@@ -81,13 +81,13 @@ async fn initialize_and_log_mcp() {
     }
     
     // Check if we have any providers
-    if !crate::tools::mcp::has_providers() {
+    if !crate::mcp::has_providers() {
         // No providers available, nothing to log
         return;
     }
     
     // Get the list of provider names
-    let provider_names = crate::tools::mcp::get_provider_names();
+    let provider_names = crate::mcp::get_provider_names();
     
     // Log header
     bprintln!("\n🔌 {}Available MCP tools:{}",
@@ -97,8 +97,8 @@ async fn initialize_and_log_mcp() {
     
     // Get all tools for all providers
     for provider_name in provider_names {
-        // Get tools for this provider using the new API
-        let tools = crate::tools::mcp::get_provider(&provider_name)
+        // Get tools for this provider using the MCP API
+        let tools = crate::mcp::get_provider(&provider_name)
             .map(|provider| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()

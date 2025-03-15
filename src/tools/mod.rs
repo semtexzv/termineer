@@ -1,7 +1,6 @@
 pub mod agent;
 pub mod done;
 pub mod fetch;
-pub mod mcp;
 pub mod patch;
 pub mod path_utils;
 pub mod read;
@@ -16,7 +15,6 @@ pub mod write;
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
 pub use fetch::execute_fetch;
-pub use mcp::execute_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
 pub use search::execute_search;
@@ -213,7 +211,6 @@ impl ToolExecutor {
             "search" => execute_search(args, body, self.silent_mode).await,
             "screenshot" => execute_screenshot(args, body, self.silent_mode).await,
             "input" => execute_input(args, body, self.silent_mode).await,
-            "mcp" => execute_mcp_tool(args, body, self.silent_mode).await,
             "done" => execute_done(args, body, self.silent_mode),
             "task" => execute_task(args, body, self.silent_mode).await,
             "screendump" => execute_screendump(args, body, self.silent_mode).await,
@@ -283,7 +280,6 @@ impl ToolExecutor {
                 | "search"
                 | "screenshot"
                 | "screendump"
-                | "mcp"
                 | "done"
                 | "task"
                 | "agent"

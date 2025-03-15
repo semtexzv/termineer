@@ -86,15 +86,25 @@ pub fn render_template(
 ) -> anyhow::Result<String> {
     // Create a template manager
     let mut template_manager = TemplateManager::new(grammar);
-
-    // Get the list of configured MCP servers
-    let mcp_servers = crate::mcp::config::get_server_list().unwrap_or_else(|_| Vec::new());
     
     // Load all templates to ensure partials are available
     match template_manager.load_all_templates() {
         Ok(_) => {
-            // Render the template with specified tools enabled and MCP servers
-            match template_manager.render_with_context(template_name, enabled_tools, &mcp_servers) {
+            // Create a data object for template variables
+            let mut data = serde_json::Map::new();
+            
+            // Convert all enabled tools to lowercase
+            let lowercase_tools: Vec<String> = enabled_tools.iter().map(|s| s.to_lowercase()).collect();
+            
+            // Add the enabled_tools array for template usage
+            data.insert("enabled_tools".to_string(), serde_json::json!(lowercase_tools));
+            
+            // Add MCP tools information to the template data
+            let mut data_value = serde_json::Value::Object(data);
+            crate::mcp::add_mcp_tools_to_prompt(&mut data_value);
+            
+            // Render the template with the variables
+            match template_manager.handlebars.render(template_name, &data_value) {
                 Ok(rendered) => Ok(rendered),
                 Err(_) => {
                     bail!("Error generating system prompt: {}", template_name);

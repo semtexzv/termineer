@@ -278,7 +278,7 @@ async fn initialize_mcp_server(
     }
 
     // Check if already connected
-    if crate::tools::mcp::has_provider(server_name) {
+    if crate::mcp::has_provider(server_name) {
         if !silent_mode {
             bprintln !(tool: "mcp",
                 "Already connected to MCP server: {}",
@@ -300,8 +300,8 @@ async fn initialize_mcp_server(
             let tools = provider.list_tools().await;
             let tool_count = tools.len();
 
-            // Register the provider with the McpManager
-            crate::tools::mcp::register_provider(server_name, Arc::clone(&provider));
+            // Register the provider with the MCP manager
+            crate::mcp::register_provider(server_name, Arc::clone(&provider));
 
             if !silent_mode {
                 bprintln !(tool: "mcp",
