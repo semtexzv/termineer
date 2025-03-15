@@ -74,6 +74,28 @@ jobs:
         if: matrix.target.name != 'macos-arm64'
         run: cargo build --release --target ${{ matrix.target.rust_target }}
       
+      # Strip debug symbols from binaries on Linux and macOS
+      - name: Strip binaries
+        shell: bash
+        if: runner.os != 'Windows'
+        run: |
+          if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
+            BINARY_PATH="target/aarch64-apple-darwin/release/${{ matrix.target.binary_name }}"
+          else
+            BINARY_PATH="target/${{ matrix.target.rust_target }}/release/${{ matrix.target.binary_name }}"
+          fi
+          
+          # Check binary size before stripping
+          echo "Binary size before stripping:"
+          du -h "$BINARY_PATH"
+          
+          # Strip debug symbols
+          strip "$BINARY_PATH"
+          
+          # Check binary size after stripping
+          echo "Binary size after stripping:"
+          du -h "$BINARY_PATH"
+      
       # Prepare the binary and its checksum
       - name: Prepare binary
         shell: bash
