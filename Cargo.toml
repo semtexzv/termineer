@@ -28,7 +28,7 @@ xcap = { version = "0.4.0", default-features = false }
 
 [package]
 name = "termineer"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 license = "MIT"
 
