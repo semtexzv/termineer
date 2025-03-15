@@ -30,9 +30,7 @@ jobs:
             rust_target: x86_64-unknown-linux-gnu
             binary_name: termineer
             asset_name: termineer-x86_64-linux-gnu
-            use_container: true
-            container_image: "ghcr.io/rust-cross/manylinux2014-cross:x86_64"
-            
+
           - name: windows-x64
             os: windows-latest
             rust_target: x86_64-pc-windows-msvc

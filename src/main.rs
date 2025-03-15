@@ -340,7 +340,6 @@ async fn run_interactive_mode(
     }).await?;
 
     output::spawn_with_buffer(default_buffer.clone(), async move {
-        bprintln!("Ver");
         match version_check::check_for_updates().await {
             Ok((has_update, _latest_version, message)) => {
                 if has_update {
