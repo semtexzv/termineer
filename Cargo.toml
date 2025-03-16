@@ -32,7 +32,7 @@ image = { version = "0.25.5", default-features = false, features = ["jpeg", "png
 
 [package]
 name = "termineer"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 license = "MIT"
 
