@@ -25,12 +25,11 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - name: linux-x64-gnu
+          - name: linux-x64
             os: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             binary_name: termineer
             asset_name: termineer-x86_64-linux-gnu
-            use_container: false
 
           - name: windows-x64
             os: windows-latest
@@ -60,43 +59,16 @@ jobs:
       
       # Run tests before building (only once, on standard Linux target)
       - name: Run tests
-        if: matrix.target.name == 'linux-x64-gnu'  # Only run tests once
+        if: matrix.target.name == 'linux-x64'  # Only run tests once
         run: cargo test --all
       
       # Install Linux dependencies
+      # Install Linux dependencies 
       - name: Install Linux dependencies
-        if: matrix.target.name == 'linux-x64-gnu'
+        if: matrix.target.name == 'linux-x64'
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb1-dev
-      
-      # Set up container for older glibc build
-      - name: Set up Docker container for GNU Linux build
-        if: matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container
-        uses: addnab/docker-run-action@v3
-        with:
-          image: ${{ matrix.target.container_image }}
-          options: -v ${{ github.workspace }}:/work
-          run: |
-            cd /work
-            # Install build dependencies
-            yum install -y openssl-devel pkgconfig clang dbus-devel libxcb-devel
-            
-            # Install Rust
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            source $HOME/.cargo/env
-            
-            # Build with older glibc version
-            rustup target add ${{ matrix.target.rust_target }}
-            RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target ${{ matrix.target.rust_target }}
-            
-            # Strip the binary to reduce size
-            BINARY_PATH="target/${{ matrix.target.rust_target }}/release/${{ matrix.target.binary_name }}"
-            echo "Binary size before stripping:"
-            du -h "$BINARY_PATH"
-            strip "$BINARY_PATH"
-            echo "Binary size after stripping:"
-            du -h "$BINARY_PATH"
       
       # Linux MUSL build removed as it doesn't work properly
       
@@ -109,21 +81,17 @@ jobs:
       
       # For all other targets
       - name: Build binary
-        if: matrix.target.name != 'macos-arm64' && matrix.target.name != 'linux-x64-musl' && !(matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container)
+        if: matrix.target.name != 'macos-arm64'
         shell: bash
         run: |
-          # Ensure we have the target installed
-          if [[ "${{ matrix.target.name }}" == "linux-x64-gnu" ]]; then
-            rustup target add ${{ matrix.target.rust_target }}
-          fi
           cargo build --release --target ${{ matrix.target.rust_target }}
       
       # Handle split debug info and strip binaries on Linux and macOS
       - name: Process debug info and strip binaries
         shell: bash
-        if: runner.os != 'Windows' && !((matrix.target.name == 'linux-x64-gnu' && matrix.target.use_container))
+        if: runner.os != 'Windows'
         run: |
-          # Skip this step for container-based builds as they're handled in the container
+          # Set up paths based on target architecture
           if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
             TARGET_DIR="target/aarch64-apple-darwin/release"
             BINARY_PATH="$TARGET_DIR/${{ matrix.target.binary_name }}"
