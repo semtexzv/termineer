@@ -135,8 +135,8 @@ pub fn generate_system_prompt(
         // Legacy behavior: if minimal is requested, use minimal template
         "minimal"
     } else {
-        // Default to basic template
-        "general"
+        // Default to programmer template
+        "programmer"
     };
 
     // Check if the requested kind is allowed for the current app mode

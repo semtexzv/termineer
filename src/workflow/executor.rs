@@ -187,8 +187,8 @@ impl WorkflowExecutor {
         // Log agent step with formatted header
         println!("🤖 Creating agent: {}", agent_id);
         
-        // Use specified kind or default to "general"
-        let kind = step.kind.as_ref().map(|k| k.as_str()).unwrap_or("general");
+        // Use specified kind or default to "programmer"
+        let kind = step.kind.as_ref().map(|k| k.as_str()).unwrap_or("programmer");
         println!("Agent kind: {}", kind);
         println!("{}", "-".repeat(40));
                 
