@@ -6,10 +6,12 @@
 pub use async_trait::async_trait;
 
 pub mod anthropic;
+pub mod cohere;
 pub mod deepseek;
 pub mod factory;
 pub mod gemini;
 pub mod openrouter;
+pub mod retry_utils;
 mod types;
 
 pub use self::factory::create_backend;

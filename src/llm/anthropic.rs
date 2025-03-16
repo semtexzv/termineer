@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeSet;
 use std::time::Duration;
-use tokio::time::sleep;
 
 /// Get the token limit for an Anthropic model
 ///
@@ -144,6 +143,7 @@ impl Anthropic {
     const TOKEN_COUNT_TIMEOUT_SECS: u64 = 60; // 1 minute timeout for token counting
     
     /// Calculate exponential backoff delay with jitter
+    #[allow(dead_code)]
     fn calculate_backoff_delay(attempt: u32) -> u64 {
         if attempt == 0 {
             return 0; // No delay on first attempt
@@ -162,150 +162,37 @@ impl Anthropic {
         with_jitter.min(Self::MAX_RETRY_DELAY_MS)
     }
     
-    /// Send a request to the Anthropic API with improved timeout and retry logic
+    /// Send a request to the Anthropic API using the standardized retry utility
     async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
         request_json: serde_json::Value,
         url: &str,
         timeout: Duration,
     ) -> Result<T, LlmError> {
-        let mut attempts = 0;
-
-        loop {
-            // Log the retry attempt if not the first attempt
-            if attempts > 0 {
-                bprintln!(dev: "🔄 Retry attempt {} of {} for LLM API call", 
-                          attempts, Self::MAX_ATTEMPTS);
-            }
-
-            // Build the request with timeout
-            let request = self
-                .client
+        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
+        
+        // Create retry configuration based on constants
+        let config = RetryConfig {
+            max_attempts: Self::MAX_ATTEMPTS,
+            base_delay_ms: Self::BASE_RETRY_DELAY_MS,
+            max_delay_ms: Self::MAX_RETRY_DELAY_MS,
+            timeout_secs: timeout.as_secs(),
+            use_exponential: true,
+        };
+        
+        // Create a request builder closure
+        let prepare_request = || {
+            self.client
                 .post(url)
-                .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .header("X-Api-Key", &self.api_key)
                 .header("anthropic-version", &*ANTHROPIC_VERSION)
                 .header("anthropic-beta", "output-128k-2025-02-19")
-                .json(&request_json);
-            
-            // Send the request
-            let response = request.send().await;
-
-            match response {
-                Ok(res) => {
-                    if res.status().is_success() {
-                        return res.json::<T>().await.map_err(|e| {
-                            LlmError::ApiError(format!("Failed to parse response: {}", e))
-                        });
-                    } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                        // Handle rate limiting (429 Too Many Requests)
-                        attempts += 1;
-                        if attempts >= Self::MAX_ATTEMPTS {
-                            return Err(LlmError::RateLimitError { 
-                                retry_after: None 
-                            });
-                        }
-
-                        // Try to get retry-after header, default to backoff strategy if not present
-                        let retry_after = match res
-                            .headers()
-                            .get("retry-after")
-                            .and_then(|v| v.to_str().ok())
-                            .and_then(|v| v.parse::<u64>().ok())
-                        {
-                            Some(value) => {
-                                let delay_ms = value * 1000;
-                                bprintln!("⏱️ Rate limit exceeded. Server requested retry after {} seconds", value);
-                                delay_ms
-                            },
-                            None => {
-                                // Use exponential backoff with jitter
-                                let delay_ms = Self::calculate_backoff_delay(attempts);
-                                bprintln!("⏱️ Rate limit exceeded. Retrying in {} seconds", delay_ms / 1000);
-                                delay_ms
-                            }
-                        };
-
-                        // Sleep for the retry duration
-                        sleep(Duration::from_millis(retry_after)).await;
-                        continue;
-                    } else if res.status().is_server_error() {
-                        // Handle server errors (500, 502, 503, etc.)
-                        attempts += 1;
-                        if attempts >= Self::MAX_ATTEMPTS {
-                            let status = res.status();
-                            let error_text = res
-                                .text()
-                                .await
-                                .unwrap_or_else(|_| "Unknown server error".to_string());
-                                
-                            return Err(LlmError::ApiError(format!(
-                                "Max retries reached. Server error {}: {}",
-                                status, error_text
-                            )));
-                        }
-                        
-                        // Exponential backoff for server errors
-                        let delay_ms = Self::calculate_backoff_delay(attempts);
-                        
-                        bprintln!("⚠️ LLM API server error {}. Retrying in {} seconds (attempt {}/{})", 
-                                 res.status(), delay_ms / 1000, attempts, Self::MAX_ATTEMPTS);
-                        
-                        sleep(Duration::from_millis(delay_ms)).await;
-                        continue;
-                    } else {
-                        // Other HTTP errors (4xx client errors except 429)
-                        let status = res.status();
-                        let error_text = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Unknown error".to_string());
-
-                        return Err(LlmError::ApiError(format!(
-                            "HTTP error {}: {}",
-                            status, error_text
-                        )));
-                    }
-                }
-                Err(err) => {
-                    // Network-related errors (timeouts, connection issues)
-                    attempts += 1;
-                    
-                    if attempts >= Self::MAX_ATTEMPTS {
-                        if err.is_timeout() {
-                            return Err(LlmError::ApiError(format!(
-                                "Request timed out after {} seconds and {} retry attempts", 
-                                timeout.as_secs(),
-                                Self::MAX_ATTEMPTS
-                            )));
-                        } else {
-                            return Err(LlmError::ApiError(format!(
-                                "Max retries reached. Network error: {}", 
-                                err
-                            )));
-                        }
-                    }
-                    
-                    // Check if it's a timeout error
-                    let is_timeout = err.is_timeout();
-                    
-                    // Exponential backoff with jitter
-                    let delay_ms = Self::calculate_backoff_delay(attempts);
-                    
-                    if is_timeout {
-                        bprintln!("⏱️ LLM API request timed out after {} seconds. Retrying in {} seconds (attempt {}/{})",
-                                 timeout.as_secs(), delay_ms / 1000, attempts, Self::MAX_ATTEMPTS);
-                    } else {
-                        bprintln!("🌐 Network error: {}. Retrying in {} seconds (attempt {}/{})",
-                                 err, delay_ms / 1000, attempts, Self::MAX_ATTEMPTS);
-                    }
-                    
-                    sleep(Duration::from_millis(delay_ms)).await;
-                    continue;
-                }
-            }
-        }
+                .json(&request_json)
+        };
+        
+        // Use the standardized retry utility
+        send_api_request_with_retry::<T, _>(&self.client, url, prepare_request, config, "Anthropic").await
     }
 }
 
