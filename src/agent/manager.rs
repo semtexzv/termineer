@@ -15,6 +15,7 @@ use tokio::task::JoinHandle;
 /// Handle to an agent task
 pub struct AgentHandle {
     /// Agent's unique identifier
+    #[allow(dead_code)]
     pub id: AgentId,
 
     /// Agent's name
@@ -205,6 +206,7 @@ impl AgentManager {
     }
 
     /// Get a mutable reference to an agent handle by ID
+    #[allow(dead_code)]
     pub fn get_agent_handle_mut(&mut self, id: AgentId) -> Option<&mut AgentHandle> {
         self.agents.get_mut(&id)
     }
@@ -270,6 +272,7 @@ impl AgentManager {
     }
 
     /// Terminate an agent
+    #[allow(dead_code)]
     pub async fn terminate_agent(&mut self, id: AgentId) -> Result<(), AgentError> {
         if let Some(handle) = self.agents.shift_remove(&id) {
             // Send interrupt signal first to stop any tool execution
@@ -294,6 +297,7 @@ impl AgentManager {
     }
 
     /// Terminate all agents
+    #[allow(dead_code)]
     pub async fn terminate_all(&mut self) {
         // Don't collect ids first - just directly handle all agents
         // This avoids any issues with buffer access during termination

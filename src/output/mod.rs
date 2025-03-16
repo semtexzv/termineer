@@ -18,8 +18,10 @@ pub enum OutputType {
     /// Tool output messages
     Tool(String),
     /// System messages (application status, etc.)
+    #[allow(dead_code)]
     System,
     /// Debug messages (only shown in verbose mode)
+    #[allow(dead_code)]
     Debug,
 }
 
@@ -30,12 +32,15 @@ use ratatui::text::Line as RatatuiLine;
 #[derive(Debug, Clone)]
 pub struct OutputLine {
     /// The type of output
+    #[allow(dead_code)]
     pub output_type: OutputType,
     /// The actual text content
     pub content: String,
     /// Optional formatting (e.g., ANSI color codes)
+    #[allow(dead_code)]
     pub formatting: Option<String>,
     /// Timestamp when the line was added
+    #[allow(dead_code)]
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Cached converted line for TUI rendering
     pub converted_line: RatatuiLine<'static>,
@@ -71,6 +76,7 @@ impl SharedBuffer {
     }
 
     /// Pop a line from the buffer
+    #[allow(dead_code)]
     pub fn pop(&self) -> Option<OutputLine> {
         match self.queue.lock() {
             Ok(mut queue) => queue.pop_front(),
@@ -82,6 +88,7 @@ impl SharedBuffer {
     }
 
     /// Send a line to the buffer
+    #[allow(dead_code)]
     pub fn send(
         &self,
         output_type: OutputType,

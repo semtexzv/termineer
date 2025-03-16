@@ -39,6 +39,7 @@ pub enum AgentMessage {
     UserInput(String),
 
     /// Message from another agent with source information
+    #[allow(dead_code)]
     AgentInput {
         /// Content of the message
         content: String,
@@ -120,6 +121,7 @@ pub enum AgentError {
     Terminated,
 
     #[error("Timeout while waiting for agent to terminate")]
+    #[allow(dead_code)]
     TerminationTimeout,
     
     #[error("Operation timed out: {0}")]

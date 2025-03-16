@@ -86,6 +86,7 @@ impl McpToolProvider {
     }
 
     /// Get a tool by ID
+    #[allow(dead_code)]
     pub fn get_tool(&self, id: &str) -> Option<Tool> {
         self.tools.lock().unwrap().get(id).cloned()
     }

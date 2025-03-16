@@ -24,6 +24,7 @@ struct MacOSWindow {
     position: (i32, i32),
     size: (i32, i32),
     element: AXUIElement,
+    #[allow(dead_code)]
     pid: pid_t,
     index: usize,
 }

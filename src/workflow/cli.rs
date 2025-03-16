@@ -7,13 +7,13 @@ use std::collections::HashMap;
 use anyhow::{format_err, Result};
 use serde_yaml::Value as YamlValue;
 
-use crate::workflow::loader::{ensure_workflows_directory, list_workflows, load_workflow};
-use crate::workflow::executor;
+use crate::workflow::loader::list_workflows;
 use crate::workflow::context::WorkflowError;
 
 /// Handle the workflow command from the CLI
 
 /// List all available workflows
+#[allow(dead_code)]
 async fn list_available_workflows() -> anyhow::Result<()> {
     // Check if user has Pro access - workflows are a Pro-only feature
     if crate::config::get_app_mode() != crate::config::AppMode::Pro {
@@ -37,6 +37,7 @@ async fn list_available_workflows() -> anyhow::Result<()> {
 }
 
 /// Parse parameters from a list of key=value strings
+#[allow(dead_code)]
 fn parse_parameters_from_values(
     param_values: &[String],
     workflow: &crate::workflow::types::Workflow,

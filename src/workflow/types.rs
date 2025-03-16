@@ -17,9 +17,11 @@ pub struct Workflow {
     pub description: Option<String>,
     
     /// Optional version of the workflow
+    #[allow(dead_code)]
     pub version: Option<String>,
     
     /// Optional author of the workflow
+    #[allow(dead_code)]
     pub author: Option<String>,
     
     /// Parameters that can be passed to the workflow
@@ -40,10 +42,12 @@ pub struct Parameter {
     pub name: String,
     
     /// Optional description of the parameter
+    #[allow(dead_code)]
     pub description: Option<String>,
     
     /// Type of the parameter (string, integer, etc.)
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     pub type_: String,
     
     /// Whether the parameter is required
@@ -51,6 +55,7 @@ pub struct Parameter {
     pub required: bool,
     
     /// Optional default value for the parameter
+    #[allow(dead_code)]
     pub default: Option<serde_yaml::Value>,
 }
 

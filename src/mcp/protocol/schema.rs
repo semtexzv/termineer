@@ -20,6 +20,7 @@ pub enum SchemaType {
 
 impl SchemaType {
     /// Convert the type to a string representation
+    #[allow(dead_code)]
     pub fn to_string(&self) -> String {
         match self {
             SchemaType::String => "string".to_string(),
@@ -49,6 +50,7 @@ pub enum SchemaValue {
 
 impl SchemaValue {
     /// Format the value as a string suitable for example display
+    #[allow(dead_code)]
     pub fn format(&self) -> String {
         match self {
             SchemaValue::String(s) => format!("\"{}\"", s),
@@ -132,6 +134,7 @@ pub struct PropertySchema {
 
 impl PropertySchema {
     /// Get the type as a string
+    #[allow(dead_code)]
     pub fn type_string(&self) -> String {
         self.property_type
             .as_ref()
@@ -140,6 +143,7 @@ impl PropertySchema {
     }
     
     /// Generate an example value string for this property
+    #[allow(dead_code)]
     pub fn example_value(&self) -> String {
         // Use example if available
         if let Some(example) = &self.example {

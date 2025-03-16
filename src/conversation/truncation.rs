@@ -77,10 +77,12 @@ struct TruncationCandidate {
     /// Index of the message in the conversation
     index: usize,
     /// Name of the tool
+    #[allow(dead_code)]
     tool_name: String,
     /// Length of the content in characters
     content_length: usize,
     /// Whether this is a tool invocation or result
+    #[allow(dead_code)]
     is_invocation: bool,
 }
 

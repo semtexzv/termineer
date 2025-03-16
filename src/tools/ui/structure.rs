@@ -69,6 +69,7 @@ impl UIElement {
     }
     
     /// Convert to XML format
+    #[allow(dead_code)]
     pub fn to_xml(&self) -> Result<String, String> {
         let mut writer = Writer::new(Cursor::new(Vec::new()));
         self.write_xml_element(&mut writer, 0)?;

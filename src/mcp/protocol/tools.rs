@@ -1,6 +1,5 @@
 //! Tool-related structures for MCP protocol
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Represents a tool provided by an MCP server
