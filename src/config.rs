@@ -83,13 +83,18 @@ pub struct Config {
     pub grammar_type: Option<GrammarType>,
 
     /// User email after authentication
+    #[allow(dead_code)]
     pub user_email: Option<String>,
 
     /// User subscription type
+    #[allow(dead_code)]
     pub subscription_type: Option<String>,
 
     /// Skip authentication (for development)
     pub skip_auth: bool,
+    
+    /// Timeout in seconds for non-interactive mode
+    pub timeout_seconds: Option<u64>,
 }
 
 impl Config {
@@ -111,6 +116,7 @@ impl Config {
             user_email: None,
             subscription_type: None,
             skip_auth: false,
+            timeout_seconds: None, // Default timeout (will use 150 seconds if None)
         }
     }
 
@@ -147,6 +153,7 @@ impl Config {
     }
 
     /// Get the resolved grammar type, applying model-specific resolution if needed
+    #[allow(dead_code)]
     pub fn get_grammar_type(&mut self) -> GrammarType {
         // Apply model-specific grammar if not already set
         if self.grammar_type.is_none() {

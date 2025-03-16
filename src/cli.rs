@@ -53,6 +53,10 @@ pub struct Cli {
     /// Skip authentication (for development)
     #[arg(long, hide = true)]
     pub skip_auth: bool,
+    
+    /// Timeout in seconds for non-interactive mode (default: 150 seconds)
+    #[arg(long)]
+    pub timeout: Option<u64>,
 
     /// Subcommand to execute
     #[command(subcommand)]
@@ -116,6 +120,7 @@ pub fn cli_to_config(cli: &Cli) -> crate::config::Config {
     config.use_minimal_prompt = cli.minimal_prompt;
     config.grammar_type = cli.grammar;
     config.skip_auth = cli.skip_auth;
+    config.timeout_seconds = cli.timeout;
     
     // Special commands
     #[cfg(debug_assertions)]
