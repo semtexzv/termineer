@@ -417,39 +417,13 @@ mod tests {
         let file_path = temp_dir.path().join("large_file.txt");
         
         // Create a test file with 1500 lines (exceeding the 1000 line limit)
-        if let Err(e) = create_test_file(&file_path, 1500).await {
-            panic!("Failed to create test file: {}", e);
-        }
+        create_test_file(&file_path, 1500).await.unwrap();
         
-        // Verify the file exists and is readable
-        if !std::path::Path::new(&file_path).exists() {
-            panic!("Test file does not exist at path: {:?}", file_path);
-        }
+        // Test reading the file without offset/limit
+        let result = read_file_content(&file_path.to_string_lossy(), None, None, false).await;
         
-        // Get file metadata to confirm size
-        let metadata = match tokio::fs::metadata(&file_path).await {
-            Ok(m) => m,
-            Err(e) => panic!("Failed to get file metadata: {}", e),
-        };
-        assert!(metadata.len() > 0, "Test file is empty");
-        
-        // Use silent_mode=true to avoid bprintln! macro calls that access uninitialized CURRENT_BUFFER
-        let result = read_file_content(&file_path.to_string_lossy(), None, None, true).await;
-        
-        // If result is not successful, print the error
-        if !result.success {
-            if let Some(text) = result.content.first().and_then(|c| {
-                if let crate::llm::Content::Text { text } = c {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            }) {
-                panic!("Read operation failed: {}", text);
-            } else {
-                panic!("Read operation failed with no error message");
-            }
-        }
+        // Verify the result is successful
+        assert!(result.success);
         
         // Extract the text content from the result
         let text = if let crate::llm::Content::Text { text } = &result.content[0] {
@@ -473,12 +447,12 @@ mod tests {
         // Should suggest using offset parameter
         assert!(text.contains(&format!("offset={} limit=1000", MAX_READABLE_LINES)));
         
-        // Test reading with offset to get the next chunk - use silent_mode=true
+        // Test reading with offset to get the next chunk
         let result = read_file_content(
             &file_path.to_string_lossy(), 
             Some(MAX_READABLE_LINES), 
             Some(1000), 
-            true
+            false
         ).await;
         
         // Verify success and content
@@ -598,3 +572,4 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
     }
 }
 
+#[cfg(test)]

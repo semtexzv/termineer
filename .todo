@@ -1,3 +1,4 @@
+# MCP tool output is not grayed out.
 
 # LLM backend timeout and retry.
 - We should run the backend API calls with a really long timeout, let's say 100 to 200 seconds.
@@ -15,3 +16,10 @@ should be able to start a shell, then would receive the output periodically, and
 # Tool input rewrites
 Tool should be able to clean up its own invocation, rewrite it to be shorter, parse ambiguous syntax and replace it with
 structured one.
+
+# GUI - custom
+Use bevy to create a simple GUI.
+- Should use the same backend as TUI
+
+# Read limits
+Read should read max 1000 lines. After that it should truncate and notify.

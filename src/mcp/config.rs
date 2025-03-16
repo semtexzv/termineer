@@ -89,6 +89,7 @@ impl McpConfig {
 }
 
 /// Get a list of configured MCP servers for template rendering
+#[allow(dead_code)]
 pub fn get_server_list() -> Result<Vec<String>> {
     // Load configuration
     match McpConfig::load()? {

@@ -51,6 +51,7 @@ impl McpManager {
     }
     
     /// Get a provider by name and return error if not found
+    #[allow(dead_code)]
     pub fn get_provider_or_error(&self, name: &str) -> anyhow::Result<Arc<McpToolProvider>> {
         match self.get_provider(name) {
             Some(provider) => Ok(provider),
@@ -120,6 +121,7 @@ impl McpManager {
     }
     
     /// Get all tools for a specific provider
+    #[allow(dead_code)]
     pub fn get_tools_for_provider(&self, provider_name: &str) -> Vec<Tool> {
         if let Some(provider) = self.get_provider(provider_name) {
             provider.list_tools()
@@ -129,6 +131,7 @@ impl McpManager {
     }
     
     /// List all tools across all providers
+    #[allow(dead_code)]
     pub async fn list_all_tools(&self) -> HashMap<String, Vec<Tool>> {
         let mut result = HashMap::new();
         

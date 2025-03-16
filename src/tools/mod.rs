@@ -83,6 +83,7 @@ impl ToolResult {
     }
 
     /// Create a successful tool result from MCP content
+    #[allow(dead_code)]
     pub fn success_from_mcp(mcp_content: Vec<crate::mcp::protocol::content::Content>) -> Self {
         use crate::mcp::protocol::content::McpContent;
 
@@ -114,6 +115,7 @@ impl ToolResult {
     }
 
     /// Create an error tool result with a formatted message
+    #[allow(dead_code)]
     pub fn error_formatted(message: impl Into<String>) -> Self {
         let message = message.into();
         bprintln!(error: "{}", message);

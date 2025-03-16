@@ -36,13 +36,13 @@ jobs:
             rust_target: x86_64-pc-windows-msvc
             binary_name: termineer.exe
             asset_name: termineer-x86_64-windows-msvc
-            
+
           - name: macos-x64
             os: macos-latest
             rust_target: x86_64-apple-darwin
             binary_name: termineer
             asset_name: termineer-x86_64-apple-darwin
-            
+
           - name: macos-arm64
             os: macos-latest
             rust_target: aarch64-apple-darwin
@@ -51,129 +51,34 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target.rust_target }}
-      
-      # Run tests before building (only once, on standard Linux target)
+
+      # Run tests before building
       - name: Run tests
         if: matrix.target.name == 'linux-x64'  # Only run tests once
         run: cargo test --all
-      
-      # Install Linux dependencies
-      # Install Linux dependencies 
-      - name: Install Linux dependencies
-        if: matrix.target.name == 'linux-x64'
+
+      - name: Build for the target
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb1-dev
-      
-      # Linux MUSL build removed as it doesn't work properly
-      
-      # Special case for macOS ARM
-      - name: Build for macOS ARM64
-        if: matrix.target.name == 'macos-arm64'
-        run: |
-          rustup target add aarch64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
-      
-      # For all other targets
-      - name: Build binary
-        if: matrix.target.name != 'macos-arm64'
-        shell: bash
-        run: |
+          rustup target add ${{ matrix.target.rust_target }}
           cargo build --release --target ${{ matrix.target.rust_target }}
-      
-      # Handle split debug info and strip binaries on Linux and macOS
-      - name: Process debug info and strip binaries
-        shell: bash
-        if: runner.os != 'Windows'
-        run: |
-          # Set up paths based on target architecture
-          if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
-            TARGET_DIR="target/aarch64-apple-darwin/release"
-            BINARY_PATH="$TARGET_DIR/${{ matrix.target.binary_name }}"
-          else
-            TARGET_DIR="target/${{ matrix.target.rust_target }}/release"
-            BINARY_PATH="$TARGET_DIR/${{ matrix.target.binary_name }}"
-          fi
-          
-          # Create debug info directory
-          mkdir -p "$TARGET_DIR/debug-info"
-          
-          # Check binary size before processing
-          echo "Binary size before processing:"
-          du -h "$BINARY_PATH"
-          
-          # Find and organize debug info files
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            # On macOS, debug info is in .dSYM directories with 'packed' option
-            echo "Collecting macOS debug info files..."
-            if [[ -d "$BINARY_PATH.dSYM" ]]; then
-              cp -R "$BINARY_PATH.dSYM" "$TARGET_DIR/debug-info/"
-              echo "Copied .dSYM directory for debugging"
-            fi
-            
-            # Look for other debug info files
-            DSYM_FILES=$(find "$TARGET_DIR" -name "*.dwarf" -o -name "*.dwo" -o -name "*.o" 2>/dev/null)
-            if [[ -n "$DSYM_FILES" ]]; then
-              cp $DSYM_FILES "$TARGET_DIR/debug-info/" 2>/dev/null || true
-              echo "Copied additional debug files"
-            fi
-          else
-            # On Linux, debug info might be in various formats
-            echo "Collecting Linux debug info files..."
-            DEBUG_FILES=$(find "$TARGET_DIR" -name "*.debug" -o -name "*.dwo" -o -name "*.dwp" 2>/dev/null)
-            if [[ -n "$DEBUG_FILES" ]]; then
-              cp $DEBUG_FILES "$TARGET_DIR/debug-info/" 2>/dev/null || true
-              echo "Copied debug files"
-            fi
-          fi
-          
-          # Ensure binary is stripped (even though Cargo.toml has strip = true)
-          echo "Stripping binary..."
-          strip "$BINARY_PATH"
-          
-          # Check binary size after processing
-          echo "Binary size after stripping:"
-          du -h "$BINARY_PATH"
-          
-          # Create a tar archive with debug info
-          if [[ -d "$TARGET_DIR/debug-info" && "$(ls -A $TARGET_DIR/debug-info)" ]]; then
-            tar -czf "$TARGET_DIR/debug-info.tar.gz" -C "$TARGET_DIR" debug-info
-            echo "Created debug info archive at $TARGET_DIR/debug-info.tar.gz"
-          fi
-      
-      # Prepare the binary, debug info, and checksum
-      - name: Prepare binary and debug files
+
+      # Prepare the binary and its checksum
+      - name: Prepare binary
         shell: bash
         run: |
           # Create target directory
           mkdir -p artifacts
           
-          # Determine target directory based on build type
+          # Copy binary to artifacts with proper name
           if [[ "${{ matrix.target.name }}" == "macos-arm64" ]]; then
-            TARGET_DIR="target/aarch64-apple-darwin/release"
+            cp target/aarch64-apple-darwin/release/${{ matrix.target.binary_name }} artifacts/${{ matrix.target.asset_name }}
           else
-            TARGET_DIR="target/${{ matrix.target.rust_target }}/release"
-          fi
-          
-          # Ensure file exists and is copied correctly
-          if [ -f "$TARGET_DIR/${{ matrix.target.binary_name }}" ]; then
-            cp "$TARGET_DIR/${{ matrix.target.binary_name }}" "artifacts/${{ matrix.target.asset_name }}"
-            echo "Copied binary from $TARGET_DIR/${{ matrix.target.binary_name }} to artifacts/${{ matrix.target.asset_name }}"
-          else
-            echo "ERROR: Binary not found at $TARGET_DIR/${{ matrix.target.binary_name }}"
-            ls -la "$TARGET_DIR/"
-            exit 1
-          fi
-          
-          # Copy debug info archive if it exists
-          if [[ -f "$TARGET_DIR/debug-info.tar.gz" ]]; then
-            cp "$TARGET_DIR/debug-info.tar.gz" "artifacts/${{ matrix.target.asset_name }}.debug-info.tar.gz"
-            echo "Included debug info archive in artifacts"
+            cp target/${{ matrix.target.rust_target }}/release/${{ matrix.target.binary_name }} artifacts/${{ matrix.target.asset_name }}
           fi
           
           # Create checksum file

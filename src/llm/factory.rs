@@ -5,6 +5,7 @@
 
 use crate::config::Config;
 use crate::llm::anthropic::Anthropic;
+use crate::llm::cohere::CohereBackend;
 use crate::llm::deepseek::DeepSeekBackend;
 use crate::llm::openrouter::OpenRouterBackend;
 use crate::llm::{Backend, LlmError};
@@ -23,6 +24,8 @@ pub enum Provider {
     OpenRouter,
     /// DeepSeek's models
     DeepSeek,
+    /// Cohere's models
+    Cohere,
     /// Unknown provider
     Unknown(String),
 }
@@ -47,6 +50,7 @@ pub fn create_backend(config: &Config) -> Result<Box<dyn Backend>, LlmError> {
 /// - "anthropic/claude-3-opus-20240229" (explicit provider)
 /// - "openrouter/openai/gpt-4o" (openrouter provider with model path)
 /// - "deepseek/deepseek-chat" (deepseek provider with model name)
+/// - "cohere/command-r" (cohere provider with model name)
 fn parse_model_string(model_str: &str) -> ModelInfo {
     // Check if we have a provider/model format
     if let Some((provider, model)) = model_str.split_once('/') {
@@ -64,6 +68,7 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
             "openai" => Provider::OpenAI,
             "google" => Provider::Google,
             "deepseek" => Provider::DeepSeek,
+            "cohere" => Provider::Cohere,
             other => Provider::Unknown(other.to_string()),
         };
 
@@ -84,6 +89,8 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
         Provider::OpenRouter
     } else if is_deepseek_model(model_str) {
         Provider::DeepSeek
+    } else if is_cohere_model(model_str) {
+        Provider::Cohere
     } else {
         Provider::Unknown(String::new())
     };
@@ -111,6 +118,10 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
         Provider::DeepSeek => {
             let api_key = resolve_deepseek_api_key()?;
             Ok(Box::new(DeepSeekBackend::new(api_key, model_info.model_name)))
+        }
+        Provider::Cohere => {
+            let api_key = resolve_cohere_api_key()?;
+            Ok(Box::new(CohereBackend::new(api_key, model_info.model_name)))
         }
         Provider::OpenRouter => {
             let api_key = resolve_openrouter_api_key()?;
@@ -146,8 +157,9 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
                  - Anthropic models: 'claude-3-opus', 'claude-3-sonnet', etc.\n\
                  - Google models: 'gemini-1.5-pro', 'gemini-1.0-pro', etc.\n\
                  - DeepSeek models: 'deepseek-chat', 'deepseek-reasoner'\n\
+                 - Cohere models: 'command-r', 'command-r-plus', 'command-light', etc.\n\
                  - OpenRouter: 'openrouter/openai/gpt-4o', 'openrouter/anthropic/claude-3-opus', etc.\n\
-                 - Explicit provider format: 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'deepseek/deepseek-chat'",
+                 - Explicit provider format: 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'cohere/command-r'",
                 provider_msg
             )))
         }
@@ -186,6 +198,13 @@ fn is_deepseek_model(model: &str) -> bool {
     model.starts_with("deepseek-") || model == "deepseek-chat" || model == "deepseek-reasoner"
 }
 
+/// Determine if a model name belongs to Cohere
+fn is_cohere_model(model: &str) -> bool {
+    // Cohere model identifiers
+    model.starts_with("command-") || model == "command" || 
+    model == "command-r" || model == "command-r-plus" || model == "command-light"
+}
+
 /// Resolve Anthropic API key from environment variables
 fn resolve_anthropic_api_key() -> Result<String, LlmError> {
     env::var("ANTHROPIC_API_KEY")
@@ -208,4 +227,10 @@ fn resolve_openrouter_api_key() -> Result<String, LlmError> {
 fn resolve_deepseek_api_key() -> Result<String, LlmError> {
     env::var("DEEPSEEK_API_KEY")
         .map_err(|_| LlmError::ConfigError("DEEPSEEK_API_KEY environment variable not set".into()))
+}
+
+/// Resolve Cohere API key from environment variables
+fn resolve_cohere_api_key() -> Result<String, LlmError> {
+    env::var("COHERE_API_KEY")
+        .map_err(|_| LlmError::ConfigError("COHERE_API_KEY environment variable not set".into()))
 }

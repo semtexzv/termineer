@@ -27,7 +27,7 @@ log = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true }
-config = "0.13.3"
+config = { version = "0.15.11", default-features = false}
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

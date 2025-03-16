@@ -1,8 +1,6 @@
 name: "Simple Feature Workflow"
 description: "End-to-end feature implementation using just natural language instructions"
 
-query_template: "{{query}}"
-
 steps:
   - agent: "Analyze codebase"
     kind: general
