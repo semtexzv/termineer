@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::BTreeSet;
 use std::time::Duration;
-use tokio::time::sleep;
 
 // Constants for OpenRouter API
 const API_BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -102,6 +101,7 @@ enum OpenRouterContent {
 #[serde(tag = "type")]
 enum OpenRouterContentPart {
     #[serde(rename = "text")]
+    #[allow(dead_code)]
     Text { text: String },
     #[serde(rename = "image_url")]
     ImageUrl { image_url: OpenRouterImageUrl },
@@ -117,18 +117,22 @@ struct OpenRouterImageUrl {
 // OpenRouter API response types
 #[derive(Debug, Deserialize)]
 struct OpenRouterResponse {
+    #[allow(dead_code)]
     id: String,
     choices: Vec<OpenRouterChoice>,
     #[serde(default)]
     usage: Option<OpenRouterUsage>,
+    #[allow(dead_code)]
     model: String,
     #[serde(default)]
+    #[allow(dead_code)]
     object: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenRouterChoice {
     #[serde(default)]
+    #[allow(dead_code)]
     index: Option<usize>,
     message: OpenRouterChoiceMessage,
     #[serde(rename = "finish_reason")]
@@ -137,6 +141,7 @@ struct OpenRouterChoice {
 
 #[derive(Debug, Deserialize)]
 struct OpenRouterChoiceMessage {
+    #[allow(dead_code)]
     role: String,
     content: Option<String>,
 }
@@ -148,6 +153,7 @@ struct OpenRouterUsage {
     #[serde(rename = "completion_tokens")]
     completion_tokens: Option<u32>,
     #[serde(rename = "total_tokens")]
+    #[allow(dead_code)]
     total_tokens: Option<u32>,
 }
 
@@ -256,33 +262,32 @@ impl OpenRouterBackend {
         openrouter_messages
     }
 
-    /// Send a request to the OpenRouter API with improved timeout and retry logic
+    /// Send a request to the OpenRouter API using the standardized retry utility
     async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
         endpoint: &str,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
-        // Retry configuration
-        let mut attempts = 0;
-        let max_attempts = 5;
-        let base_retry_delay_ms = 1000; // 1 second initial retry delay
-        let max_retry_delay_ms = 30000; // Maximum 30 second retry delay
-        let request_timeout = Duration::from_secs(180); // 3 minute timeout
-
+        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
+        
+        // Create retry configuration - use linear backoff for OpenRouter
+        let config = RetryConfig {
+            max_attempts: 5,
+            base_delay_ms: 1000, // 1 second initial delay
+            max_delay_ms: 30000, // Maximum 30 second delay (per TODO)
+            timeout_secs: 180,   // 3 minute timeout (per TODO range of 100-200s)
+            use_exponential: false, // Use linear backoff for OpenRouter
+        };
+        
         // Construct the API URL
         let api_url = format!("{}{}", API_BASE_URL, endpoint);
-
-        loop {
-            // Log the retry attempt if not the first attempt
-            if attempts > 0 {
-                bprintln!(warn: "🔄 Retry attempt {} of {} for OpenRouter API call", attempts, max_attempts);
-            }
-
-            // Build the request with timeout and headers
+        
+        // Create a request builder closure that includes all necessary headers
+        let prepare_request = || {
+            // Build the request with headers
             let mut request = self
                 .client
                 .post(&api_url)
-                .timeout(request_timeout)
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", self.api_key));
 
@@ -295,103 +300,11 @@ impl OpenRouterBackend {
             }
 
             // Add the request body
-            request = request.json(&request_json);
-            
-            // Send the request
-            let response = request.send().await;
-
-            match response {
-                Ok(res) => {
-                    if res.status().is_success() {
-                        return res.json::<T>().await.map_err(|e| {
-                            LlmError::ApiError(format!("Failed to parse OpenRouter response: {}", e))
-                        });
-                    } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                        // Handle rate limiting (429 Too Many Requests)
-                        attempts += 1;
-                        if attempts >= max_attempts {
-                            return Err(LlmError::RateLimitError { 
-                                retry_after: None 
-                            });
-                        }
-
-                        // Linear backoff
-                        let linear_delay = base_retry_delay_ms * (attempts as u64);
-                        let capped_delay = linear_delay.min(max_retry_delay_ms);
-                        bprintln!(warn: "⏱️ Rate limit exceeded. Retrying in {} seconds", capped_delay / 1000);
-                        
-                        sleep(Duration::from_millis(capped_delay)).await;
-                        continue;
-                    } else if res.status().is_server_error() {
-                        // Handle server errors (500, 502, 503, etc.)
-                        attempts += 1;
-                        if attempts >= max_attempts {
-                            let status = res.status();
-                            let error_text = res
-                                .text()
-                                .await
-                                .unwrap_or_else(|_| "Unknown server error".to_string());
-                                
-                            return Err(LlmError::ApiError(format!(
-                                "Max retries reached. OpenRouter server error {}: {}",
-                                status, error_text
-                            )));
-                        }
-                        
-                        // Linear backoff for server errors
-                        let linear_delay = base_retry_delay_ms * (attempts as u64);
-                        let capped_delay = linear_delay.min(max_retry_delay_ms);
-                        
-                        bprintln!(error: "⚠️ OpenRouter API server error {}. Retrying in {} seconds (attempt {}/{})",
-                               res.status(), capped_delay / 1000, attempts, max_attempts);
-                        
-                        sleep(Duration::from_millis(capped_delay)).await;
-                        continue;
-                    } else {
-                        // Other HTTP errors (4xx client errors except 429)
-                        let status = res.status();
-                        let error_text = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Unknown error".to_string());
-
-                        return Err(LlmError::ApiError(format!(
-                            "OpenRouter HTTP error {}: {}",
-                            status, error_text
-                        )));
-                    }
-                }
-                Err(err) => {
-                    // Network-related errors (timeouts, connection issues)
-                    attempts += 1;
-                    
-                    if attempts >= max_attempts {
-                        return Err(LlmError::ApiError(format!(
-                            "Max retries reached. Network error: {}", 
-                            err
-                        )));
-                    }
-                    
-                    // Check if it's a timeout error
-                    let is_timeout = err.is_timeout();
-                    
-                    // Linear backoff
-                    let linear_delay = base_retry_delay_ms * (attempts as u64);
-                    let capped_delay = linear_delay.min(max_retry_delay_ms);
-                    
-                    if is_timeout {
-                        bprintln!("⏱️ OpenRouter API request timed out. Retrying in {} seconds (attempt {}/{})",
-                               capped_delay / 1000, attempts, max_attempts);
-                    } else {
-                        bprintln!("🌐 Network error: {}. Retrying in {} seconds (attempt {}/{})",
-                               err, capped_delay / 1000, attempts, max_attempts);
-                    }
-                    
-                    sleep(Duration::from_millis(capped_delay)).await;
-                    continue;
-                }
-            }
-        }
+            request.json(&request_json)
+        };
+        
+        // Use the standardized retry utility
+        send_api_request_with_retry::<T, _>(&self.client, &api_url, prepare_request, config, "OpenRouter").await
     }
 }
 
