@@ -191,7 +191,7 @@ impl CohereBackend {
             base_delay_ms: BASE_RETRY_DELAY_MS,
             max_delay_ms: MAX_RETRY_DELAY_MS,
             timeout_secs: REQUEST_TIMEOUT_SECS,
-            use_exponential: true, // Use exponential backoff for Cohere
+            use_exponential: false, // Use linear backoff as specified in TODO
         };
         
         // Construct the API URL

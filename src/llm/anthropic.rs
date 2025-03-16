@@ -177,7 +177,7 @@ impl Anthropic {
             base_delay_ms: Self::BASE_RETRY_DELAY_MS,
             max_delay_ms: Self::MAX_RETRY_DELAY_MS,
             timeout_secs: timeout.as_secs(),
-            use_exponential: true,
+            use_exponential: false, // Use linear backoff as specified in TODO
         };
         
         // Create a request builder closure
