@@ -15,6 +15,7 @@ reqwest = { version = "0.12.14", features = ["json", "rustls-tls", "rustls-tls-w
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.4.1", features = ["v4", "serde"] }
 dotenvy = "0.15"
+image = { version = "0.25.5", default-features = false, features = ["jpeg", "png"] }
 
 log = "0.4.20"
 tracing = "0.1"
@@ -27,14 +28,15 @@ aes-gcm = "0.10.3"
 walkdir = "2.4.0"
 quote = "1.0.33"
 proc-macro2 = "1.0.78"
-# Platform-specific dependencies with feature flags
-image = { version = "0.25.5", default-features = false, features = ["jpeg", "png"] }       # For image processing and format conversion
 
 [package]
 name = "termineer"
 version = "0.2.12"
 edition = "2021"
 license = "MIT"
+
+[features]
+default = []
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -64,6 +66,10 @@ tokio = { workspace = true }
 futures = "0.3"
 async-trait = "0.1"
 dotenvy = { workspace = true }
+
+# GUI dependencies 
+egui = "0.25.0"                 # Immediate mode GUI library
+eframe = "0.25.0"               # egui framework with winit and web support
 crossterm = "0.27"
 ratatui = "0.26.1"
 atty = "0.2"
@@ -79,7 +85,7 @@ rand = "0.8.5"         # For random number generation
 dirs = "5.0.1"         # For getting user directories
 base64 = "0.21.5"      # For encoding/decoding base64 in OAuth flow and screenshots
 xcap = { version = "0.4.0", default-features = false }
-image.workspace = true
+image = { workspace = true }  # Image processing from workspace dependencies
 glob = "0.3.1"         # For glob pattern matching in autoinclude feature
 scraper = "0.23.1"
 clap = { version = "4.4", features = ["derive"] }  # Command-line argument parsing
@@ -109,3 +115,7 @@ aes-gcm = { workspace = true }    # AES-GCM encryption
 walkdir = { workspace = true }    # For walking directories in build script
 quote = { workspace = true }      # For code generation
 proc-macro2 = { workspace = true }# Required by quote
+
+[patch.crates-io]
+# Important for GPUI, doesn't work with the default version of that crate.
+pathfinder_simd = { git = "https://github.com/theoparis/pathfinder.git" }
