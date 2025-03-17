@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::BTreeSet;
-use std::time::Duration;
 
 // API base URL for Cohere
 const API_BASE_URL: &str = "https://api.cohere.ai/v1";
