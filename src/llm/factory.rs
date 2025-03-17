@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::llm::anthropic::Anthropic;
 use crate::llm::cohere::CohereBackend;
 use crate::llm::deepseek::DeepSeekBackend;
+use crate::llm::grok::GrokBackend;
 use crate::llm::openrouter::OpenRouterBackend;
 use crate::llm::{Backend, LlmError};
 use std::env;
@@ -26,6 +27,8 @@ pub enum Provider {
     DeepSeek,
     /// Cohere's models
     Cohere,
+    /// xAI's Grok models
+    Grok,
     /// Unknown provider
     Unknown(String),
 }
@@ -69,6 +72,7 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
             "google" => Provider::Google,
             "deepseek" => Provider::DeepSeek,
             "cohere" => Provider::Cohere,
+            "grok" | "xai" => Provider::Grok,
             other => Provider::Unknown(other.to_string()),
         };
 
@@ -91,6 +95,8 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
         Provider::DeepSeek
     } else if is_cohere_model(model_str) {
         Provider::Cohere
+    } else if is_grok_model(model_str) {
+        Provider::Grok
     } else {
         Provider::Unknown(String::new())
     };
@@ -122,6 +128,10 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
         Provider::Cohere => {
             let api_key = resolve_cohere_api_key()?;
             Ok(Box::new(CohereBackend::new(api_key, model_info.model_name)))
+        }
+        Provider::Grok => {
+            let api_key = resolve_grok_api_key()?;
+            Ok(Box::new(GrokBackend::new(api_key, model_info.model_name)))
         }
         Provider::OpenRouter => {
             let api_key = resolve_openrouter_api_key()?;
@@ -158,8 +168,9 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
                  - Google models: 'gemini-1.5-pro', 'gemini-1.0-pro', etc.\n\
                  - DeepSeek models: 'deepseek-chat', 'deepseek-reasoner'\n\
                  - Cohere models: 'command-r', 'command-r-plus', 'command-light', etc.\n\
+                 - Grok models: 'grok-2-1212', 'grok-beta'\n\
                  - OpenRouter: 'openrouter/openai/gpt-4o', 'openrouter/anthropic/claude-3-opus', etc.\n\
-                 - Explicit provider format: 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'cohere/command-r'",
+                 - Explicit provider format: 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'grok/grok-2-1212'",
                 provider_msg
             )))
         }
@@ -205,6 +216,12 @@ fn is_cohere_model(model: &str) -> bool {
     model == "command-r" || model == "command-r-plus" || model == "command-light"
 }
 
+/// Determine if a model name belongs to xAI Grok
+fn is_grok_model(model: &str) -> bool {
+    // Grok model identifiers
+    model.starts_with("grok-") || model == "grok-2-1212" || model == "grok-beta"
+}
+
 /// Resolve Anthropic API key from environment variables
 fn resolve_anthropic_api_key() -> Result<String, LlmError> {
     env::var("ANTHROPIC_API_KEY")
@@ -233,4 +250,10 @@ fn resolve_deepseek_api_key() -> Result<String, LlmError> {
 fn resolve_cohere_api_key() -> Result<String, LlmError> {
     env::var("COHERE_API_KEY")
         .map_err(|_| LlmError::ConfigError("COHERE_API_KEY environment variable not set".into()))
+}
+
+/// Resolve Grok API key from environment variables
+fn resolve_grok_api_key() -> Result<String, LlmError> {
+    env::var("GROK_API_KEY")
+        .map_err(|_| LlmError::ConfigError("GROK_API_KEY environment variable not set".into()))
 }
