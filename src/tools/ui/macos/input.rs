@@ -6,7 +6,7 @@
 use crate::tools::ToolResult;
 use crate::tools::ui::input::{InputCommand, InputAction, MouseButtonType};
 use crate::tools::ui::screendump;
-use enigo::{Enigo, Key, KeyboardControllable, MouseButton, MouseControllable};
+use enigo::{Button, Mouse, Coordinate, Direction, Enigo, Key, Settings, Keyboard};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -70,11 +70,11 @@ pub async fn execute_macos_input(command: InputCommand, silent_mode: bool) -> To
 }
 
 /// Convert MouseButtonType to Enigo's MouseButton
-fn to_enigo_button(button: MouseButtonType) -> MouseButton {
+fn to_enigo_button(button: MouseButtonType) -> Button {
     match button {
-        MouseButtonType::Left => MouseButton::Left,
-        MouseButtonType::Right => MouseButton::Right,
-        MouseButtonType::Middle => MouseButton::Middle,
+        MouseButtonType::Left => Button::Left,
+        MouseButtonType::Right => Button::Right,
+        MouseButtonType::Middle => Button::Middle,
     }
 }
 
@@ -222,23 +222,23 @@ async fn send_mouse_click(
     crate::bprintln!(dev: "💻 INPUT: Executing mouse click with Enigo (blocking)");
     let result = tokio::task::block_in_place(|| -> Result<(), String> {
         // Create a new Enigo instance
-        let mut enigo = Enigo::new();
+        let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
         
         // Move to the position
-        enigo.mouse_move_to(abs_x, abs_y);
+        Mouse::move_mouse(&mut enigo, abs_x, abs_y, Coordinate::Abs).map_err(|e| e.to_string())?;
         
         // Perform the click
         let enigo_button = to_enigo_button(button);
         
         // Single or double click
-        enigo.mouse_down(enigo_button);
-        enigo.mouse_up(enigo_button);
+        Mouse::button(&mut enigo, enigo_button, Direction::Press).map_err(|e| e.to_string())?;
+        Mouse::button(&mut enigo, enigo_button, Direction::Release).map_err(|e| e.to_string())?;
         
         if double {
             // Small pause between clicks for double-click
             std::thread::sleep(Duration::from_millis(10));
-            enigo.mouse_down(enigo_button);
-            enigo.mouse_up(enigo_button);
+            Mouse::button(&mut enigo, enigo_button, Direction::Press).map_err(|e| e.to_string())?;
+            Mouse::button(&mut enigo, enigo_button, Direction::Release).map_err(|e| e.to_string())?;
         }
         
         Ok(())
@@ -274,10 +274,10 @@ async fn send_keyboard_text(text: &str, window_id: &str) -> Result<String, Strin
     // Use tokio's block_in_place for the Enigo operations
     crate::bprintln!(dev: "💻 INPUT: Executing keyboard input with Enigo (blocking)");
     let result = tokio::task::block_in_place(|| -> Result<(), String> {
-        let mut enigo = Enigo::new();
+        let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
         
-        // Type the text
-        enigo.key_sequence(text);
+        // Type the text using the Keyboard trait
+        Keyboard::text(&mut enigo, text).map_err(|e| e.to_string())?;
         
         Ok(())
     });
@@ -312,12 +312,12 @@ async fn send_keyboard_shortcut(
     // Use tokio's block_in_place for the Enigo operations
     crate::bprintln!(dev: "💻 INPUT: Executing keyboard shortcut with Enigo (blocking)");
     let result = tokio::task::block_in_place(|| -> Result<(), String> {
-        let mut enigo = Enigo::new();
+        let mut enigo = Enigo::new(&enigo::Settings::default()).unwrap();
         
         // Hold down modifier keys
         for modifier in modifiers {
             if let Some(m_key) = parse_modifier(modifier) {
-                enigo.key_down(m_key);
+                Keyboard::key(&mut enigo, m_key, Direction::Press).map_err(|e| e.to_string())?;
             } else {
                 crate::bprintln!(warn: "💻 INPUT: ⚠️ Unknown modifier key: {}", modifier);
             }
@@ -326,20 +326,21 @@ async fn send_keyboard_shortcut(
         // Press and release the main key
         if let Some(e_key) = parse_key(key) {
             // For special keys
-            enigo.key_click(e_key);
+            Keyboard::key(&mut enigo, e_key, Direction::Press).map_err(|e| e.to_string())?;
+            Keyboard::key(&mut enigo, e_key, Direction::Release).map_err(|e| e.to_string())?;
         } else if key.len() == 1 {
             // For regular single character keys
             let c = key.chars().next().unwrap();
-            enigo.key_sequence(&c.to_string());
+            Keyboard::text(&mut enigo, &c.to_string()).map_err(|e| e.to_string())?;
         } else {
             // For strings (typed out character by character)
-            enigo.key_sequence(key);
+            Keyboard::text(&mut enigo, key).map_err(|e| e.to_string())?;
         }
         
         // Release modifier keys in reverse order
         for modifier in modifiers.iter().rev() {
             if let Some(m_key) = parse_modifier(modifier) {
-                enigo.key_up(m_key);
+                Keyboard::key(&mut enigo, m_key, Direction::Release).map_err(|e| e.to_string())?;
             }
         }
         

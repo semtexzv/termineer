@@ -87,17 +87,20 @@ quick-xml = "0.30.0"   # For XML serialization in screendump
 indexmap = "2.8.0"
 
 # Dependencies for Computer Use feature
-enigo = "0.1.3"        # Cross-platform keyboard and mouse control
+enigo = "0.3.0"        # Cross-platform keyboard and mouse control
 tempfile = "3.10.1"    # Temporary file/directory handling for tests
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.26.0"
-objc = { version = "0.2.7" }         # Objective-C runtime bindings
+# Replaced objc with objc2 and related crates
+objc2 = { version = "0.6.0", features = ["exception"] }  # Modern Objective-C runtime bindings
+objc2-foundation = "0.3.0"          # Foundation framework bindings
+objc2-app-kit = "0.3.0"             # AppKit framework bindings
+block2 = "0.6.0"                    # Objective-C blocks support
 core-graphics = "0.23.1"            # For mouse and keyboard events
 core-graphics-types = "0.1.3"
 core-foundation = "0.10.0" # Core Foundation bindings
-accessibility-sys-ng = "0.1.3"
-accessibility-ng = "0.1.6"
+accessibility-sys-ng = { version = "0.2", git = "https://github.com/semtexzv/accessibility-ng", branch = "publish" }
+accessibility-ng = { version = "0.2", git = "https://github.com/semtexzv/accessibility-ng", branch = "publish" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", features = ["winuser"] } # Windows API for cursor position

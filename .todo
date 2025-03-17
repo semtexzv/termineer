@@ -21,13 +21,9 @@ structured one.
 Use bevy to create a simple GUI.
 - Should use the same backend as TUI
 
-# Read limits
-Read should read max 1000 lines. After that it should truncate and notify.
-✅ Task completed: The read tool already has this functionality implemented.
-
-# Modify system template generation so that the first user query can be included.
-# Lazily generate system prompt when first query arrives
-
 # Autoinclude & project info are sent using UserInput, should be marked as not coming from user.
 - Something like renaming the variant as Input, and then having flag to mark input from user vs the orchestrator
 - field named Source, and enum InputSource.
+
+# Modify system template generation so that the first user query can be included.
+# Lazily generate system prompt when first query arrives
