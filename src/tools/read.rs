@@ -1,7 +1,9 @@
-use std::iter::once;
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET, FORMAT_YELLOW};
+use crate::llm::{Content, ImageSource};
 use crate::tools::{AgentStateChange, ToolResult};
-use tokio::fs;
+use image::GenericImageView;
+use std::iter::once;
+use tokio::fs; // Import the required trait
 
 /// Maximum number of lines the read tool can read at once.
 /// This prevents loading extremely large files into the conversation
@@ -253,6 +255,27 @@ async fn read_file_content(
         }
     };
 
+    // Get the display path from the validated path
+    let safe_display_path = validated_path.to_string_lossy();
+
+    // Check if this is an image file by extension
+    let extension = validated_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+
+    // Only detect image formats that we can actually process based on the crate features
+    let is_image = match extension.as_deref() {
+        Some("jpg") | Some("jpeg") | Some("png") => true,
+        _ => false,
+    };
+
+    // Handle image files differently
+    if is_image {
+        return read_image_file(&validated_path, safe_display_path.to_string(), silent_mode).await;
+    }
+
+    // Regular text file handling
     match fs::read_to_string(&validated_path).await {
         Ok(content) => {
             // Split content into lines
@@ -261,16 +284,16 @@ async fn read_file_content(
 
             // Apply offset and limit
             let start_line = offset.unwrap_or(0).min(total_lines);
-            
+
             // Determine the requested end line based on the limit parameter or full file
             let requested_end_line = match limit {
                 Some(l) => (start_line + l).min(total_lines),
                 None => total_lines,
             };
-            
+
             // Check if we need to truncate due to MAX_READABLE_LINES
             let was_truncated = (requested_end_line - start_line) > MAX_READABLE_LINES;
-            
+
             // Apply the maximum line limit
             let end_line = if was_truncated {
                 start_line + MAX_READABLE_LINES
@@ -281,9 +304,6 @@ async fn read_file_content(
             // Extract the requested lines
             let selected_lines = lines[start_line..end_line].join("\n");
             let lines_read = end_line - start_line;
-
-            // Get the display path from the validated path
-            let safe_display_path = validated_path.to_string_lossy();
 
             // Format the output to clearly indicate line numbers and truncation if it occurred
             let truncation_notice = if was_truncated {
@@ -297,9 +317,9 @@ async fn read_file_content(
             } else {
                 String::new()
             };
-            
+
             let agent_output = format!(
-                "File: {} (lines {}-{} of {}, {} lines read{})\n\n```\n{}\n```{}",
+                "File: {} (lines {}-{} of {}, {} lines read{})\n\n{}\n{}",
                 safe_display_path,
                 start_line + 1,
                 end_line,
@@ -317,7 +337,10 @@ async fn read_file_content(
                     .iter()
                     .take(2)
                     .map(ToString::to_string)
-                    .chain(once(format!("+ {} lines", end_line.saturating_sub(start_line).saturating_sub(2))))
+                    .chain(once(format!(
+                        "+ {} lines",
+                        end_line.saturating_sub(start_line).saturating_sub(2)
+                    )))
                     .map(|line| format!("{}{}{}", FORMAT_GRAY, line, FORMAT_RESET))
                     .collect::<Vec<String>>()
                     .join("\n");
@@ -329,7 +352,7 @@ async fn read_file_content(
                     } else {
                         String::new()
                     };
-                    
+
                     bprintln !(tool: "read",
                         "{}📄 Read: {} (lines {}-{} of {} total){}{}{}{}",
                         FORMAT_BOLD,
@@ -348,7 +371,7 @@ async fn read_file_content(
                     } else {
                         String::new()
                     };
-                    
+
                     bprintln !(tool: "read",
                         "{}📄 Read: {} (lines {}-{} of {} total){}{}",
                         FORMAT_BOLD,
@@ -360,7 +383,7 @@ async fn read_file_content(
                         FORMAT_RESET
                     );
                 }
-                
+
                 // Add detailed truncation notice to console output if needed
                 if was_truncated {
                     bprintln !(tool: "read",
@@ -391,6 +414,164 @@ async fn read_file_content(
 
             ToolResult::error(error_msg)
         }
+    }
+}
+
+/// Special handler for image files
+async fn read_image_file(
+    validated_path: &std::path::Path,
+    safe_display_path: String,
+    silent_mode: bool,
+) -> ToolResult {
+    use base64::{engine::general_purpose, Engine as _};
+    use image::{DynamicImage, ImageFormat};
+    use std::io::Cursor;
+
+    // Read the file as binary
+    let file_bytes = match fs::read(validated_path).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let error_msg = format!("Error reading image file '{}': {}", safe_display_path, e);
+            if !silent_mode {
+                bprintln!(error:"{}", error_msg);
+            }
+            return ToolResult::error(error_msg);
+        }
+    };
+
+    // Check file size limit (1MB)
+    const MAX_IMAGE_SIZE: usize = 1_048_576; // 1MB in bytes
+    if file_bytes.len() > MAX_IMAGE_SIZE {
+        let error_msg = format!(
+            "Image file '{}' is too large ({} MB). Maximum size is 1MB. Try using a smaller image.",
+            safe_display_path,
+            file_bytes.len() / 1_048_576
+        );
+        if !silent_mode {
+            bprintln!(error:"{}", error_msg);
+        }
+        return ToolResult::error(error_msg);
+    }
+
+    // Try to determine format and load the image
+    let img_format = match validated_path.extension().and_then(|ext| ext.to_str()) {
+        Some("jpg") | Some("jpeg") => Some(ImageFormat::Jpeg),
+        Some("png") => Some(ImageFormat::Png),
+        // Note: Only supporting formats included in Cargo.toml features
+        _ => None,
+    };
+
+    // Get media type and determine if we support this format
+    let media_type = match validated_path.extension().and_then(|ext| ext.to_str()) {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        _ => {
+            // If we don't recognize the format, return an error
+            let error_msg = format!(
+                "Unsupported image format for file '{}'. Currently only JPEG and PNG formats are supported.",
+                safe_display_path
+            );
+            if !silent_mode {
+                bprintln!(error:"{}", error_msg);
+            }
+            return ToolResult::error(error_msg);
+        }
+    };
+
+    // For dimensions display
+    let mut width = 0;
+    let mut height = 0;
+
+    // Process image if needed (resize large images)
+    let processed_bytes = if let Ok(img) = image::load_from_memory(&file_bytes) {
+        // Get dimensions
+        let (w, h) = img.dimensions();
+        width = w;
+        height = h;
+
+        // Resize if the image is too large (similar to the screenshot tool)
+        if width > 1600 || height > 1200 {
+            let scale_factor = f32::min(1600.0 / width as f32, 1200.0 / height as f32);
+            let new_width = (width as f32 * scale_factor) as u32;
+            let new_height = (height as f32 * scale_factor) as u32;
+
+            if !silent_mode {
+                bprintln!(tool: "read",
+                    "Resizing image from {}x{} to {}x{}",
+                    width, height, new_width, new_height
+                );
+            }
+
+            // Store the new dimensions
+            width = new_width;
+            height = new_height;
+
+            let resized = img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3);
+
+            // Save to a buffer
+            let mut output = Vec::new();
+            let mut cursor = Cursor::new(&mut output);
+
+            if let Some(format) = img_format {
+                if resized.write_to(&mut cursor, format).is_ok() {
+                    output
+                } else {
+                    // If can't resize/convert, use original
+                    file_bytes.clone()
+                }
+            } else {
+                // Default to JPEG if format unknown
+                if resized.write_to(&mut cursor, ImageFormat::Jpeg).is_ok() {
+                    output
+                } else {
+                    file_bytes.clone()
+                }
+            }
+        } else {
+            // Use original bytes if no resizing needed
+            file_bytes.clone()
+        }
+    } else {
+        // Not a valid image or couldn't be processed, use original bytes
+        file_bytes.clone()
+    };
+
+    // Encode to base64
+    let base64_data = general_purpose::STANDARD.encode(&processed_bytes);
+    let file_size = processed_bytes.len();
+
+    // Create agent output with image details
+    let agent_output = format!(
+        "Image: {} ({}x{}, {} bytes)",
+        safe_display_path, width, height, file_size
+    );
+
+    // Log output for UI
+    if !silent_mode {
+        bprintln!(tool: "read",
+            "{}🖼️ Read image: {} ({}x{}, {} KB){}",
+            FORMAT_BOLD,
+            safe_display_path,
+            width,
+            height,
+            file_size / 1024,
+            FORMAT_RESET
+        );
+    }
+
+    // Return success with both text and image content
+    ToolResult {
+        success: true,
+        state_change: AgentStateChange::Continue,
+        content: vec![
+            Content::Text { text: agent_output },
+            Content::Image {
+                source: ImageSource::Base64 {
+                    media_type: media_type.to_string(),
+                    data: base64_data,
+                },
+            },
+        ],
     }
 }
 
@@ -493,4 +674,3 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
         }
     }
 }
-

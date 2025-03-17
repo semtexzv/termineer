@@ -1,7 +1,7 @@
 //! Popup components for the Terminal UI
 
-mod temporary;
 mod commands;
+mod temporary;
 
-pub use temporary::TemporaryOutput;
 pub use commands::CommandSuggestionsPopup;
+pub use temporary::TemporaryOutput;

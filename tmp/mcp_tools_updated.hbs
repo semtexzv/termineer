@@ -1,0 +1,16 @@
+{{! ================ MCP TOOLS ================ }}
+{{#if mcp_tools}}
+## MCP Tools
+
+{{#each mcp_tools}}
+## {{server}} {{name}}
+{{description}}
+{{#tool server}}{{name}}
+{{example_request}}{{/tool}}
+
+{{#done server 0}}
+[tool output...]
+{{/done}}
+
+{{/each}}
+{{/if}}

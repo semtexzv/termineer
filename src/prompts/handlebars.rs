@@ -295,24 +295,24 @@ impl TemplateManager {
 
         // Add the MCP servers array
         data.insert("mcp_servers".to_string(), json!(mcp_servers));
-        
+
         // Add detailed MCP tools information
         // Convert the HashMap<String, Vec<(String, String)>> to a format suitable for JSON
         let mut mcp_tools_json = serde_json::Map::new();
-        
+
         for (server_name, tools) in mcp_tools_info {
             let mut tools_array = Vec::new();
-            
+
             for (tool_name, description) in tools {
                 let mut tool_obj = serde_json::Map::new();
                 tool_obj.insert("name".to_string(), json!(tool_name));
                 tool_obj.insert("description".to_string(), json!(description));
                 tools_array.push(Value::Object(tool_obj));
             }
-            
+
             mcp_tools_json.insert(server_name, json!(tools_array));
         }
-        
+
         data.insert("mcp_tools".to_string(), json!(mcp_tools_json));
 
         // Render the template with the variables
@@ -329,7 +329,12 @@ impl TemplateManager {
         mcp_servers: &[String],
     ) -> Result<String, TemplateError> {
         // Forward to the new method with empty MCP tool details
-        self.render_with_mcp_details(template_name, enabled_tools, mcp_servers, std::collections::HashMap::new())
+        self.render_with_mcp_details(
+            template_name,
+            enabled_tools,
+            mcp_servers,
+            std::collections::HashMap::new(),
+        )
     }
 
     /// Render a template with specific tools enabled (legacy method)
@@ -375,10 +380,10 @@ impl TemplateManager {
 
         // Register the iftool helper for tool-specific conditional content
         handlebars.register_helper("iftool", Box::new(IfToolHelper));
-        
+
         // Register the available_kinds helper that lists all agent kinds
         handlebars.register_helper("available_kinds", Box::new(AvailableKindsHelper));
-        
+
         // Register the mcptools helper that formats MCP tools
         handlebars.register_helper("mcptools", Box::new(McpToolsHelper));
 
@@ -403,46 +408,52 @@ impl HelperDef for McpToolsHelper {
     ) -> HelperResult {
         // Get the MCP tools information from context
         let mcp_tools = ctx.data().get("mcp_tools").and_then(|v| v.as_object());
-        
+
         if let Some(mcp_tools) = mcp_tools {
             if mcp_tools.is_empty() {
                 // No MCP tools configured
                 out.write("No MCP servers are currently configured.")?;
                 return Ok(());
             }
-            
+
             // Format the MCP tools information
             let mut output = String::new();
             output.push_str("## Available MCP Tools\n\n");
-            
+
             for (server_name, tools_value) in mcp_tools {
                 let tools = tools_value.as_array();
-                
+
                 if let Some(tools) = tools {
                     if !tools.is_empty() {
                         output.push_str(&format!("### Server: {}\n\n", server_name));
-                        
+
                         for tool_value in tools {
                             if let Some(tool) = tool_value.as_object() {
-                                let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                                let description = tool.get("description").and_then(|v| v.as_str()).unwrap_or("No description");
-                                
+                                let name = tool
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("Unknown");
+                                let description = tool
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("No description");
+
                                 output.push_str(&format!("- **{}**: {}\n", name, description));
                             }
                         }
-                        
+
                         output.push_str("\n");
                     }
                 }
             }
-            
+
             // Write the formatted output
             out.write(&output)?;
         } else {
             // No MCP tools available
             out.write("No MCP servers are currently configured.")?;
         }
-        
+
         Ok(())
     }
 }
@@ -460,13 +471,12 @@ impl HelperDef for AvailableKindsHelper {
         _rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
-        
         // Get the kinds for the selected mode
         let kinds_output = crate::prompts::get_kinds_for_mode(crate::config::get_app_mode());
-        
+
         // Write the output
         out.write(&kinds_output)?;
-        
+
         Ok(())
     }
 }

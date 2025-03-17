@@ -92,7 +92,7 @@ pub struct Config {
 
     /// Skip authentication (for development)
     pub skip_auth: bool,
-    
+
     /// Timeout in seconds for non-interactive mode
     pub timeout_seconds: Option<u64>,
 }

@@ -12,7 +12,6 @@ pub struct Tool {
     pub input_schema: super::schema::JsonSchema, // JSON Schema for tool input
 }
 
-
 /// Parameters for a ListToolsRequest
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,7 +44,7 @@ pub struct CallToolResult {
     pub content: Vec<serde_json::Value>,
     #[serde(default)]
     pub is_error: bool,
-    
+
     // Legacy format - 2024-10-07 backward compatibility
     // Will only be used when deserializing, never when serializing
     #[serde(skip_serializing)]
@@ -56,13 +55,14 @@ impl CallToolResult {
     /// Convert tool result to Content objects
     pub fn to_content_objects(&self) -> anyhow::Result<Vec<super::content::Content>> {
         let mut contents = Vec::new();
-        
+
         // If we have content (current format), use that
         if !self.content.is_empty() {
             for item in &self.content {
                 bprintln!(dev: "ITEM: {:#?}", item);
                 // Try to parse as Content enum first
-                if let Ok(content) = serde_json::from_value::<super::content::Content>(item.clone()) {
+                if let Ok(content) = serde_json::from_value::<super::content::Content>(item.clone())
+                {
                     contents.push(content);
                     continue;
                 }
@@ -83,7 +83,7 @@ impl CallToolResult {
                     annotations: None,
                 }));
             }
-        } 
+        }
         // Handle legacy format (2024-10-07) if content is empty but tool_result exists
         else if let Some(tool_result) = &self.tool_result {
             bprintln!(dev: "Using legacy tool_result format: {:#?}", tool_result);
@@ -91,7 +91,7 @@ impl CallToolResult {
             contents.push(super::content::Content::Text(super::content::TextContent {
                 text: match tool_result {
                     serde_json::Value::String(s) => s.clone(),
-                    _ => serde_json::to_string_pretty(tool_result)?
+                    _ => serde_json::to_string_pretty(tool_result)?,
                 },
                 annotations: None,
             }));

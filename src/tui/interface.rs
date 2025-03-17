@@ -31,14 +31,11 @@ impl TuiInterface {
 
         // Get the buffer for the main agent
         let buffer = crate::agent::get_agent_buffer(main_agent_id).unwrap();
-        
+
         // Create the TUI state
         let state = TuiState::new(main_agent_id, buffer);
 
-        Ok(Self {
-            terminal,
-            state,
-        })
+        Ok(Self { terminal, state })
     }
 
     /// Run the TUI interface

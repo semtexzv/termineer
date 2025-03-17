@@ -1,11 +1,11 @@
 //! Dynamic MCP tool handler
-//! 
+//!
 //! This module implements a dynamic approach where any registered MCP server
 //! can be directly invoked as a tool by name.
 
-use serde_json::Value;
 use crate::mcp::protocol::content::McpContent;
 use crate::tools::{AgentStateChange, ToolResult};
+use serde_json::Value;
 
 /// Execute a dynamic MCP tool
 ///
@@ -24,14 +24,14 @@ pub async fn execute_dynamic_mcp_tool(
 ) -> ToolResult {
     // Extract the tool name from args (first positional argument)
     let tool_name = args.trim();
-    
+
     if tool_name.is_empty() {
         return ToolResult::error(format!(
             "MCP tool '{}' is not available. Use a valid MCP tool syntax.",
             server_name
         ));
     }
-    
+
     // Get the provider using the MCP API
     let provider = match crate::mcp::get_provider(server_name) {
         Some(provider) => provider,
@@ -73,11 +73,14 @@ pub async fn execute_dynamic_mcp_tool(
             tool_name,
             crate::constants::FORMAT_RESET
         );
-        
+
         // Gray content - show argument summary in a format similar to read tool preview
         if arguments.is_object() && !arguments.as_object().unwrap().is_empty() {
-            let arg_summary = arguments.as_object().unwrap().iter()
-                .take(3)  // Show at most 3 parameters for preview
+            let arg_summary = arguments
+                .as_object()
+                .unwrap()
+                .iter()
+                .take(3) // Show at most 3 parameters for preview
                 .map(|(k, v)| {
                     let value_preview = match v {
                         Value::String(s) if s.len() > 25 => format!("\"{:.25}...\"", s),
@@ -86,19 +89,21 @@ pub async fn execute_dynamic_mcp_tool(
                         _ => v.to_string(),
                     };
                     // Format each line with its own gray markup
-                    format!("{}{}: {}{}", 
+                    format!(
+                        "{}{}: {}{}",
                         crate::constants::FORMAT_GRAY,
-                        k, 
+                        k,
                         value_preview,
                         crate::constants::FORMAT_RESET
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-                
+
             let total_params = arguments.as_object().unwrap().len();
             let additional_params = if total_params > 3 {
-                format!("{}+ {} more parameters{}", 
+                format!(
+                    "{}+ {} more parameters{}",
                     crate::constants::FORMAT_GRAY,
                     total_params - 3,
                     crate::constants::FORMAT_RESET
@@ -106,10 +111,15 @@ pub async fn execute_dynamic_mcp_tool(
             } else {
                 String::new()
             };
-                
-            bprintln!("{}\n{}", 
+
+            bprintln!(
+                "{}\n{}",
                 arg_summary,
-                if !additional_params.is_empty() { additional_params } else { String::new() }
+                if !additional_params.is_empty() {
+                    additional_params
+                } else {
+                    String::new()
+                }
             );
         }
     }
@@ -121,22 +131,25 @@ pub async fn execute_dynamic_mcp_tool(
             let preview = if !contents.is_empty() {
                 let mut preview_text = format!("Received {} content objects", contents.len());
                 let mut items_previewed = 0;
-                
+
                 for content in contents.iter().take(3) {
                     if let crate::mcp::protocol::content::Content::Text(text) = content {
                         if items_previewed > 0 {
                             preview_text.push_str("\n---\n");
                         }
-                        
+
                         // Preview first few lines of text
                         let lines: Vec<&str> = text.text.lines().take(5).collect();
                         if !lines.is_empty() {
                             preview_text.push_str(&format!("\n{}", lines.join("\n")));
-                            
+
                             // Indicate if we truncated
                             let line_count = text.text.lines().count();
                             if line_count > 5 {
-                                preview_text.push_str(&format!("\n[...truncated, {} more lines]", line_count - 5));
+                                preview_text.push_str(&format!(
+                                    "\n[...truncated, {} more lines]",
+                                    line_count - 5
+                                ));
                             }
                             items_previewed += 1;
                         }
@@ -148,19 +161,24 @@ pub async fn execute_dynamic_mcp_tool(
                         items_previewed += 1;
                     }
                 }
-                
+
                 // If there are more items than we previewed, indicate them
                 if contents.len() > 3 {
-                    preview_text.push_str(&format!("\n[+ {} additional content items not shown]", contents.len() - 3));
+                    preview_text.push_str(&format!(
+                        "\n[+ {} additional content items not shown]",
+                        contents.len() - 3
+                    ));
                 }
-                
-                format!("{}{}{}", 
+
+                format!(
+                    "{}{}{}",
                     crate::constants::FORMAT_GRAY,
                     preview_text,
                     crate::constants::FORMAT_RESET
                 )
             } else {
-                format!("{}No content available{}", 
+                format!(
+                    "{}No content available{}",
                     crate::constants::FORMAT_GRAY,
                     crate::constants::FORMAT_RESET
                 )
@@ -179,21 +197,27 @@ pub async fn execute_dynamic_mcp_tool(
                 );
 
                 // Create a preview for console output in read tool style
-                let preview_content = contents.iter()
-                    .take(1)  // Take only the first content item for preview
+                let preview_content = contents
+                    .iter()
+                    .take(1) // Take only the first content item for preview
                     .filter_map(|content| {
                         if let crate::mcp::protocol::content::Content::Text(text) = content {
                             // Format each line separately with gray formatting
-                            let preview_lines = text.text.lines()
-                                .take(3)  // Take first 3 lines
-                                .map(|line| format!("{}{}{}", 
-                                    crate::constants::FORMAT_GRAY,
-                                    line,
-                                    crate::constants::FORMAT_RESET
-                                ))
+                            let preview_lines = text
+                                .text
+                                .lines()
+                                .take(3) // Take first 3 lines
+                                .map(|line| {
+                                    format!(
+                                        "{}{}{}",
+                                        crate::constants::FORMAT_GRAY,
+                                        line,
+                                        crate::constants::FORMAT_RESET
+                                    )
+                                })
                                 .collect::<Vec<String>>()
                                 .join("\n");
-                            
+
                             let total_lines = text.text.lines().count();
                             if total_lines > 3 {
                                 // Show line count for additional lines with separate formatting
@@ -225,7 +249,8 @@ pub async fn execute_dynamic_mcp_tool(
             }
 
             // Format the content for the agent in read-tool style
-            let formatted_content: Vec<crate::llm::Content> = contents.into_iter()
+            let formatted_content: Vec<crate::llm::Content> = contents
+                .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
                     if let crate::mcp::protocol::content::Content::Text(text) = &c {
@@ -239,13 +264,15 @@ pub async fn execute_dynamic_mcp_tool(
                             total_lines,
                             text.text
                         );
-                        crate::llm::Content::Text { text: formatted_text }
+                        crate::llm::Content::Text {
+                            text: formatted_text,
+                        }
                     } else {
                         c.to_llm_content()
                     }
                 })
                 .collect();
-                
+
             ToolResult {
                 success: true,
                 state_change: AgentStateChange::Continue,
@@ -268,9 +295,10 @@ pub async fn execute_dynamic_mcp_tool(
                     tool_name,
                     crate::constants::FORMAT_RESET
                 );
-                
+
                 // Error details in gray
-                bprintln!("{}{}{}",
+                bprintln!(
+                    "{}{}{}",
                     crate::constants::FORMAT_GRAY,
                     err,
                     crate::constants::FORMAT_RESET

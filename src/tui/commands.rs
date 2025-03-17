@@ -1,14 +1,11 @@
 //! Command processing for the Terminal UI
 
-use crate::agent::{AgentId, AgentMessage};
 use crate::agent::types::AgentCommand;
+use crate::agent::{AgentId, AgentMessage};
 use crate::tui::state::TuiState;
 
 /// Process slash commands
-pub async fn process_command(
-    state: &mut TuiState,
-    input: &str,
-) -> anyhow::Result<()> {
+pub async fn process_command(state: &mut TuiState, input: &str) -> anyhow::Result<()> {
     // Split command and arguments
     let parts: Vec<&str> = input.splitn(2, ' ').collect();
     let command = parts[0].trim_start_matches('/');
@@ -162,10 +159,7 @@ pub async fn process_command(
 }
 
 /// Handle pound command for agent switching
-pub async fn handle_pound_command(
-    state: &mut TuiState,
-    cmd: &str,
-) -> anyhow::Result<()> {
+pub async fn handle_pound_command(state: &mut TuiState, cmd: &str) -> anyhow::Result<()> {
     // Create popup for command result
     let command_title = format!("Agent Selection: {}", cmd);
     let mut result = String::new();

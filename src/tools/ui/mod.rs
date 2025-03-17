@@ -5,9 +5,9 @@
 //! - screendump: Extract UI structure from applications
 //! - input: Send mouse and keyboard inputs to applications
 
-pub mod screenshot;
-pub mod screendump;
 pub mod input;
+pub mod screendump;
+pub mod screenshot;
 pub mod structure;
 
 // Platform-specific implementations

@@ -1,6 +1,6 @@
+use config::{Config as ConfigLib, ConfigError, Environment, File};
 use serde::Deserialize;
 use std::env;
-use config::{Config as ConfigLib, ConfigError, Environment, File};
 
 /// OAuth configuration
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -37,30 +37,34 @@ impl Config {
             .set_default("environment", "development")?
             .set_default("host", "127.0.0.1")?
             .set_default("port", 8080)?
-            .set_default("database_url", "postgres://termineer:development@localhost:5432/termineer")?
+            .set_default(
+                "database_url",
+                "postgres://termineer:development@localhost:5432/termineer",
+            )?
             // OAuth defaults (these will be overridden by environment variables if provided)
             .set_default("oauth.google_client_id", "")?
             .set_default("oauth.google_client_secret", "")?;
-            
+
         // Layer on the environment-specific values from config files if available
         if let Ok(env) = env::var("ENVIRONMENT") {
-            builder = builder.add_source(File::with_name(&format!("config/{}", env)).required(false));
+            builder =
+                builder.add_source(File::with_name(&format!("config/{}", env)).required(false));
         }
-        
+
         // Add settings from environment variables
         builder = builder.add_source(Environment::default().separator("__"));
-        
+
         // Build and deserialize the config
         let config = builder.build()?;
-        
+
         config.try_deserialize()
     }
-    
+
     /// Check if running in development environment
     pub fn is_development(&self) -> bool {
         self.environment == "development"
     }
-    
+
     /// Check if running in production environment
     pub fn is_production(&self) -> bool {
         self.environment == "production"

@@ -82,8 +82,8 @@ pub struct SubscriptionPlan {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub price_monthly: i64,  // Price in cents
-    pub price_yearly: i64,   // Price in cents
+    pub price_monthly: i64, // Price in cents
+    pub price_yearly: i64,  // Price in cents
     pub features: Vec<String>,
     pub is_active: bool,
     pub stripe_price_id: Option<String>, // Stripe price ID for the plan
@@ -119,7 +119,10 @@ impl SubscriptionPlan {
                     "Full tool support".to_string(),
                 ],
                 is_active: true,
-                stripe_price_id: Some(std::env::var("STRIPE_PRICE_ID_PLUS_MONTHLY").unwrap_or_else(|_| "price_plus_monthly".to_string())),
+                stripe_price_id: Some(
+                    std::env::var("STRIPE_PRICE_ID_PLUS_MONTHLY")
+                        .unwrap_or_else(|_| "price_plus_monthly".to_string()),
+                ),
             },
             SubscriptionPlan {
                 id: "pro".to_string(),
@@ -133,11 +136,14 @@ impl SubscriptionPlan {
                     "Team collaboration features".to_string(),
                 ],
                 is_active: true,
-                stripe_price_id: Some(std::env::var("STRIPE_PRICE_ID_PRO_MONTHLY").unwrap_or_else(|_| "price_pro_monthly".to_string())),
+                stripe_price_id: Some(
+                    std::env::var("STRIPE_PRICE_ID_PRO_MONTHLY")
+                        .unwrap_or_else(|_| "price_pro_monthly".to_string()),
+                ),
             },
         ]
     }
-    
+
     /// Find a plan by ID
     pub fn find_by_id(id: &str) -> Option<Self> {
         Self::all().into_iter().find(|p| p.id == id)

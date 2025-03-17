@@ -2,8 +2,8 @@
 //!
 //! This module uses clap to define and parse command-line arguments.
 
-use clap::{Parser, Subcommand};
 use crate::prompts::grammar::formats::GrammarType;
+use clap::{Parser, Subcommand};
 
 /// Command-line arguments for Termineer
 #[derive(Parser, Debug)]
@@ -53,7 +53,7 @@ pub struct Cli {
     /// Skip authentication (for development)
     #[arg(long, hide = true)]
     pub skip_auth: bool,
-    
+
     /// Timeout in seconds for non-interactive mode (default: 150 seconds)
     #[arg(long)]
     pub timeout: Option<u64>,
@@ -78,15 +78,18 @@ pub enum Commands {
     Workflow {
         /// Name of the workflow to run
         name: Option<String>,
-        
+
         /// Parameters for the workflow in key=value format
         #[arg(long = "param", short = 'p')]
         parameters: Vec<String>,
-        
+
         /// Additional query to pass to the workflow (everything after parameters)
         #[arg(trailing_var_arg = true)]
         query: Vec<String>,
     },
+
+    /// Start the graphical user interface
+    Gui,
 
     /// Dump prompt templates (hidden, debug-only feature)
     #[cfg(debug_assertions)]
@@ -102,14 +105,17 @@ fn parse_grammar_type(arg: &str) -> Result<GrammarType, String> {
         "xml" => Ok(GrammarType::XmlTags),
         "markdown" | "md" => Ok(GrammarType::MarkdownBlocks),
         "auto" | "default" => Err("Use no argument for auto grammar selection".to_string()),
-        _ => Err(format!("Unknown grammar type: {}. Valid options: xml, markdown", arg)),
+        _ => Err(format!(
+            "Unknown grammar type: {}. Valid options: xml, markdown",
+            arg
+        )),
     }
 }
 
 /// Convert the Cli struct to the application's Config
 pub fn cli_to_config(cli: &Cli) -> crate::config::Config {
     let mut config = crate::config::Config::new();
-    
+
     // Basic options
     config.model = cli.model.clone();
     config.kind = cli.kind.clone();
@@ -121,17 +127,17 @@ pub fn cli_to_config(cli: &Cli) -> crate::config::Config {
     config.grammar_type = cli.grammar;
     config.skip_auth = cli.skip_auth;
     config.timeout_seconds = cli.timeout;
-    
+
     // Special commands
     #[cfg(debug_assertions)]
     if let Some(Commands::DumpPrompts { template }) = &cli.command {
         config.dump_prompts = Some(template.clone());
     }
-    
+
     // Apply model-specific grammar if not explicitly set
     if config.grammar_type.is_none() {
         config.apply_model_specific_grammar();
     }
-    
+
     config
 }

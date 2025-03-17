@@ -69,7 +69,7 @@ impl SchemaValue {
                         format!("[{}, ...]", items.join(", "))
                     }
                 }
-            },
+            }
             SchemaValue::Object(_) => "{ ... }".to_string(),
         }
     }
@@ -81,17 +81,17 @@ pub struct JsonSchema {
     /// JSON Schema type (usually "object" for tool inputs)
     #[serde(rename = "type")]
     pub schema_type: Option<SchemaType>,
-    
+
     /// Properties of the schema (for "object" types)
     pub properties: Option<HashMap<String, PropertySchema>>,
-    
+
     /// Required property names (for "object" types)
     pub required: Option<Vec<String>>,
-    
+
     /// Additional properties allowed flag
     #[serde(rename = "additionalProperties")]
     pub additional_properties: Option<bool>,
-    
+
     /// Schema description
     pub description: Option<String>,
 }
@@ -102,32 +102,32 @@ pub struct PropertySchema {
     /// Property type
     #[serde(rename = "type")]
     pub property_type: Option<SchemaType>,
-    
+
     /// Property description
     pub description: Option<String>,
-    
+
     /// Format (for string types: date, uri, etc.)
     pub format: Option<String>,
-    
+
     /// Pattern (for string validation)
     pub pattern: Option<String>,
-    
+
     /// Enum values (for enumeration types)
     #[serde(rename = "enum")]
     pub enum_values: Option<Vec<SchemaValue>>,
-    
+
     /// Example value
     pub example: Option<SchemaValue>,
-    
+
     /// Default value
     pub default: Option<SchemaValue>,
-    
+
     /// Minimum value (for numeric types)
     pub minimum: Option<f64>,
-    
+
     /// Maximum value (for numeric types)
     pub maximum: Option<f64>,
-    
+
     /// Items schema (for array types)
     pub items: Option<Box<PropertySchema>>,
 }
@@ -141,7 +141,7 @@ impl PropertySchema {
             .map(|t| t.to_string())
             .unwrap_or_else(|| "any".to_string())
     }
-    
+
     /// Generate an example value string for this property
     #[allow(dead_code)]
     pub fn example_value(&self) -> String {
@@ -149,19 +149,19 @@ impl PropertySchema {
         if let Some(example) = &self.example {
             return example.format();
         }
-        
+
         // Use default if available
         if let Some(default) = &self.default {
             return default.format();
         }
-        
+
         // Use first enum value if available
         if let Some(enum_values) = &self.enum_values {
             if !enum_values.is_empty() {
                 return enum_values[0].format();
             }
         }
-        
+
         // Generate based on type and format
         match self.property_type.as_ref().unwrap_or(&SchemaType::Any) {
             SchemaType::String => {
@@ -176,7 +176,7 @@ impl PropertySchema {
                 } else {
                     "\"example\"".to_string()
                 }
-            },
+            }
             SchemaType::Number => "3.14".to_string(),
             SchemaType::Integer => "42".to_string(),
             SchemaType::Boolean => "true".to_string(),
@@ -186,7 +186,7 @@ impl PropertySchema {
                 } else {
                     "[]".to_string()
                 }
-            },
+            }
             SchemaType::Object => "{ ... }".to_string(),
             SchemaType::Null => "null".to_string(),
             SchemaType::Any => "\"example\"".to_string(),

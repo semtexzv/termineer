@@ -59,32 +59,30 @@ pub struct ProcessConnection {
 }
 
 impl ProcessConnection {
-    
     /// Create a new process connection with the given command and environment variables
     pub async fn spawn_with_env(
-        name: &str, 
-        executable: &str, 
+        name: &str,
+        executable: &str,
         args: &[&str],
-        env: &std::collections::HashMap<String, String>
+        env: &std::collections::HashMap<String, String>,
     ) -> McpResult<Self> {
         // Create command with executable and args
         let mut cmd = Command::new(executable);
         cmd.args(args)
-           .stdin(Stdio::piped())
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
-           
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
         // Add any environment variables
         for (key, value) in env {
             cmd.env(key, value);
         }
-        
+
         // Start the child process
-        let mut child = cmd.spawn()
-            .map_err(|e| {
-                bprintln !(error:"Failed to start MCP process: {}", e);
-                McpError::ConnectionError(format!("Failed to start process: {}", e))
-            })?;
+        let mut child = cmd.spawn().map_err(|e| {
+            bprintln !(error:"Failed to start MCP process: {}", e);
+            McpError::ConnectionError(format!("Failed to start process: {}", e))
+        })?;
 
         // Get stdin and stdout pipes
         let stdin =
@@ -102,7 +100,7 @@ impl ProcessConnection {
         let name = name.to_string();
         // Make a clone for the async closure
         let name_for_stderr = name.clone();
-        
+
         // Capture stderr for logging MCP output to the user
         if let Some(Ok(stderr)) = child
             .stderr
@@ -235,7 +233,7 @@ impl ProcessConnection {
                                 if let Some(sender) = pending.remove(&id_str) {
                                     sender.send(Ok(rpc_msg)).unwrap();
                                 }
-                            },
+                            }
                             // Handle notifications
                             crate::mcp::protocol::MessageContent::Notification(notification) => {
                                 // Handle progress notifications
@@ -246,10 +244,11 @@ impl ProcessConnection {
                                                 let total = params.get("total");
                                                 let token_str = token.to_string();
                                                 let progress_val = progress.as_f64().unwrap_or(0.0);
-                                                let total_str = total.and_then(|t| t.as_f64())
+                                                let total_str = total
+                                                    .and_then(|t| t.as_f64())
                                                     .map(|t| format!("/{:.0}", t))
                                                     .unwrap_or_else(|| "".to_string());
-                                                
+
                                                 bprintln!(
                                                     "{}MCP Progress:{} {}{} ({}{})",
                                                     crate::constants::FORMAT_CYAN,
@@ -263,7 +262,7 @@ impl ProcessConnection {
                                         }
                                     }
                                 }
-                            },
+                            }
                             _ => {
                                 // Other message types don't need special handling
                             }

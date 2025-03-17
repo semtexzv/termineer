@@ -6,10 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use std::time::{Duration, Instant};
 
 /// Handle key events
-pub async fn handle_key_event(
-    state: &mut TuiState,
-    key: KeyEvent,
-) -> anyhow::Result<()> {
+pub async fn handle_key_event(state: &mut TuiState, key: KeyEvent) -> anyhow::Result<()> {
     match key.code {
         // Multi-level interrupt with Ctrl+C
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -96,9 +93,7 @@ pub async fn handle_key_event(
 
                 // Handle special case: check if we're still in command mode
                 if state.command_mode {
-                    state
-                        .command_suggestions
-                        .update_suggestions(&state.input);
+                    state.command_suggestions.update_suggestions(&state.input);
                 }
             }
         }
@@ -116,9 +111,7 @@ pub async fn handle_key_event(
 
                 // Update command suggestions if still in command mode
                 if state.command_mode {
-                    state
-                        .command_suggestions
-                        .update_suggestions(&state.input);
+                    state.command_suggestions.update_suggestions(&state.input);
                 }
             }
         }
@@ -382,10 +375,8 @@ pub async fn handle_key_event(
                 // Go backward in history if not at beginning
                 if state.history_index < (state.command_history.len() as isize - 1) {
                     state.history_index += 1;
-                    let history_entry =
-                        &state.command_history[state.command_history.len()
-                            - 1
-                            - state.history_index as usize];
+                    let history_entry = &state.command_history
+                        [state.command_history.len() - 1 - state.history_index as usize];
                     state.input = history_entry.clone();
                     state.cursor_position = state.input.len();
                 }
@@ -430,10 +421,8 @@ pub async fn handle_key_event(
                     }
                 } else {
                     // Otherwise show the history entry
-                    let history_entry =
-                        &state.command_history[state.command_history.len()
-                            - 1
-                            - state.history_index as usize];
+                    let history_entry = &state.command_history
+                        [state.command_history.len() - 1 - state.history_index as usize];
                     state.input = history_entry.clone();
                 }
                 state.cursor_position = state.input.len();
@@ -448,10 +437,7 @@ pub async fn handle_key_event(
 }
 
 /// Handle mouse events
-pub async fn handle_mouse_event(
-    state: &mut TuiState,
-    mouse: MouseEvent,
-) -> anyhow::Result<()> {
+pub async fn handle_mouse_event(state: &mut TuiState, mouse: MouseEvent) -> anyhow::Result<()> {
     // Simple mouse wheel scrolling implementation
     match mouse.kind {
         MouseEventKind::ScrollDown => {
@@ -469,9 +455,7 @@ pub async fn handle_mouse_event(
 }
 
 /// Handle Ctrl+C interrupt with multi-level behavior
-async fn handle_ctrl_c_interrupt(
-    state: &mut TuiState,
-) -> anyhow::Result<()> {
+async fn handle_ctrl_c_interrupt(state: &mut TuiState) -> anyhow::Result<()> {
     // Define the double-press window (3 seconds)
     const DOUBLE_PRESS_WINDOW: Duration = Duration::from_secs(3);
 
@@ -481,8 +465,7 @@ async fn handle_ctrl_c_interrupt(
     // Check if this is a double-press (second Ctrl+C within window)
     if let Some(last_time) = state.last_interrupt_time {
         // Only count as double-press if previous Ctrl+C wasn't for interrupting a process
-        if !state.last_interrupt_was_process
-            && now.duration_since(last_time) < DOUBLE_PRESS_WINDOW
+        if !state.last_interrupt_was_process && now.duration_since(last_time) < DOUBLE_PRESS_WINDOW
         {
             // This is a double-press, exit the application
             let popup_title = "Exiting Application".to_string();
@@ -502,7 +485,8 @@ async fn handle_ctrl_c_interrupt(
 
     match agent_state {
         // If running a shell command (interruptible tool) or if agent is actively processing
-        Some(crate::agent::AgentState::RunningTool { .. }) | Some(crate::agent::AgentState::Processing) => {
+        Some(crate::agent::AgentState::RunningTool { .. })
+        | Some(crate::agent::AgentState::Processing) => {
             // Interrupt the agent
             crate::agent::interrupt_agent_with_reason(
                 state.selected_agent_id,
@@ -520,8 +504,7 @@ async fn handle_ctrl_c_interrupt(
 
         // If agent is waiting for input (idle or done), start the double-press timer
         _ => {
-            popup_content =
-                "Press Ctrl+C again within 3 seconds to exit application.".to_string();
+            popup_content = "Press Ctrl+C again within 3 seconds to exit application.".to_string();
 
             // Start the double-press timer for exiting the application
             state.last_interrupt_time = Some(now);

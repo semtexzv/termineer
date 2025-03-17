@@ -3,12 +3,12 @@
 //! Provides functions for parsing command line arguments and
 //! executing workflows from the CLI.
 
-use std::collections::HashMap;
 use anyhow::{format_err, Result};
 use serde_yaml::Value as YamlValue;
+use std::collections::HashMap;
 
-use crate::workflow::loader::list_workflows;
 use crate::workflow::context::WorkflowError;
+use crate::workflow::loader::list_workflows;
 
 /// Handle the workflow command from the CLI
 
@@ -17,21 +17,23 @@ use crate::workflow::context::WorkflowError;
 async fn list_available_workflows() -> anyhow::Result<()> {
     // Check if user has Pro access - workflows are a Pro-only feature
     if crate::config::get_app_mode() != crate::config::AppMode::Pro {
-        return Err(format_err!("Workflows are a Pro-only feature. Upgrade to Pro for access."));
+        return Err(format_err!(
+            "Workflows are a Pro-only feature. Upgrade to Pro for access."
+        ));
     }
-    
+
     let workflows = list_workflows()?;
-    
+
     if workflows.is_empty() {
         println!("No workflows found. Create one in .termineer/workflows/");
         return Ok(());
     }
-    
+
     println!("Available workflows:");
     for workflow in workflows {
         println!("  - {}", workflow);
     }
-    
+
     println!("\nRun with: termineer workflow <name>");
     Ok(())
 }
@@ -43,7 +45,7 @@ fn parse_parameters_from_values(
     workflow: &crate::workflow::types::Workflow,
 ) -> Result<HashMap<String, YamlValue>, WorkflowError> {
     let mut parameters = HashMap::new();
-    
+
     // Get parameters from command line
     for param in param_values {
         // Parse key=value format
@@ -56,7 +58,7 @@ fn parse_parameters_from_values(
             )));
         }
     }
-    
+
     // Fill in defaults for parameters not provided
     for param in &workflow.parameters {
         if !parameters.contains_key(&param.name) {
@@ -67,6 +69,6 @@ fn parse_parameters_from_values(
             }
         }
     }
-    
+
     Ok(parameters)
 }

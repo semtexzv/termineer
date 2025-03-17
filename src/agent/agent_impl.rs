@@ -3,9 +3,6 @@
 //! This module contains the Agent struct and related functionality for
 //! managing conversations, tool execution, and interactions with LLM backends.
 
-use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use super::interrupt::{spawn_interrupt_monitor, InterruptCoordinator};
 use super::types::{
     AgentCommand, AgentId, AgentMessage, AgentReceiver, AgentState, InterruptReceiver, StateSender,
@@ -18,6 +15,9 @@ use crate::prompts::Grammar;
 use crate::tools::shell::{execute_shell, ShellOutput};
 use crate::tools::InterruptData;
 use crate::tools::ToolExecutor;
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -102,16 +102,19 @@ impl Agent {
             } else {
                 crate::prompts::READONLY_TOOLS.to_vec()
             };
-            
+
             // Filter out specifically disabled tools
             if !config.disabled_tools.is_empty() {
                 // Create a set of disabled tools for efficient lookups
-                let disabled_set: std::collections::HashSet<String> = 
-                    config.disabled_tools.iter().map(|s| s.to_lowercase()).collect();
-                
+                let disabled_set: std::collections::HashSet<String> = config
+                    .disabled_tools
+                    .iter()
+                    .map(|s| s.to_lowercase())
+                    .collect();
+
                 // Filter out disabled tools
                 enabled_tools.retain(|&tool| !disabled_set.contains(&tool.to_lowercase()));
-                
+
                 // Log which tools were disabled
                 bprintln!(
                     "ℹ️ {}{} tools disabled{}: {}",
@@ -155,7 +158,7 @@ impl Agent {
         // Initialize tool executor (not readonly, not silent)
         // Note: Agent manager will be set later in the run method
         let mut tool_executor = ToolExecutor::new(false, false);
-        
+
         // Set the list of disabled tools in the tool executor
         tool_executor.set_disabled_tools(config.disabled_tools.clone());
 
@@ -204,24 +207,24 @@ impl Agent {
 
         // Set up the tool executor with this agent's ID
         let mut new_tool_executor = ToolExecutor::with_agent_id(false, false, self.id);
-        
+
         // Transfer the disabled tools list to the new executor
         new_tool_executor.set_disabled_tools(self.config.disabled_tools.clone());
-        
+
         // Replace the tool executor
         self.tool_executor = new_tool_executor;
 
         // MCP connections are now initialized at application startup before any agents
         // We don't add MCP server information to the conversation context anymore
         // as it will be handled through prompt generation
-        
+
         // No session loading - sessions are disabled
-        
+
         // Load project information and autoinclude files at startup for every agent
         if let Err(e) = self.load_project_info(None, false).await {
             bprintln !(error:"Failed to load project information: {}", e);
         }
-        
+
         if let Err(e) = self.load_autoinclude_files(false).await {
             bprintln !(error:"Failed to load autoinclude files: {}", e);
         }
@@ -481,20 +484,20 @@ impl Agent {
 
         // Execute shell command and get the output receiver
         let silent_mode = self.tool_executor.is_silent();
-        let mut rx =
-            match execute_shell(&cmd_args, body, interrupt_data.clone(), silent_mode).await {
-                Ok(rx) => rx,
-                Err(e) => {
-                    // Make sure to clean up interrupt state if startup fails
-                    interrupt_coordinator.set_shell_running(false, None);
-                    self.set_state(AgentState::Processing);
+        let mut rx = match execute_shell(&cmd_args, body, interrupt_data.clone(), silent_mode).await
+        {
+            Ok(rx) => rx,
+            Err(e) => {
+                // Make sure to clean up interrupt state if startup fails
+                interrupt_coordinator.set_shell_running(false, None);
+                self.set_state(AgentState::Processing);
 
-                    return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
-                        "Shell execution error: {}",
-                        e
-                    )));
-                }
-            };
+                return Err(Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                    "Shell execution error: {}",
+                    e
+                )));
+            }
+        };
 
         // Add a timestamp for tracking performance
         let start_time = std::time::Instant::now();
@@ -1006,17 +1009,17 @@ impl Agent {
         if let Some(specific_path) = filepath {
             return self.load_from_file(specific_path, force).await;
         }
-        
+
         // Only check for .termineer/info - the standard location
         let term_info_path = ".termineer/info";
         if tokio::fs::try_exists(term_info_path).await? {
             return self.load_from_file(term_info_path, force).await;
         }
-        
+
         // No project info found
         Ok(false)
     }
-    
+
     /// Helper function to load project info from a specific file
     async fn load_from_file(
         &mut self,
@@ -1052,7 +1055,7 @@ impl Agent {
     }
 
     /// Load files specified by glob patterns in .termineer/autoinclude
-    /// 
+    ///
     /// # Returns
     /// * `Ok(n)` where n is the number of files included
     /// * `Err(...)` if an error occurred while processing
@@ -1064,7 +1067,7 @@ impl Agent {
         if self.conversation.is_empty() && !force {
             return Ok(0);
         }
-        
+
         // Path to autoinclude file
         let autoinclude_path = ".termineer/autoinclude";
 
@@ -1073,28 +1076,31 @@ impl Agent {
             bprintln!(info: "Autoinclude directory doesn't exist, skipping");
             return Ok(0);
         }
-        
+
         // Read the autoinclude file
         let autoinclude_content = tokio::fs::read_to_string(autoinclude_path).await?;
-        
+
         // Process each line as a glob pattern
         let mut included_count = 0;
         let mut total_content_size = 0;
-        
-        for pattern in autoinclude_content.lines().filter(|line| !line.trim().is_empty()) {
+
+        for pattern in autoinclude_content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+        {
             // Skip comments
             if pattern.trim().starts_with('#') {
                 continue;
             }
-            
+
             // Use glob to find all matching files
             let matches = glob::glob(pattern).map_err(|e| {
                 std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput, 
-                    format!("Invalid glob pattern '{}': {}", pattern, e)
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid glob pattern '{}': {}", pattern, e),
                 )
             })?;
-            
+
             // Process each matched file
             for entry in matches {
                 match entry {
@@ -1103,10 +1109,15 @@ impl Agent {
                         if !path.is_file() {
                             continue;
                         }
-                        
+
                         // Skip some known binary file extensions
                         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ["exe", "bin", "o", "a", "so", "dylib", "dll", "class", "jar", "war", "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "bmp", "ico"].contains(&extension) {
+                        if [
+                            "exe", "bin", "o", "a", "so", "dylib", "dll", "class", "jar", "war",
+                            "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "bmp", "ico",
+                        ]
+                        .contains(&extension)
+                        {
                             bprintln!(
                                 "{}Skipping binary file: {}{}",
                                 crate::constants::FORMAT_YELLOW,
@@ -1115,7 +1126,7 @@ impl Agent {
                             );
                             continue;
                         }
-                        
+
                         // Try to read file content
                         let file_content = match tokio::fs::read_to_string(&path).await {
                             Ok(content) => content,
@@ -1131,26 +1142,20 @@ impl Agent {
                                 continue;
                             }
                         };
-                        
+
                         // Update total content size
                         total_content_size += file_content.len();
-                        
+
                         // Format message with file path and content
-                        let message = format!(
-                            "# File: {}\n```\n{}\n```",
-                            path.display(),
-                            file_content
-                        );
-                        
+                        let message =
+                            format!("# File: {}\n```\n{}\n```", path.display(), file_content);
+
                         // Add to conversation
-                        self.conversation.push(Message::text(
-                            "user", 
-                            message, 
-                            MessageInfo::User
-                        ));
-                        
+                        self.conversation
+                            .push(Message::text("user", message, MessageInfo::User));
+
                         included_count += 1;
-                    },
+                    }
                     Err(e) => {
                         // Just log errors for individual files but continue processing
                         bprintln!(
@@ -1163,7 +1168,7 @@ impl Agent {
                 }
             }
         }
-        
+
         // If we included any files, let the user know the total count with a prominent message
         if included_count > 0 {
             // Print a very prominent message to the buffer
@@ -1175,7 +1180,7 @@ impl Agent {
                 included_count,
                 total_content_size / 1024
             );
-            
+
             // Also add a message directly to the conversation context
             self.conversation.push(Message::text(
                 "user",
@@ -1186,7 +1191,7 @@ impl Agent {
                 MessageInfo::System
             ));
         }
-        
+
         Ok(included_count)
     }
 
@@ -1516,7 +1521,7 @@ impl Agent {
         }
 
         // No session saving needed
-        
+
         // Return with continue_processing flag set to true to indicate tool processing should continue
         // The agent run loop will handle sending the next empty message
         Ok(MessageResult {

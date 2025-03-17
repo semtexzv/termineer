@@ -4,8 +4,8 @@
 
 pub mod auth;
 
-use sqlx::PgPool;
 use crate::config::Config;
+use sqlx::PgPool;
 
 /// Application state shared across handlers
 pub struct AppState {

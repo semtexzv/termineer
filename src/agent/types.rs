@@ -113,7 +113,7 @@ impl AgentState {
 pub enum AgentError {
     #[error("Agent not found: {0}")]
     AgentNotFound(AgentId),
-    
+
     #[error("Failed to deliver message to agent")]
     MessageDeliveryFailed,
 
@@ -123,13 +123,13 @@ pub enum AgentError {
     #[error("Timeout while waiting for agent to terminate")]
     #[allow(dead_code)]
     TerminationTimeout,
-    
+
     #[error("Operation timed out: {0}")]
     Timeout(String),
 
     #[error("Failed to create agent: {0}")]
     CreationFailed(String),
-    
+
     #[error("Error generating or retrieving response")]
     ResponseGenerationError,
 }

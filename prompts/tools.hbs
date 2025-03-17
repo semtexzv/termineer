@@ -2,18 +2,26 @@
 {{!
   This is a partial template containing only tool definitions.
   It can be included in other templates using inclusion syntax
-  
-  This template uses the iftool helper for conditional content based on tool enablement.
-  Variable: enabled_tools - array of lowercase tool names
-  
-  Tools are organized into the following categories:
-  - System Tools: shell
-  - File Operations: read, write, patch
-  - Web Tools: fetch, search 
-  - UI Automation: screenshot, screendump, input
-  - Integration: mcp
-  - Workflow: task, agent, wait, done
 }}
+
+## General Tool Formatting
+
+All tools follow this syntax pattern:
+{{#tool "tool_name"}}[arguments]
+[optional multi-line content]{{/tool}}
+
+Results appear directly after the tool invocation, not replacing it.
+
+For tools with multi-line content (write, patch, task, etc.):
+- Place content on new lines after arguments
+- Maintain proper indentation within content 
+- End with the tool closing tag
+
+Common principles:
+- Tool names are case-sensitive
+- Arguments are space-separated
+- Error messages provide guidance for correction
+- Long outputs are automatically truncated
 
 {{! ================ SYSTEM TOOLS ================ }}
 {{#iftool "shell"}}
@@ -21,61 +29,24 @@
 Execute shell commands on the user's system
 {{#tool "shell"}}[command]{{/tool}}
 
-The shell tool allows you to run commands directly on the user's system. It supports both simple commands and more complex scripts.
+Features: Streaming output, multi-line scripts, interruption capability
 
-Features:
-- **Streaming output**: Results appear in real-time as the command runs
-- **Intelligent interruption**: You can decide when enough output has been produced
-- **Multi-line scripts**: Include complex scripts directly in the tool body
-- **Error handling**: Captures both stdout and stderr
-
-Basic example:
+Example:
 {{#tool "shell"}}ls -la{{/tool}}
-
 {{#done "shell" 0}}
-drwxr-xr-x  14 mhornicky  primarygroup    448 Feb 27 22:11 .
-drwxr-x---+ 89 mhornicky  primarygroup   2848 Feb 27 21:59 ..
--rw-r--r--@  1 mhornicky  primarygroup   2169 Feb 27 22:09 .termineer
--rw-r--r--   1 mhornicky  primarygroup    127 Feb 27 13:44 .env
--rw-r--r--@  1 mhornicky  primarygroup    175 Feb 27 10:48 .env.example
-
+drwxr-xr-x  14 user group 448 Feb 27 22:11 .
 [COMMAND COMPLETED SUCCESSFULLY]
 {{/done}}
 
-Multi-line script example:
-{{#tool "shell"}}
-#!/bin/bash
-# Search for specific files
-echo "Searching for configuration files..."
-find . -name "*.json" -type f | grep config
-echo "Done!"
-{{/tool}}
+Interruption: Use `<continue/>` to continue or `<interrupt>Reason</interrupt>` to stop
 
-{{#done "shell" 0}}
-Searching for configuration files...
-./config.json
-./package.json
-Done!
+When to use: Explore directories, run commands, check configurations, execute scripts
 
-[COMMAND COMPLETED SUCCESSFULLY]
-{{/done}}
-
-## Command Interruption
-
-Long-running commands can be interrupted in two ways:
-
-1. **LLM-based interruption**: For commands that produce a lot of output, you'll be periodically asked if you want to interrupt. When prompted, you can:
-
-   - Continue execution:
-     ```
-     <continue/>
-     ```
-     
-   - Interrupt with a reason:
+{{! ================ FILE OPERATIONS ================ }}
      ```
      <interrupt>Sufficient matches found in search results</interrupt>
      ```
-     
+
 2. **User interruption**: The user can press Ctrl+C to manually stop the command at any time
 
 When interrupted, you'll see something like:
@@ -103,172 +74,66 @@ When to use:
 {{! ================ FILE OPERATIONS ================ }}
 {{#iftool "read"}}
 ### Read
-Read the contents of files or list directory contents:
-{{#tool "read"}}[offset=N] [limit=M] [filepath(s) or directory path]{{/tool}}
+Read files or list directories:
+{{#tool "read"}}[offset=N] [limit=M] [filepath(s) or directory]{{/tool}}
 
-Parameters:
-- `offset` (optional): Starting line number (0-indexed)
-- `limit` (optional): Maximum number of lines to read
-- `filepath(s)`: One or more file paths to read, or a directory path
+Parameters: `offset` (starting line), `limit` (max lines), `filepath(s)` (target)
 
-Important notes:
-- When using `offset` or `limit`, you can only read ONE file at a time
-- Output from very large files will be automatically truncated
-- When a directory path is provided, lists all files and subdirectories
-- For security reasons, file paths have restrictions on certain system directories
-
-Basic file read example:
-{{#tool "read"}}/etc/hosts{{/tool}}
-
-{{#done "read" 0}}
-File: /etc/hosts (lines 1-7 of 7, 7 lines read)
-
-```
-127.0.0.1 localhost
-::1 localhost ip6-localhost ip6-loopback
-fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-localnet
-fc00:db20:35b:7399::5 ip6-mcastprefix
-fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-allnodes
-fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b ip6-allrouters
-192.168.1.100 ubuntu-vm
-```
-{{/done}}
-
-Read specific lines with offset and limit:
-{{#tool "read"}}offset=0 limit=1 /etc/hosts{{/tool}}
-
-{{#done "read" 0}}
-File: /etc/hosts (lines 1-1 of 7, 1 lines read)
-
-```
-127.0.0.1 localhost
-```
-{{/done}}
-
-Read multiple files (must not use offset/limit):
-{{#tool "read"}}src/main.rs src/config.rs{{/tool}}
-
+Example:
+{{#tool "read"}}src/main.rs{{/tool}}
 {{#done "read" 0}}
 File: src/main.rs (lines 1-50 of 100, 50 lines read)
 
-```
 fn main() {
-    // Main function content here
+    // Content here
 }
-```
-
-File: src/config.rs (lines 1-30 of 30, 30 lines read)
-
-```
-// Config implementation here
-```
 {{/done}}
 
-List directory contents:
-{{#tool "read"}}/path/to/directory{{/tool}}
-
-{{#done "read" 0}}
-Directory: /path/to/directory (5 entries)
-
-src/
-tests/
-README.md
-package.json
-tsconfig.json
-{{/done}}
-
-When to use:
-- Examine code, configuration files, logs, or documentation
-- List directory contents to explore project structure
-- Understand existing implementations before making changes
-- Compare multiple related files at once
-- Verify changes after they've been made
-
-Pro tips:
-- For large files, use offset and limit to read specific sections
-- Read multiple files at once to compare related code
+When to use: Examine code, list directories, verify changes
 - Always check if files exist before trying to read them
 - Use with `patch` or `write` tools to read before making changes
 {{/iftool}}
 
 {{#iftool "write"}}
 ### Write
-Write content to a file (will overwrite any existing file):
+Write content to a file:
 {{#tool "write"}}[filepath]
 [content on multiple lines]
 {{/tool}}
 
 Example:
 {{#tool "write"}}/tmp/example.txt
-This is example content
-that spans multiple lines
-in the file.
+Content on multiple lines
 {{/tool}}
 
-{{#done "write" 0}}
-File written successfully.
-{{/done}}
-
-When to use:
-- Create new files (scripts, configs, documentation)
-- Generate complete replacements for existing files (WARNING: overwrites entire file contents)
-- Output results or generate reports
+When to use: Create new files, generate reports, replace existing files
 {{/iftool}}
 
 {{#iftool "patch"}}
 ### Patch
-Update file content by replacing specific text sections
+Update specific sections of file content:
 {{#tool "patch"}}[filepath]
 {{#patch}}
-[exact text to replace including whitespace and indentation]
+[exact text to replace]
 {{else}}
-[new text to insert instead]
+[new text to insert]
 {{/patch}}
-
 {{/tool}}
 
-{{#done "patch" 0}}
-Successfully patched file 'src/main.rs' at lines 10-15 (replaced 6 lines with 4 lines)
-{{/done}}
-
-Example with realistic code:
+Example:
 {{#tool "patch"}}src/main.rs
 {{#patch}}
 fn main() {
-    // Old implementation
-    println!("Hello, world!");
-    let x = 5;
-    println!("The value of x is: {}", x);
+    // Old code
 }
 {{else}}
 fn main() {
-    // New improved implementation
-    let x = calculate_value();
-    println!("Hello, world! The value is: {}", x);
-}
-
-fn calculate_value() -> i32 {
-    5
+    // New improved code
 }
 {{/patch}}
-
 {{/tool}}
 
-{{#done "patch" 0}}
-Successfully patched file 'src/main.rs' at lines 10-15 (replaced 6 lines with 7 lines)
-{{/done}}
-
-Important notes:
-- You must include EXACT text matching including all whitespace and indentation
-- The text to replace must be unique within the file
-- Include sufficient context (3-5 lines) around the changes to ensure uniqueness
-- The tool will show a detailed diff of your changes when executed
-
-When to use:
-- Make targeted changes to specific sections of code
-- Fix bugs or implement new features in existing files
-- Update configuration settings without rewriting entire files
-- When you need more precision than the write tool (which replaces entire files)
+When to use: Make targeted changes, update specific code sections
 {{/iftool}}
 
 {{! ================ WEB TOOLS ================ }}
@@ -280,79 +145,23 @@ Retrieve content from web URLs:
 Example:
 {{#tool "fetch"}}https://example.com{{/tool}}
 
-{{#done "fetch" 0}}
+When to use: **CRUCIAL FOR RESEARCH** - Access documentation, guides, reference materials, and examples from authoritative sources
 
-Fetched from https://example.com:
-
-# Example Domain
-
-This domain is for use in illustrative examples in documents.
-{{/done}}
-
-When to use:
-- **CRUCIAL FOR RESEARCH**: Directly access official documentation, specifications, and guides
-- Retrieve complete documentation pages when you need comprehensive details
-- Get information from public APIs, GitHub repositories, and developer resources
-- Access README files, usage guides, and API documentation
-- Study code examples, tutorials, and implementation patterns from authoritative sources
-- Examine error code references, troubleshooting guides, and FAQs
-- Incorporate external reference material into your analysis and solutions
-- Follow up on promising URLs discovered via search to get full content
-- Access community wikis, official forums, and project documentation
-
-Effective fetch workflow:
-1. First use search to find relevant resources
-2. Identify the most authoritative or helpful URLs from search results
-3. Use fetch to retrieve complete content from those URLs
-4. Extract key information, patterns, and solutions from the fetched content
-5. Apply the knowledge to the specific problem you're solving
+Workflow: 1) Search to find resources 2) Fetch from authoritative sources 3) Apply knowledge to your task
 
 {{/iftool}}
 
 {{#iftool "search"}}
 ### Search
-Search the web using Google Search API:
+Search the web for documentation and solutions:
 {{#tool "search"}}[search query]{{/tool}}
 
 Example:
 {{#tool "search"}}rust programming language{{/tool}}
 
-{{#done "search" 0}}
-Search results for "rust programming language":
+When to use: **ESSENTIAL FIRST STEP** - Begin by finding relevant documentation, tutorials, examples, and solutions
 
-1. The Rust Programming Language - Rust Programming Language
-   URL: https://doc.rust-lang.org/book/
-   The Rust Programming Language is an introductory book about Rust, a programming language that helps you write faster, more reliable software.
-
-2. Rust Programming Language
-   URL: https://www.rust-lang.org/
-   Rust is a multi-paradigm, general-purpose programming language that emphasizes performance, type safety, and concurrency.
-
-3. Learn Rust - Rust Programming Language
-   URL: https://www.rust-lang.org/learn
-   Learn Rust programming with official documentation, books, and practice exercises.
-
-Total results: 9,850,000
-Search engine time: 0.25 seconds
-Total search time: 418.43ms
-{{/done}}
-
-When to use:
-- **ESSENTIAL FIRST STEP**: Begin most tasks by searching for relevant documentation, tutorials and best practices
-- Research technical topics, libraries, frameworks, and programming concepts
-- Find official documentation, API references, and language specifications
-- Explore common patterns, architectures, and implementation approaches
-- Discover solutions to error messages, bugs, and implementation challenges
-- Research compatibility issues, version differences, and migration guides
-- Investigate security best practices and potential vulnerabilities
-- Find community discussions about pros/cons of different approaches
-- Stay updated with latest developments and recommended practices
-
-Search query tips:
-- Be specific: "react useEffect dependency array" is better than "react hooks"
-- Add context: "python argparse subcommands example" vs just "argparse"
-- Include error messages: search for specific error text for faster solutions 
-- Try multiple variations: "nodejs stream backpressure", "handling backpressure in nodejs"
+Tips: Be specific with searches, include error messages, try multiple query variations
 {{/iftool}}
 
 {{! ================ UI AUTOMATION ================ }}
@@ -602,6 +411,35 @@ Available agent kinds:
 [Subtask output]
 {{/done}}
 
+## Task Tool Usage Guide
+
+### When to Use Tasks
+- **Complex problems**: Break down problems requiring multiple specialized steps
+- **Context isolation**: Keep focused work separate from the main conversation
+- **Parallel processing**: Run independent research or implementation simultaneously
+- **Specialized expertise**: Apply specific agent kinds to targeted sub-problems
+- **Deep focus**: Allow dedicated attention to one aspect of a larger problem
+
+### Task Decomposition Patterns
+1. **Research → Design → Implement → Test**: Sequential breakdown for complete solutions
+2. **Divide and conquer**: Split by component, function, or feature
+3. **Specialist allocation**: Assign tasks based on required expertise
+4. **Depth-first exploration**: Use tasks to explore complex topics thoroughly
+5. **Breadth-first scanning**: Use multiple tasks to evaluate several approaches quickly
+
+### Information Flow Management
+- **Input context**: Use `include=` to provide relevant files as starting points
+- **Output formatting**: Request structured outputs compatible with main conversation
+- **Knowledge transfer**: Include specific instructions for reporting key findings
+- **Decision boundaries**: Define clear handoff points between tasks
+
+### Task Description Best Practices
+- Start with a clear, specific objective statement
+- List required inputs and expected outputs
+- Provide success criteria for task completion
+- Include constraints and requirements
+- Specify reporting format for results
+
 Examples:
 {{#tool "task"}}kind=code_implementer
 Implement a login form validation script
@@ -609,12 +447,23 @@ Create a JavaScript function that validates:
 - Email format
 - Password strength (8+ chars, mixed case, numbers)
 - Matching password confirmation field
+
+Expected output:
+1. A single validation.js file with JSDoc comments
+2. Clear error message handling
+3. Browser compatibility considerations
 {{/tool}}
 
 {{#tool "task"}}kind=researcher include=src/config.rs
 Research how configuration is managed in this codebase
 Focus on how configuration options are defined, loaded and accessed
 Create a comprehensive overview of the configuration system
+
+Please organize your findings into:
+1. Configuration data structures
+2. Loading/initialization process
+3. Access patterns throughout the codebase
+4. Default values and override mechanisms
 {{/tool}}
 
 {{#tool "task"}}kind=troubleshooter include=src/error.rs include=src/logging.rs
@@ -622,6 +471,12 @@ Debug the memory leak in user session handling
 The application shows increasing memory usage over time
 Memory grows with each user login/logout cycle
 Focus on the session cleanup in auth module
+
+Investigation steps:
+1. Analyze session creation and destruction patterns
+2. Identify resource acquisition and release points
+3. Look for potential reference cycles or unclosed resources
+4. Suggest specific fixes with code examples
 {{/tool}}
 
 When to use:

@@ -4,10 +4,10 @@ use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
 use lazy_static::lazy_static;
 use reqwest::Client;
+use scraper::{Html, Selector};
 use serde::Deserialize;
 use std::env;
 use std::time::Instant;
-use scraper::{Html, Selector};
 
 // Google Search API response structures
 // Uses non-snake-case to match Google API response format
@@ -44,7 +44,7 @@ struct SearchInformation {
 /// Execute DuckDuckGo search by scraping their HTML search results
 async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult {
     let start_time = Instant::now();
-    
+
     if !silent_mode {
         bprintln!(
             "{}🔍 Search:{} Searching for \"{}\" via DuckDuckGo...",
@@ -53,11 +53,11 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
             query
         );
     }
-    
+
     // URL encode the query
     let encoded_query = urlencoding::encode(query);
     let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
-    
+
     // Send the request
     let client = Client::new();
     let response = match client
@@ -88,77 +88,78 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
                 return ToolResult::error(error_msg);
             }
         };
-    
+
     // Get the HTML response
     let html = match response.text().await {
         Ok(text) => text,
         Err(err) => {
             let error_msg = format!("Error reading DuckDuckGo response: {}", err);
-            
+
             if !silent_mode {
                 eprintln!("{}", error_msg);
             }
-            
+
             return ToolResult::error(error_msg);
         }
     };
-    
+
     // Parse the HTML
     let document = Html::parse_document(&html);
-    
+
     // Define selectors for the search results
     let results_selector = match Selector::parse(".result") {
         Ok(selector) => selector,
         Err(err) => {
             let error_msg = format!("Error creating DuckDuckGo results selector: {}", err);
-            
+
             if !silent_mode {
                 eprintln!("{}", error_msg);
             }
-            
+
             return ToolResult::error(error_msg);
         }
     };
-    
+
     let title_selector = match Selector::parse(".result__title a") {
         Ok(selector) => selector,
         Err(err) => {
             let error_msg = format!("Error creating DuckDuckGo title selector: {}", err);
-            
+
             if !silent_mode {
                 eprintln!("{}", error_msg);
             }
-            
+
             return ToolResult::error(error_msg);
         }
     };
-    
+
     let snippet_selector = match Selector::parse(".result__snippet") {
         Ok(selector) => selector,
         Err(err) => {
             let error_msg = format!("Error creating DuckDuckGo snippet selector: {}", err);
-            
+
             if !silent_mode {
                 eprintln!("{}", error_msg);
             }
-            
+
             return ToolResult::error(error_msg);
         }
     };
-    
+
     // Format the results for output
     let mut formatted_results = format!("Search results for \"{}\" (via DuckDuckGo):\n\n", query);
-    
+
     // Extract search results
     let mut result_count = 0;
-    
+
     for (i, result) in document.select(&results_selector).enumerate() {
-        if i >= 10 {  // Limit to top 10 results
+        if i >= 10 {
+            // Limit to top 10 results
             break;
         }
-        
+
         result_count += 1;
-        
+
         // Extract title
         let title = match result.select(&title_selector).next() {
             Some(el) => {
@@ -167,16 +168,16 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
                     title.push_str(text);
                 }
                 title.trim().to_string()
-            },
-            None => "No title".to_string()
+            }
+            None => "No title".to_string(),
         };
-        
+
         // Extract URL
         let url = match result.select(&title_selector).next() {
             Some(el) => el.value().attr("href").unwrap_or("No URL"),
-            None => "No URL"
+            None => "No URL",
         };
-        
+
         // Clean up the URL (DuckDuckGo uses redirects)
         let url = if url.contains("/l/?uddg=") {
             // Extract the actual URL from the redirect
@@ -185,7 +186,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
                 let encoded_url = parts[1].split('&').next().unwrap_or(parts[1]);
                 match urlencoding::decode(encoded_url) {
                     Ok(decoded) => decoded.to_string(),
-                    Err(_) => encoded_url.to_string()
+                    Err(_) => encoded_url.to_string(),
                 }
             } else {
                 url.to_string()
@@ -195,7 +196,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
         } else {
             url.to_string()
         };
-        
+
         // Extract snippet
         let snippet = match result.select(&snippet_selector).next() {
             Some(el) => {
@@ -204,10 +205,10 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
                     snippet.push_str(text);
                 }
                 snippet.trim().to_string()
-            },
-            None => "No description".to_string()
+            }
+            None => "No description".to_string(),
         };
-        
+
         // Add formatted result to output
         formatted_results.push_str(&format!(
             "{}{}. {}{}\n",
@@ -216,22 +217,19 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
             title,
             FORMAT_RESET
         ));
-        formatted_results.push_str(&format!(
-            "{}   URL: {}{}\n",
-            FORMAT_GRAY, url, FORMAT_RESET
-        ));
+        formatted_results.push_str(&format!("{}   URL: {}{}\n", FORMAT_GRAY, url, FORMAT_RESET));
         formatted_results.push_str(&format!(
             "{}   {}{}\n\n",
             FORMAT_GRAY, snippet, FORMAT_RESET
         ));
     }
-    
+
     if result_count == 0 {
         formatted_results.push_str("No results found.\n");
     }
-    
+
     let elapsed = start_time.elapsed();
-    
+
     if !silent_mode {
         bprintln!(tool: "search",
             "Found {} results for \"{}\" via DuckDuckGo (in {:.2}ms)",
@@ -241,7 +239,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
         );
         bprintln!("{}", formatted_results);
     }
-    
+
     ToolResult::success(formatted_results)
 }
 
@@ -255,7 +253,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
             if !silent_mode {
                 bprintln!(info: "GOOGLE_API_KEY not found, falling back to DuckDuckGo search");
             }
-            
+
             // Fall back to DuckDuckGo search
             return execute_duckduckgo_search(args.trim(), silent_mode).await;
         }

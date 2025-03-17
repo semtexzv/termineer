@@ -33,7 +33,7 @@ impl ErrorCode {
             _ => None,
         }
     }
-    
+
     /// Get a description for this error code
     pub fn description(&self) -> &'static str {
         match self {
@@ -78,11 +78,14 @@ pub enum McpError {
     /// Protocol error
     #[error("Protocol error: {0}")]
     ProtocolError(String),
-    
+
     /// Standard error with code
     #[error("{} ({0})", code.description())]
     #[allow(dead_code)]
-    StandardError { code: ErrorCode, data: Option<String> },
+    StandardError {
+        code: ErrorCode,
+        data: Option<String>,
+    },
 }
 
 impl McpError {
@@ -91,7 +94,7 @@ impl McpError {
     pub fn standard(code: ErrorCode, data: Option<String>) -> Self {
         Self::StandardError { code, data }
     }
-    
+
     /// Convert from JsonRpcError to McpError with better error code handling
     #[allow(dead_code)]
     pub fn from_json_rpc_error(error: JsonRpcError) -> Self {

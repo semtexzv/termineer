@@ -114,18 +114,18 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
             style.reset();
             return;
         }
-        
+
         // Process the code parts
         let parts: Vec<&str> = code_str.split(';').collect();
         let mut i = 0;
-        
+
         while i < parts.len() {
             let part = parts[i];
-            
+
             match part {
                 "0" => style.reset(),
                 "1" => style.bold = true,
-                
+
                 // Basic foreground colors
                 "30" => style.fg_color = Some(Color::Black),
                 "31" => style.fg_color = Some(Color::Red),
@@ -136,7 +136,7 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
                 "36" => style.fg_color = Some(Color::Cyan),
                 "37" => style.fg_color = Some(Color::White),
                 "90" => style.fg_color = Some(Color::Gray),
-                
+
                 // Basic background colors
                 "40" => style.bg_color = Some(Color::Black),
                 "41" => style.bg_color = Some(Color::Red),
@@ -146,7 +146,7 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
                 "45" => style.bg_color = Some(Color::Magenta),
                 "46" => style.bg_color = Some(Color::Cyan),
                 "47" => style.bg_color = Some(Color::White),
-                
+
                 // Extended color codes for foreground and background
                 "38" => {
                     if i + 2 < parts.len() {
@@ -156,7 +156,7 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
                                 style.fg_color = Some(Color::Indexed(color_index));
                                 i += 2; // Skip the next two parts
                             }
-                        } 
+                        }
                         // RGB color mode uses "2" as the first parameter
                         else if parts[i + 1] == "2" && i + 4 < parts.len() {
                             if let (Ok(r), Ok(g), Ok(b)) = (
@@ -169,8 +169,8 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
                             }
                         }
                     }
-                },
-                
+                }
+
                 // Extended background colors
                 "48" => {
                     if i + 2 < parts.len() {
@@ -180,7 +180,7 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
                                 style.bg_color = Some(Color::Indexed(color_index));
                                 i += 2; // Skip the next two parts
                             }
-                        } 
+                        }
                         // RGB color mode uses "2" as the first parameter
                         else if parts[i + 1] == "2" && i + 4 < parts.len() {
                             if let (Ok(r), Ok(g), Ok(b)) = (
@@ -193,11 +193,11 @@ fn parse_escape_sequence(sequence: &str, style: &mut StyleState) {
                             }
                         }
                     }
-                },
-                
+                }
+
                 _ => {} // Ignore unsupported codes
             }
-            
+
             i += 1;
         }
     }

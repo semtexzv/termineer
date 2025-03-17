@@ -64,7 +64,7 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
                 model_name: model.trim().to_string(), // Keep the provider/model part intact
             };
         }
-        
+
         // Extract provider and model for non-OpenRouter providers
         let provider_type = match provider.trim().to_lowercase().as_str() {
             "anthropic" => Provider::Anthropic,
@@ -119,11 +119,17 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
         Provider::Google => {
             let api_key = resolve_google_api_key()?;
             // Pass model name directly without translation
-            Ok(Box::new(crate::llm::gemini::GeminiBackend::new(api_key, model_info.model_name)))
+            Ok(Box::new(crate::llm::gemini::GeminiBackend::new(
+                api_key,
+                model_info.model_name,
+            )))
         }
         Provider::DeepSeek => {
             let api_key = resolve_deepseek_api_key()?;
-            Ok(Box::new(DeepSeekBackend::new(api_key, model_info.model_name)))
+            Ok(Box::new(DeepSeekBackend::new(
+                api_key,
+                model_info.model_name,
+            )))
         }
         Provider::Cohere => {
             let api_key = resolve_cohere_api_key()?;
@@ -135,23 +141,21 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
         }
         Provider::OpenRouter => {
             let api_key = resolve_openrouter_api_key()?;
-            
+
             // Get optional site URL and name for ranking on OpenRouter
             let site_url = env::var("OPENROUTER_SITE_URL").ok();
             let site_name = env::var("OPENROUTER_SITE_NAME").ok();
-            
+
             Ok(Box::new(OpenRouterBackend::new(
-                api_key, 
+                api_key,
                 model_info.model_name,
                 site_url,
-                site_name
+                site_name,
             )))
         }
-        Provider::OpenAI => {
-            Err(LlmError::ConfigError(
-                "OpenAI provider is not implemented in this version".into(),
-            ))
-        }
+        Provider::OpenAI => Err(LlmError::ConfigError(
+            "OpenAI provider is not implemented in this version".into(),
+        )),
         Provider::Unknown(provider) => {
             let provider_msg = if provider.is_empty() {
                 format!("Unknown model '{}'. Cannot determine provider.", model_str)
@@ -212,8 +216,11 @@ fn is_deepseek_model(model: &str) -> bool {
 /// Determine if a model name belongs to Cohere
 fn is_cohere_model(model: &str) -> bool {
     // Cohere model identifiers
-    model.starts_with("command-") || model == "command" || 
-    model == "command-r" || model == "command-r-plus" || model == "command-light"
+    model.starts_with("command-")
+        || model == "command"
+        || model == "command-r"
+        || model == "command-r-plus"
+        || model == "command-light"
 }
 
 /// Determine if a model name belongs to xAI Grok
@@ -236,8 +243,9 @@ fn resolve_google_api_key() -> Result<String, LlmError> {
 
 /// Resolve OpenRouter API key from environment variables
 fn resolve_openrouter_api_key() -> Result<String, LlmError> {
-    env::var("OPENROUTER_API_KEY")
-        .map_err(|_| LlmError::ConfigError("OPENROUTER_API_KEY environment variable not set".into()))
+    env::var("OPENROUTER_API_KEY").map_err(|_| {
+        LlmError::ConfigError("OPENROUTER_API_KEY environment variable not set".into())
+    })
 }
 
 /// Resolve DeepSeek API key from environment variables

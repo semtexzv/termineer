@@ -183,7 +183,7 @@ fn collect_truncation_candidates(messages: &[Message]) -> Vec<TruncationCandidat
                         is_invocation: false,
                     });
                 }
-            },
+            }
             // Add handling for other message types here
             _ => {}
         }

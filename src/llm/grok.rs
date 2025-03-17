@@ -14,16 +14,16 @@ const API_BASE_URL: &str = "https://api.x.ai/v1";
 /// Get the token limit for a Grok model
 fn get_model_token_limit(model_name: &str) -> usize {
     const DEFAULT_TOKEN_LIMIT: usize = 32_000;
-    
+
     // Model-specific token limits
     if model_name.contains("grok-2") {
         return 128_000; // 128K context window for Grok 2
     }
-    
+
     if model_name.contains("grok-beta") {
         return 32_000; // Older model has smaller context window
     }
-    
+
     DEFAULT_TOKEN_LIMIT
 }
 
@@ -97,7 +97,7 @@ impl GrokBackend {
     /// Convert Termineer messages to Grok format
     fn convert_messages(&self, messages: &[Message], system: Option<&str>) -> Vec<GrokMessage> {
         let mut grok_messages = Vec::new();
-        
+
         // Add system message if provided
         if let Some(sys) = system {
             grok_messages.push(GrokMessage {
@@ -105,7 +105,7 @@ impl GrokBackend {
                 content: sys.to_string(),
             });
         }
-        
+
         // Convert regular messages
         for message in messages {
             // Extract text content
@@ -113,7 +113,7 @@ impl GrokBackend {
                 Content::Text { text } => text.clone(),
                 _ => continue, // Skip non-text content for now
             };
-            
+
             // Map roles to Grok format (similar to OpenAI)
             let role = match message.role.as_str() {
                 "user" => "user",
@@ -121,13 +121,13 @@ impl GrokBackend {
                 "system" => "system",
                 _ => continue, // Skip unknown roles
             };
-            
+
             grok_messages.push(GrokMessage {
                 role: role.to_string(),
                 content: text,
             });
         }
-        
+
         grok_messages
     }
 
@@ -137,14 +137,14 @@ impl GrokBackend {
         path: &str,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
-        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
-        
+        use crate::llm::retry_utils::{send_api_request_with_retry, RetryConfig};
+
         // Use standard retry configuration
         const MAX_ATTEMPTS: u32 = 5;
         const BASE_RETRY_DELAY_MS: u64 = 1000;
         const MAX_RETRY_DELAY_MS: u64 = 30000;
         const REQUEST_TIMEOUT_SECS: u64 = 180;
-        
+
         let config = RetryConfig {
             max_attempts: MAX_ATTEMPTS,
             base_delay_ms: BASE_RETRY_DELAY_MS,
@@ -152,10 +152,10 @@ impl GrokBackend {
             timeout_secs: REQUEST_TIMEOUT_SECS,
             use_exponential: false,
         };
-        
+
         // Construct the API URL
         let url = format!("{}{}", API_BASE_URL, path);
-        
+
         // Create request with proper headers
         let prepare_request = || {
             self.client
@@ -164,9 +164,10 @@ impl GrokBackend {
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .json(&request_json)
         };
-        
+
         // Use the standardized retry utility
-        send_api_request_with_retry::<T, _>(&self.client, &url, prepare_request, config, "Grok").await
+        send_api_request_with_retry::<T, _>(&self.client, &url, prepare_request, config, "Grok")
+            .await
     }
 }
 
@@ -185,23 +186,21 @@ impl Backend for GrokBackend {
         if thinking_budget.is_some() {
             crate::bprintln!(dev: "Thinking is not supported by Grok models, ignoring thinking_budget");
         }
-        
+
         if cache_points.is_some() {
             crate::bprintln!(dev: "Cache points are not supported by Grok models, ignoring cache_points");
         }
-        
+
         // Convert messages to Grok format
         let grok_messages = self.convert_messages(messages, system);
-        
+
         // Default max tokens if not provided
         let default_max_tokens = 2048;
         let tokens = max_tokens.unwrap_or(default_max_tokens);
-        
+
         // Prepare stop sequences
-        let stop_seqs = stop_sequences
-            .map(|seqs| seqs.to_vec())
-            .unwrap_or_default();
-        
+        let stop_seqs = stop_sequences.map(|seqs| seqs.to_vec()).unwrap_or_default();
+
         // Create request
         let request = GrokChatRequest {
             model: self.model.clone(),
@@ -212,17 +211,20 @@ impl Backend for GrokBackend {
         };
 
         // Send request to the Grok chat endpoint
-        let grok_response: GrokResponse = 
-            self.send_api_request("/chat/completions", serde_json::to_value(request).unwrap()).await?;
+        let grok_response: GrokResponse = self
+            .send_api_request("/chat/completions", serde_json::to_value(request).unwrap())
+            .await?;
 
         // Extract response text from the first choice
         if grok_response.choices.is_empty() {
-            return Err(LlmError::ApiError("No response choices returned from Grok API".to_string()));
+            return Err(LlmError::ApiError(
+                "No response choices returned from Grok API".to_string(),
+            ));
         }
-        
+
         let choice = &grok_response.choices[0];
         let response_text = choice.message.content.clone();
-        
+
         // Create token usage info
         let token_usage = TokenUsage {
             input_tokens: grok_response.usage.prompt_tokens as usize,
@@ -232,7 +234,9 @@ impl Backend for GrokBackend {
         };
 
         Ok(LlmResponse {
-            content: vec![Content::Text { text: response_text }],
+            content: vec![Content::Text {
+                text: response_text,
+            }],
             usage: Some(token_usage),
             stop_reason: choice.finish_reason.clone(),
             stop_sequence: None,
@@ -246,8 +250,9 @@ impl Backend for GrokBackend {
     ) -> Result<TokenUsage, LlmError> {
         // Grok doesn't have a tokenization endpoint, so we'll use a character-based estimate
         // Rough approximation: 1 token ≈ 4 characters
-        
-        let char_count = messages.iter()
+
+        let char_count = messages
+            .iter()
             .filter_map(|msg| {
                 if let Content::Text { text } = &msg.content {
                     Some(text.len())
@@ -256,17 +261,17 @@ impl Backend for GrokBackend {
                 }
             })
             .sum::<usize>();
-            
+
         // Add system message if present
         let total_chars = if let Some(sys) = system {
             char_count + sys.len()
         } else {
             char_count
         };
-        
+
         // Estimate tokens (approximate)
         let estimated_tokens = (total_chars as f64 / 4.0).ceil() as usize;
-        
+
         Ok(TokenUsage {
             input_tokens: estimated_tokens,
             output_tokens: 0,

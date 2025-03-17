@@ -12,7 +12,7 @@ use crate::tools::ToolResult;
 use accessibility_ng::{AXUIElement, AXUIElementAttributes};
 use accessibility_sys_ng::{pid_t, AXIsProcessTrusted};
 use core_graphics_types::geometry::{CGPoint, CGSize};
-use objc2::rc::{ Retained};
+use objc2::rc::Retained;
 use objc2::runtime::NSObject;
 use objc2::{class, msg_send};
 use objc2_app_kit::NSWorkspace;
@@ -243,7 +243,7 @@ fn get_application_name(pid: pid_t) -> Result<String, String> {
     unsafe {
         // Get the shared workspace using the static method
         let workspace: Retained<NSWorkspace> = msg_send![class!(NSWorkspace), sharedWorkspace];
-        
+
         // Get running applications
         let running_apps: Retained<NSArray<NSObject>> = msg_send![&workspace, runningApplications];
         let count = running_apps.count();

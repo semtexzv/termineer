@@ -1,5 +1,5 @@
 //! OpenRouter API integration for Termineer
-//! 
+//!
 //! Implementation of the LLM provider for OpenRouter's unified API
 //! which provides access to models from multiple providers including
 //! OpenAI, Anthropic, and more.
@@ -169,10 +169,10 @@ pub struct OpenRouterBackend {
 impl OpenRouterBackend {
     /// Create a new OpenRouter client
     pub fn new(
-        api_key: String, 
+        api_key: String,
         model_name: String,
         site_url: Option<String>,
-        site_name: Option<String>
+        site_name: Option<String>,
     ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(300)) // 5 minute timeout for long context
@@ -189,7 +189,11 @@ impl OpenRouterBackend {
     }
 
     /// Convert Termineer messages to OpenRouter format
-    fn convert_messages(&self, messages: &[Message], system: Option<&str>) -> Vec<OpenRouterMessage> {
+    fn convert_messages(
+        &self,
+        messages: &[Message],
+        system: Option<&str>,
+    ) -> Vec<OpenRouterMessage> {
         let mut openrouter_messages = Vec::new();
 
         // Add system message first if provided
@@ -213,8 +217,8 @@ impl OpenRouterBackend {
                 "user" => "user",
                 "assistant" => "assistant",
                 "system" => continue, // Skip, already handled
-                "tool" => "tool", // OpenRouter supports tool messages
-                _ => continue,     // Skip unknown roles
+                "tool" => "tool",     // OpenRouter supports tool messages
+                _ => continue,        // Skip unknown roles
             };
 
             // Convert content based on type
@@ -225,28 +229,24 @@ impl OpenRouterBackend {
                     match source {
                         crate::llm::ImageSource::Base64 { data, media_type } => {
                             let base64_url = format!("data:{};base64,{}", media_type, data);
-                            let parts = vec![
-                                OpenRouterContentPart::ImageUrl { 
-                                    image_url: OpenRouterImageUrl { 
-                                        url: base64_url, 
-                                        detail: None 
-                                    }
-                                }
-                            ];
+                            let parts = vec![OpenRouterContentPart::ImageUrl {
+                                image_url: OpenRouterImageUrl {
+                                    url: base64_url,
+                                    detail: None,
+                                },
+                            }];
                             OpenRouterContent::Parts(parts)
                         }
                     }
-                },
+                }
                 // Other content types not currently supported in multimodal format
                 Content::Thinking { thinking, .. } => {
                     OpenRouterContent::Text(thinking.clone().unwrap_or_default())
-                },
+                }
                 Content::RedactedThinking { data } => {
                     OpenRouterContent::Text(data.clone().unwrap_or_default())
-                },
-                Content::Document { source } => {
-                    OpenRouterContent::Text(source.clone())
                 }
+                Content::Document { source } => OpenRouterContent::Text(source.clone()),
             };
 
             // No user info in MessageInfo in this codebase - just pass None for name
@@ -268,20 +268,20 @@ impl OpenRouterBackend {
         endpoint: &str,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
-        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
-        
+        use crate::llm::retry_utils::{send_api_request_with_retry, RetryConfig};
+
         // Create retry configuration - use linear backoff for OpenRouter
         let config = RetryConfig {
             max_attempts: 5,
-            base_delay_ms: 1000, // 1 second initial delay
-            max_delay_ms: 30000, // Maximum 30 second delay (per TODO)
-            timeout_secs: 180,   // 3 minute timeout (per TODO range of 100-200s)
+            base_delay_ms: 1000,    // 1 second initial delay
+            max_delay_ms: 30000,    // Maximum 30 second delay (per TODO)
+            timeout_secs: 180,      // 3 minute timeout (per TODO range of 100-200s)
             use_exponential: false, // Use linear backoff for OpenRouter
         };
-        
+
         // Construct the API URL
         let api_url = format!("{}{}", API_BASE_URL, endpoint);
-        
+
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
             // Build the request with headers
@@ -302,9 +302,16 @@ impl OpenRouterBackend {
             // Add the request body
             request.json(&request_json)
         };
-        
+
         // Use the standardized retry utility
-        send_api_request_with_retry::<T, _>(&self.client, &api_url, prepare_request, config, "OpenRouter").await
+        send_api_request_with_retry::<T, _>(
+            &self.client,
+            &api_url,
+            prepare_request,
+            config,
+            "OpenRouter",
+        )
+        .await
     }
 }
 
@@ -323,19 +330,17 @@ impl Backend for OpenRouterBackend {
         if thinking_budget.is_some() {
             bprintln!(info: "Thinking is not supported by OpenRouter, ignoring thinking_budget");
         }
-        
+
         if cache_points.is_some() {
             bprintln!(info: "Cache points are not supported by OpenRouter, ignoring cache_points");
         }
-        
+
         // Convert messages to OpenRouter format
         let openrouter_messages = self.convert_messages(messages, system);
-        
+
         // Set up stop sequences if provided
-        let stop = stop_sequences
-            .map(|seqs| seqs.to_vec())
-            .unwrap_or_default();
-        
+        let stop = stop_sequences.map(|seqs| seqs.to_vec()).unwrap_or_default();
+
         // Create the request
         let request = OpenRouterRequest {
             model: Some(self.model_name.clone()),
@@ -343,18 +348,21 @@ impl Backend for OpenRouterBackend {
             stream: None, // Not using streaming in this implementation
             max_tokens: max_tokens.map(|t| t as u32),
             temperature: Some(0.7), // Default temperature
-            top_p: Some(0.95), // Default top_p
+            top_p: Some(0.95),      // Default top_p
             stop,
             seed: None, // No deterministic seed by default
         };
 
         // Send the request to the chat completions endpoint
-        let openrouter_response: OpenRouterResponse = 
-            self.send_api_request("/chat/completions", serde_json::to_value(request).unwrap()).await?;
+        let openrouter_response: OpenRouterResponse = self
+            .send_api_request("/chat/completions", serde_json::to_value(request).unwrap())
+            .await?;
 
         // Extract the generated text
         if openrouter_response.choices.is_empty() {
-            return Err(LlmError::ApiError("No choices returned from OpenRouter API".to_string()));
+            return Err(LlmError::ApiError(
+                "No choices returned from OpenRouter API".to_string(),
+            ));
         }
 
         let choice = &openrouter_response.choices[0];
@@ -379,10 +387,15 @@ impl Backend for OpenRouterBackend {
         };
 
         // Extract finish reason
-        let finish_reason = choice.finish_reason.clone().unwrap_or_else(|| "unknown".to_string());
+        let finish_reason = choice
+            .finish_reason
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
 
         Ok(LlmResponse {
-            content: vec![Content::Text { text: response_text }],
+            content: vec![Content::Text {
+                text: response_text,
+            }],
             usage: Some(token_usage),
             stop_reason: Some(finish_reason),
             stop_sequence: None, // Not provided by API
@@ -396,20 +409,23 @@ impl Backend for OpenRouterBackend {
     ) -> Result<TokenUsage, LlmError> {
         // Use a simple character-based estimation
         // This is a rough approximation since OpenRouter doesn't provide a token counting endpoint
-        let estimate_tokens: usize = messages.iter()
+        let estimate_tokens: usize = messages
+            .iter()
             .map(|msg| {
                 match &msg.content {
                     Content::Text { text } => text.len() / 4, // Rough estimate: ~4 chars per token
-                    Content::Image { .. } => 1000, // Rough estimate for images 
-                    Content::Thinking { thinking, .. } => thinking.as_ref().map_or(0, |t| t.len() / 4),
+                    Content::Image { .. } => 1000,            // Rough estimate for images
+                    Content::Thinking { thinking, .. } => {
+                        thinking.as_ref().map_or(0, |t| t.len() / 4)
+                    }
                     Content::RedactedThinking { data } => data.as_ref().map_or(0, |d| d.len() / 4),
                     Content::Document { source } => source.len() / 4,
                 }
             })
             .sum();
-            
+
         let sys_tokens: usize = system.map_or(0, |sys| sys.len() / 4);
-        
+
         Ok(TokenUsage {
             input_tokens: estimate_tokens + sys_tokens,
             output_tokens: 0,

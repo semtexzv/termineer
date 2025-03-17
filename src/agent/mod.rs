@@ -16,17 +16,16 @@ pub mod types;
 pub use types::{AgentId, AgentMessage, AgentReceiver, AgentState};
 
 // Import manager implementation
+use crate::config::Config;
+use crate::output::SharedBuffer;
 use lazy_static::lazy_static;
 use manager::AgentManager;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use crate::config::Config;
-use crate::output::SharedBuffer;
 
 // Global agent manager available to all components
 lazy_static! {
-    static ref AGENT_MANAGER: Arc<Mutex<AgentManager>> =
-        Arc::new(Mutex::new(AgentManager::new()));
+    static ref AGENT_MANAGER: Arc<Mutex<AgentManager>> = Arc::new(Mutex::new(AgentManager::new()));
 }
 
 // Public static methods for interacting with the agent manager
@@ -38,7 +37,11 @@ pub fn create_agent(name: String, config: Config) -> Result<AgentId, types::Agen
 }
 
 /// Create a new agent with the given name, configuration, and buffer
-pub fn create_agent_with_buffer(name: String, config: Config, buffer: SharedBuffer) -> Result<AgentId, types::AgentError> {
+pub fn create_agent_with_buffer(
+    name: String,
+    config: Config,
+    buffer: SharedBuffer,
+) -> Result<AgentId, types::AgentError> {
     let mut manager = AGENT_MANAGER.lock().unwrap();
     manager.create_agent_with_buffer(name, config, buffer)
 }
@@ -96,7 +99,7 @@ pub fn interrupt_agent_with_reason(id: AgentId, reason: String) -> Result<(), ty
 pub async fn terminate_agent(id: AgentId) -> Result<(), types::AgentError> {
     // Extract agent info before locking
     let agent_id = id;
-    
+
     // Get a clone of the agent handle to send termination signals outside the lock
     let (interrupt_sender, sender) = {
         let manager = AGENT_MANAGER.lock().unwrap();
@@ -106,13 +109,15 @@ pub async fn terminate_agent(id: AgentId) -> Result<(), types::AgentError> {
             return Err(types::AgentError::AgentNotFound(agent_id));
         }
     };
-    
+
     // Send interrupt signal
-    let _ = interrupt_sender.try_send(types::InterruptSignal::new(Some("Agent terminating".to_string())));
-    
+    let _ = interrupt_sender.try_send(types::InterruptSignal::new(Some(
+        "Agent terminating".to_string(),
+    )));
+
     // Send terminate message
     let _ = sender.try_send(AgentMessage::Terminate);
-    
+
     // Now remove from manager
     let mut manager = AGENT_MANAGER.lock().unwrap();
     manager.remove_agent(agent_id)
@@ -122,7 +127,7 @@ pub async fn terminate_agent(id: AgentId) -> Result<(), types::AgentError> {
 pub async fn terminate_all() {
     // Get all agents first
     let agents = get_agents();
-    
+
     // Terminate each agent independently
     for (id, _) in agents {
         let _ = terminate_agent(id).await;
@@ -130,41 +135,41 @@ pub async fn terminate_all() {
 }
 
 /// Run an agent with a query until it completes and return the response
-/// 
+///
 /// This function waits for the agent to reach the Done state with a response.
 /// It relies on the agent properly setting its state to Done with the response
 /// when it completes its task.
-/// 
+///
 /// Parameters:
 /// - agent_id: The ID of the agent to run
 /// - query: The query to send to the agent
 /// - timeout_seconds: Maximum time to wait for completion in seconds (default: 300)
-/// 
+///
 /// Returns:
 /// - The response from the agent if successful
 pub async fn run_agent_to_completion(
-    agent_id: AgentId, 
+    agent_id: AgentId,
     query: String,
-    timeout_seconds: Option<u64>
+    timeout_seconds: Option<u64>,
 ) -> Result<String, types::AgentError> {
     // Send the query to the agent
     send_message(agent_id, AgentMessage::UserInput(query))?;
-    
+
     // Set timeout (default: 5 minutes)
     let timeout = Duration::from_secs(timeout_seconds.unwrap_or(300));
     let start_time = std::time::Instant::now();
     let mut last_polling_time = std::time::Instant::now();
     let polling_interval = Duration::from_millis(500);
-    
+
     // Keep checking the agent state until it's done or timeout
     while start_time.elapsed() < timeout {
         // Only poll at the specified interval
         if last_polling_time.elapsed() >= polling_interval {
             last_polling_time = std::time::Instant::now();
-            
+
             // Get the agent state
             let state = get_agent_state(agent_id)?;
-            
+
             // Check if the agent is done
             if let AgentState::Done(Some(response)) = state {
                 // Agent is done with a response
@@ -177,14 +182,14 @@ pub async fn run_agent_to_completion(
                 return Err(types::AgentError::Terminated);
             }
         }
-        
+
         // Small sleep to avoid tight loop
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    
+
     // If we reached here, we timed out
     Err(types::AgentError::Timeout(format!(
-        "Agent did not complete within {} seconds", 
+        "Agent did not complete within {} seconds",
         timeout.as_secs()
     )))
 }

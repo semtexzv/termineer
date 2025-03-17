@@ -21,13 +21,20 @@ include!(concat!(env!("OUT_DIR"), "/encrypted_prompts.rs"));
 /// List of all available tools
 pub const ALL_TOOLS: &[&str] = &[
     "shell",
-    "read", "write", "patch", "fetch", "search",
+    "read",
+    "write",
+    "patch",
+    "fetch",
+    "search",
     #[cfg(target_os = "macos")]
     "screenshot",
     #[cfg(target_os = "macos")]
     "screendump",
     #[cfg(target_os = "macos")]
-    "input", "task", "done", "wait",
+    "input",
+    "task",
+    "done",
+    "wait",
 ];
 
 /// List of tools available to Plus/Pro users only
@@ -35,7 +42,14 @@ pub const PLUS_TOOLS: &[&str] = &["agent"];
 
 /// List of read-only tools (excludes tools that can modify the filesystem)
 pub const READONLY_TOOLS: &[&str] = &[
-    "shell", "read", "fetch", "search", "screenshot", "screendump", "done", "wait",
+    "shell",
+    "read",
+    "fetch",
+    "search",
+    "screenshot",
+    "screendump",
+    "done",
+    "wait",
     // Note: 'input' is not included as it modifies application state
 ];
 
@@ -49,7 +63,6 @@ pub fn is_valid_kind(kind_name: &str) -> bool {
         .position(|it| it == &kind_name)
         .is_some()
 }
-
 
 /// Render a template with specific tools enabled
 ///
@@ -69,29 +82,36 @@ pub fn render_template(
 ) -> anyhow::Result<String> {
     // Create a template manager
     let mut template_manager = TemplateManager::new(grammar);
-    
+
     // Load all templates to ensure partials are available
     match template_manager.load_all_templates() {
         Ok(_) => {
             // Create a data object for template variables
             let mut data = serde_json::Map::new();
-            
+
             // Convert all enabled tools to lowercase
-            let lowercase_tools: Vec<String> = enabled_tools.iter().map(|s| s.to_lowercase()).collect();
-            
+            let lowercase_tools: Vec<String> =
+                enabled_tools.iter().map(|s| s.to_lowercase()).collect();
+
             // Add the enabled_tools array for template usage
-            data.insert("enabled_tools".to_string(), serde_json::json!(lowercase_tools));
-            
+            data.insert(
+                "enabled_tools".to_string(),
+                serde_json::json!(lowercase_tools),
+            );
+
             // Add MCP tools information to the template data
             let mut data_value = serde_json::Value::Object(data);
             crate::mcp::add_mcp_tools_to_prompt(&mut data_value);
-            
+
             // Render the template with the variables
-            match template_manager.handlebars.render(template_name, &data_value) {
+            match template_manager
+                .handlebars
+                .render(template_name, &data_value)
+            {
                 Ok(rendered) => {
                     // bprintln!(dev: "{}", rendered);
                     Ok(rendered)
-                },
+                }
                 Err(_) => {
                     bail!("Error generating system prompt: {}", template_name);
                 }
@@ -146,31 +166,38 @@ pub fn generate_system_prompt(
 
     // Determine if we're using read-only tools
     let using_readonly = {
-        let readonly_set: std::collections::HashSet<&str> = READONLY_TOOLS.iter().copied().collect();
+        let readonly_set: std::collections::HashSet<&str> =
+            READONLY_TOOLS.iter().copied().collect();
         let enabled_set: std::collections::HashSet<&str> = enabled_tools.iter().copied().collect();
         readonly_set == enabled_set
     };
-    
+
     // Get the current app mode
     let app_mode = crate::config::get_app_mode();
-    
+
     // Determine if the user has Plus or Pro subscription
     let has_plus = matches!(
         app_mode,
         crate::config::AppMode::Plus | crate::config::AppMode::Pro
     );
-    
+
     // Create a set of premium tools for filtering
     let premium_tools: std::collections::HashSet<&str> = PLUS_TOOLS.iter().copied().collect();
-    
+
     // Combine standard tools with appropriate Plus tools based on subscription and read-only mode
     let mut combined_tools = Vec::with_capacity(
-        enabled_tools.len() + 
-        if has_plus { 
-            if using_readonly { READONLY_PLUS_TOOLS.len() } else { PLUS_TOOLS.len() } 
-        } else { 0 }
+        enabled_tools.len()
+            + if has_plus {
+                if using_readonly {
+                    READONLY_PLUS_TOOLS.len()
+                } else {
+                    PLUS_TOOLS.len()
+                }
+            } else {
+                0
+            },
     );
-    
+
     // Add standard tools, filtering out premium tools for free users
     for tool in enabled_tools {
         // For Free users, skip premium tools even if they're passed in enabled_tools
@@ -179,7 +206,7 @@ pub fn generate_system_prompt(
         }
         combined_tools.push(*tool);
     }
-    
+
     // Log the final list of tools included in the prompt (for debugging)
     bprintln!(dev: "{}Including {} tools in prompt:{} {}",
         crate::constants::FORMAT_BOLD,
@@ -187,16 +214,18 @@ pub fn generate_system_prompt(
         crate::constants::FORMAT_RESET,
         combined_tools.join(", ")
     );
-    
+
     // Create a helper function to check if a tool is disabled
     let is_tool_disabled = |tool: &str| -> bool {
         if let Some(disabled) = disabled_tools {
-            disabled.iter().any(|d| d.to_lowercase() == tool.to_lowercase())
+            disabled
+                .iter()
+                .any(|d| d.to_lowercase() == tool.to_lowercase())
         } else {
             false
         }
     };
-    
+
     // If user has Plus/Pro, add appropriate Plus-only tools
     if has_plus {
         if using_readonly {
@@ -233,13 +262,19 @@ fn check_kind_access(requested_kind: &str) -> Result<String, anyhow::Error> {
 
     // Check for plus/ and pro/ prefixes in the kind name
     if requested_kind.starts_with("plus/") && matches!(app_mode, AppMode::Free) {
-        bail!("The '{}' agent kind requires a Plus or Pro subscription.", requested_kind);
+        bail!(
+            "The '{}' agent kind requires a Plus or Pro subscription.",
+            requested_kind
+        );
     }
 
     if requested_kind.starts_with("pro/") {
         match app_mode {
             AppMode::Free | AppMode::Plus => {
-                bail!("The '{}' agent kind requires a Pro subscription.", requested_kind);
+                bail!(
+                    "The '{}' agent kind requires a Pro subscription.",
+                    requested_kind
+                );
             }
             AppMode::Pro => {
                 // Pro users can access pro templates

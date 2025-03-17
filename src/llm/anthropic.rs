@@ -36,7 +36,7 @@ fn get_model_token_limit(model_name: &str) -> usize {
     }
 
     // Claude 2.0 and Claude 2 base (100K token context)
-    if model_name.contains("claude-2") |  model_name.contains("claude-instant") {
+    if model_name.contains("claude-2") | model_name.contains("claude-instant") {
         return 100_000;
     }
 
@@ -141,27 +141,29 @@ impl Anthropic {
     const MAX_RETRY_DELAY_MS: u64 = 30000; // Maximum retry delay (30 seconds) as per TODO
     const REQUEST_TIMEOUT_SECS: u64 = 180; // 3 minutes timeout (within 100-200s range from TODO)
     const TOKEN_COUNT_TIMEOUT_SECS: u64 = 60; // 1 minute timeout for token counting
-    
+
     /// Calculate exponential backoff delay with jitter
     #[allow(dead_code)]
     fn calculate_backoff_delay(attempt: u32) -> u64 {
         if attempt == 0 {
             return 0; // No delay on first attempt
         }
-        
+
         // Exponential backoff: delay = base * 2^(attempt-1)
         let exponent = attempt.saturating_sub(1) as u32;
         let exponential_delay = Self::BASE_RETRY_DELAY_MS * (2_u64.saturating_pow(exponent));
-        
+
         // Add jitter (±10%) to prevent thundering herd problem
         let jitter_range = exponential_delay / 10; // 10% of delay
         let jitter = rand::random::<u64>() % (jitter_range * 2);
-        let with_jitter = exponential_delay.saturating_add(jitter).saturating_sub(jitter_range);
-        
+        let with_jitter = exponential_delay
+            .saturating_add(jitter)
+            .saturating_sub(jitter_range);
+
         // Cap at maximum delay
         with_jitter.min(Self::MAX_RETRY_DELAY_MS)
     }
-    
+
     /// Send a request to the Anthropic API using the standardized retry utility
     async fn send_api_request<T: serde::de::DeserializeOwned>(
         &self,
@@ -169,8 +171,8 @@ impl Anthropic {
         url: &str,
         timeout: Duration,
     ) -> Result<T, LlmError> {
-        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
-        
+        use crate::llm::retry_utils::{send_api_request_with_retry, RetryConfig};
+
         // Create retry configuration based on constants
         let config = RetryConfig {
             max_attempts: Self::MAX_ATTEMPTS,
@@ -179,7 +181,7 @@ impl Anthropic {
             timeout_secs: timeout.as_secs(),
             use_exponential: false, // Use linear backoff as specified in TODO
         };
-        
+
         // Create a request builder closure
         let prepare_request = || {
             self.client
@@ -190,9 +192,10 @@ impl Anthropic {
                 .header("anthropic-beta", "output-128k-2025-02-19")
                 .json(&request_json)
         };
-        
+
         // Use the standardized retry utility
-        send_api_request_with_retry::<T, _>(&self.client, url, prepare_request, config, "Anthropic").await
+        send_api_request_with_retry::<T, _>(&self.client, url, prepare_request, config, "Anthropic")
+            .await
     }
 }
 
@@ -246,11 +249,13 @@ impl Backend for Anthropic {
         }
 
         // Send the request with appropriate URL and timeout
-        let response: MessageResponse = self.send_api_request(
-            json,
-            &*API_URL,
-            Duration::from_secs(Self::REQUEST_TIMEOUT_SECS)
-        ).await?;
+        let response: MessageResponse = self
+            .send_api_request(
+                json,
+                &*API_URL,
+                Duration::from_secs(Self::REQUEST_TIMEOUT_SECS),
+            )
+            .await?;
 
         // Convert to LlmResponse with stop information
         Ok(LlmResponse {
@@ -298,12 +303,14 @@ impl Backend for Anthropic {
 
         // Use the improved send_api_request method with appropriate URL and timeout
         // This reuses the same robust retry/timeout logic we implemented earlier
-        let response: CountTokensResponse = self.send_api_request(
-            json,
-            &*COUNT_TOKENS_URL,
-            Duration::from_secs(Self::TOKEN_COUNT_TIMEOUT_SECS)
-        ).await?;
-        
+        let response: CountTokensResponse = self
+            .send_api_request(
+                json,
+                &*COUNT_TOKENS_URL,
+                Duration::from_secs(Self::TOKEN_COUNT_TIMEOUT_SECS),
+            )
+            .await?;
+
         // Create TokenUsage from the response
         // Note: count_tokens only provides input tokens, output tokens will be 0
         Ok(TokenUsage {

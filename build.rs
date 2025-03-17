@@ -300,21 +300,21 @@ fn generate_encrypted_prompts_module(
         pub fn get_kinds_for_mode(mode: crate::config::AppMode) -> String {
             // This is essentially returning the same formatted string as get_available_kinds,
             // but filtering based on the app mode
-            
+
             // The original kinds content is efficiently pre-formatted with descriptions
             let full_listing = get_available_kinds();
-            
+
             // Split into sections by newline
             let sections: Vec<&str> = full_listing.split("\n\n").collect();
-            
+
             let mut result = String::new();
-            
+
             // Always include standard kinds (first section)
             if sections.len() > 0 {
                 result.push_str(sections[0]);
                 result.push_str("\n");
             }
-            
+
             // Include Plus kinds for Plus and Pro modes (second section)
             if sections.len() > 1 {
                 match mode {
@@ -326,7 +326,7 @@ fn generate_encrypted_prompts_module(
                     _ => {}
                 }
             }
-            
+
             // Include Pro kinds only for Pro mode (third section if it exists)
             if sections.len() > 2 {
                 if let crate::config::AppMode::Pro = mode {
@@ -335,7 +335,7 @@ fn generate_encrypted_prompts_module(
                     result.push_str("\n");
                 }
             }
-            
+
             result
         }
 

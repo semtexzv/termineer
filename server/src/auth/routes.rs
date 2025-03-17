@@ -2,12 +2,14 @@
 //!
 //! Handles OAuth authentication flows and session management.
 
-use crate::auth::google::{create_oauth_client, exchange_code_and_get_user_info, generate_auth_url};
-use crate::auth::session::{create_session, clear_session};
+use crate::auth::google::{
+    create_oauth_client, exchange_code_and_get_user_info, generate_auth_url,
+};
+use crate::auth::session::{clear_session, create_session};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
-    response::{Redirect},
+    response::Redirect,
     routing::get,
     Router,
 };
@@ -46,7 +48,7 @@ pub async fn google_login(State(state): State<Arc<AppState>>) -> Redirect {
     // In a real application, you would store these in a database or Redis
     // For simplicity, we're using a cookie-based session
     // This is not secure for production use
-    
+
     // Redirect to authorization URL
     Redirect::to(&auth_url)
 }
@@ -88,10 +90,10 @@ pub async fn google_callback(
     // In a real application, you would validate the CSRF token and use the stored PKCE verifier
     // For simplicity, we're skipping that step
     let code = AuthorizationCode::new(params.code);
-    
+
     // Generate a dummy PKCE verifier (in a real app, you'd retrieve this from your session store)
     let (_, _, pkce_verifier) = generate_auth_url(&client);
-    
+
     let user_info = match exchange_code_and_get_user_info(&client, code, pkce_verifier).await {
         Ok(user_info) => user_info,
         Err(e) => {
@@ -120,10 +122,10 @@ pub async fn google_callback(
 /// Handler for logout
 pub async fn logout(cookies: Cookies) -> Redirect {
     info!("User logged out");
-    
+
     // Clear session
     clear_session(&cookies);
-    
+
     // Redirect to home page
     Redirect::to("/")
 }

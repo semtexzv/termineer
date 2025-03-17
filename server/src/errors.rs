@@ -1,6 +1,6 @@
 use axum::{
-    response::{Response, IntoResponse},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -10,22 +10,22 @@ use thiserror::Error;
 pub enum ServerError {
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Bad request: {0}")]
     BadRequest(String),
-    
+
     #[error("Validation error: {0}")]
     Validation(String),
-    
+
     #[error("Database error: {0}")]
     Database(String),
-    
+
     #[error("External service error: {0}")]
     External(String),
-    
+
     #[error("Internal server error: {0}")]
     Internal(String),
-    
+
     #[error("Configuration error: {0}")]
     Config(String),
 }
@@ -48,7 +48,7 @@ impl IntoResponse for ServerError {
             ServerError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ServerError::Config(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        
+
         let error_type = match &self {
             ServerError::NotFound(_) => "not_found",
             ServerError::BadRequest(_) => "bad_request",
@@ -58,13 +58,13 @@ impl IntoResponse for ServerError {
             ServerError::Internal(_) => "internal_server_error",
             ServerError::Config(_) => "configuration_error",
         };
-        
+
         let body = Json(ErrorResponse {
             error: error_type.to_string(),
             message: self.to_string(),
             status_code: status.as_u16(),
         });
-        
+
         (status, body).into_response()
     }
 }

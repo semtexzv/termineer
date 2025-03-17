@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod done;
-pub mod mcp;
 pub mod fetch;
+pub mod mcp;
 pub mod patch;
 pub mod path_utils;
 pub mod read;
@@ -16,8 +16,8 @@ pub mod write;
 // Re-export all tool functions
 pub use agent::execute_agent_tool;
 pub use done::execute_done;
-pub use mcp::execute_dynamic_mcp_tool;
 pub use fetch::execute_fetch;
+pub use mcp::execute_dynamic_mcp_tool;
 pub use patch::execute_patch;
 pub use read::execute_read;
 pub use search::execute_search;
@@ -69,7 +69,9 @@ impl ToolResult {
         Self {
             success: true,
             state_change: AgentStateChange::Continue,
-            content: vec![crate::llm::Content::Text { text: output.into() }],
+            content: vec![crate::llm::Content::Text {
+                text: output.into(),
+            }],
         }
     }
 
@@ -110,7 +112,9 @@ impl ToolResult {
         Self {
             success: false,
             state_change: AgentStateChange::Continue,
-            content: vec![crate::llm::Content::Text { text: message.into() }],
+            content: vec![crate::llm::Content::Text {
+                text: message.into(),
+            }],
         }
     }
 
@@ -139,7 +143,9 @@ impl ToolResult {
         Self {
             success: true,
             state_change: AgentStateChange::Done,
-            content: vec![crate::llm::Content::Text { text: summary_string }],
+            content: vec![crate::llm::Content::Text {
+                text: summary_string,
+            }],
         }
     }
 
@@ -197,7 +203,7 @@ impl ToolExecutor {
             disabled_tools: Vec::new(),
         }
     }
-    
+
     /// Set the list of disabled tools
     pub fn set_disabled_tools(&mut self, disabled_tools: Vec<String>) {
         self.disabled_tools = disabled_tools;
@@ -207,14 +213,14 @@ impl ToolExecutor {
     pub fn is_silent(&self) -> bool {
         self.silent_mode
     }
-    
+
     /// Check if a specific tool is disabled
     fn is_tool_disabled(&self, tool_name: &str) -> bool {
         self.disabled_tools
             .iter()
             .any(|disabled| disabled.trim().to_lowercase() == tool_name.trim().to_lowercase())
     }
-    
+
     /// Execute a tool based on name, args, and body provided by the LLM
     pub async fn execute_with_parts(&self, tool_name: &str, args: &str, body: &str) -> ToolResult {
         // Using pre-parsed components directly
@@ -273,7 +279,7 @@ impl ToolExecutor {
                             tool_name
                         ));
                     }
-                    
+
                     // It's an MCP server name, so handle it as a dynamic MCP tool
                     execute_dynamic_mcp_tool(&tool_name, args, body, self.silent_mode).await
                 } else {
@@ -343,8 +349,7 @@ impl ToolExecutor {
                 | "task"
                 | "agent"
                 | "wait"
-                | "computer"
-                // Note: input is NOT read-only as it modifies application state
+                | "computer" // Note: input is NOT read-only as it modifies application state
         )
     }
 }

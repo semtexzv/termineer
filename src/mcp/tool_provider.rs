@@ -24,19 +24,21 @@ pub struct McpToolProvider {
 
 impl McpToolProvider {
     /* WebSocket-based connection removed in favor of file-based MCP configuration */
-    
+
     /// Create a new tool provider for an MCP process with environment variables
     pub async fn new_process_with_env(
-        name: &str, 
-        executable: &str, 
+        name: &str,
+        executable: &str,
         args: &[&str],
-        env: &HashMap<String, String>
+        env: &HashMap<String, String>,
     ) -> McpResult<Self> {
         // Create client
         let client = McpClient::new();
 
         // Connect to process with environment variables
-        client.connect_process_with_env(name, executable, args, env).await?;
+        client
+            .connect_process_with_env(name, executable, args, env)
+            .await?;
 
         // Initialize client
         client
@@ -117,7 +119,7 @@ impl McpToolProvider {
     ) -> McpResult<Vec<crate::mcp::protocol::content::Content>> {
         // Execute the tool
         let result = self.execute_tool(id, arguments).await?;
-        
+
         // Removed verbose result logging
 
         // Convert to content objects

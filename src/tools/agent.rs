@@ -38,17 +38,9 @@ pub async fn execute_agent_tool(
     let subcommand_args = parts.get(1).map(|s| s.trim()).unwrap_or("");
 
     match subcommand {
-        "create" => {
-            execute_create_subcommand(subcommand_args, body, silent_mode).await
-        }
+        "create" => execute_create_subcommand(subcommand_args, body, silent_mode).await,
         "send" => {
-            execute_send_subcommand(
-                subcommand_args,
-                body,
-                silent_mode,
-                source_agent_id,
-            )
-            .await
+            execute_send_subcommand(subcommand_args, body, silent_mode, source_agent_id).await
         }
         _ => {
             let error_msg = format!(
@@ -64,11 +56,7 @@ pub async fn execute_agent_tool(
 }
 
 /// Execute the 'create' subcommand to spawn a new agent
-async fn execute_create_subcommand(
-    args: &str,
-    body: &str,
-    silent_mode: bool,
-) -> ToolResult {
+async fn execute_create_subcommand(args: &str, body: &str, silent_mode: bool) -> ToolResult {
     // Parse the agent name and check for parameters using key=value syntax
     let args_string = args.trim().to_string();
     let mut kind_name = None;
@@ -213,11 +201,11 @@ async fn execute_send_subcommand(
     // First try to parse as an ID
     if let Ok(id_num) = target_agent.parse::<u64>() {
         let agent_id = AgentId(id_num);
-        
+
         // Check if this agent exists
         let agents = crate::agent::get_agents();
         let agent_exists = agents.iter().any(|(id, _)| *id == agent_id);
-        
+
         if !agent_exists {
             let error_msg = format!("Error: Agent with ID {} not found", id_num);
             if !silent_mode {
@@ -225,7 +213,7 @@ async fn execute_send_subcommand(
             }
             return ToolResult::error(error_msg);
         }
-        
+
         target_id = agent_id;
     } else {
         // Try to find by name

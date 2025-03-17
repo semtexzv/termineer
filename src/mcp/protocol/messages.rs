@@ -155,8 +155,7 @@ pub struct PromptsCapabilities {
 /// Logging capabilities
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct LoggingCapabilities {
-}
+pub struct LoggingCapabilities {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

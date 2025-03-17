@@ -15,10 +15,6 @@ pub use connection_trait::Connection;
 
 // Re-export manager functions for easy access
 pub use manager::{
+    add_mcp_tools_to_prompt, get_provider, get_provider_names, has_provider, has_providers,
     register_provider,
-    has_provider, 
-    get_provider,
-    get_provider_names,
-    has_providers,
-    add_mcp_tools_to_prompt
 };

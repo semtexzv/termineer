@@ -29,7 +29,7 @@ fn get_model_token_limit(model_name: &str) -> usize {
     if model_name.contains("command-light") || model_name == "command-light" {
         return 4_000; // 4K tokens for Command Light
     }
-    
+
     // Legacy command model
     if model_name.contains("command") || model_name == "command" {
         return 4_096; // 4K tokens for Command
@@ -115,7 +115,11 @@ impl CohereBackend {
     }
 
     /// Convert Termineer messages to Cohere format
-    fn convert_messages(&self, messages: &[Message], system: Option<&str>) -> (Vec<CohereMessage>, String, Option<String>) {
+    fn convert_messages(
+        &self,
+        messages: &[Message],
+        system: Option<&str>,
+    ) -> (Vec<CohereMessage>, String, Option<String>) {
         let mut chat_history = Vec::new();
         let mut preamble = None;
         let mut current_message = String::new();
@@ -156,7 +160,7 @@ impl CohereBackend {
             });
         }
 
-        // If no current message was set (no user message at the end), 
+        // If no current message was set (no user message at the end),
         // use an empty string or a default placeholder
         if current_message.is_empty() && !chat_history.is_empty() {
             current_message = "Continue the conversation".to_string();
@@ -176,14 +180,14 @@ impl CohereBackend {
         path: &str,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
-        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
-        
+        use crate::llm::retry_utils::{send_api_request_with_retry, RetryConfig};
+
         // Retry configuration constants - keep the same values for consistency
         const MAX_ATTEMPTS: u32 = 5;
         const BASE_RETRY_DELAY_MS: u64 = 1000;
         const MAX_RETRY_DELAY_MS: u64 = 30000;
         const REQUEST_TIMEOUT_SECS: u64 = 180;
-        
+
         // Create retry configuration
         let config = RetryConfig {
             max_attempts: MAX_ATTEMPTS,
@@ -192,10 +196,10 @@ impl CohereBackend {
             timeout_secs: REQUEST_TIMEOUT_SECS,
             use_exponential: false, // Use linear backoff as specified in TODO
         };
-        
+
         // Construct the API URL
         let url = format!("{}{}", API_BASE_URL, path);
-        
+
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
             self.client
@@ -204,9 +208,10 @@ impl CohereBackend {
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .json(&request_json)
         };
-        
+
         // Use the standardized retry utility
-        send_api_request_with_retry::<T, _>(&self.client, &url, prepare_request, config, "Cohere").await
+        send_api_request_with_retry::<T, _>(&self.client, &url, prepare_request, config, "Cohere")
+            .await
     }
 }
 
@@ -225,23 +230,21 @@ impl Backend for CohereBackend {
         if thinking_budget.is_some() {
             bprintln!(dev: "Thinking is not supported by Cohere models, ignoring thinking_budget");
         }
-        
+
         if cache_points.is_some() {
             bprintln!(dev: "Cache points are not supported by Cohere models, ignoring cache_points");
         }
-        
+
         // Convert messages to Cohere format
         let (chat_history, current_message, preamble) = self.convert_messages(messages, system);
-        
+
         // Default max tokens if not provided
         let default_max_tokens = 2048; // Reasonable default
         let tokens = max_tokens.unwrap_or(default_max_tokens);
-        
+
         // Prepare stop sequences
-        let stop_seqs = stop_sequences
-            .map(|seqs| seqs.to_vec())
-            .unwrap_or_default();
-        
+        let stop_seqs = stop_sequences.map(|seqs| seqs.to_vec()).unwrap_or_default();
+
         // Create request
         let request = CohereRequest {
             model: self.model.clone(),
@@ -254,8 +257,9 @@ impl Backend for CohereBackend {
         };
 
         // Send request to the Cohere chat endpoint
-        let cohere_response: CohereResponse = 
-            self.send_api_request("/chat", serde_json::to_value(request).unwrap()).await?;
+        let cohere_response: CohereResponse = self
+            .send_api_request("/chat", serde_json::to_value(request).unwrap())
+            .await?;
 
         // Extract token usage
         let token_usage = if let Some(count) = cohere_response.token_count {
@@ -268,7 +272,7 @@ impl Backend for CohereBackend {
         } else {
             // If token count is not provided, estimate based on text length
             TokenUsage {
-                input_tokens: 0,  // Unable to accurately estimate input tokens
+                input_tokens: 0, // Unable to accurately estimate input tokens
                 output_tokens: cohere_response.text.len() / 4, // Rough estimate
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
@@ -276,7 +280,9 @@ impl Backend for CohereBackend {
         };
 
         Ok(LlmResponse {
-            content: vec![Content::Text { text: cohere_response.text }],
+            content: vec![Content::Text {
+                text: cohere_response.text,
+            }],
             usage: Some(token_usage),
             stop_reason: cohere_response.finish_reason,
             stop_sequence: None, // Not provided by Cohere
@@ -290,31 +296,32 @@ impl Backend for CohereBackend {
     ) -> Result<TokenUsage, LlmError> {
         // Extract all text content from messages
         let mut texts = Vec::new();
-        
+
         // Add system message if present
         if let Some(sys) = system {
             texts.push(sys.to_string());
         }
-        
+
         // Add message content
         for msg in messages {
             if let Content::Text { text } = &msg.content {
                 texts.push(text.clone());
             }
         }
-        
+
         // If we have texts to count
         if !texts.is_empty() {
             // Create request for token counting
             let request = CohereTokenCountRequest { texts };
-            
+
             // Send request to token counting endpoint
-            let count_response: CohereTokenCountResponse = 
-                self.send_api_request("/tokenize", serde_json::to_value(request).unwrap()).await?;
-            
+            let count_response: CohereTokenCountResponse = self
+                .send_api_request("/tokenize", serde_json::to_value(request).unwrap())
+                .await?;
+
             // Sum all token counts
             let total_tokens: usize = count_response.tokens.iter().sum::<u32>() as usize;
-            
+
             return Ok(TokenUsage {
                 input_tokens: total_tokens,
                 output_tokens: 0, // No output for token counting
@@ -322,7 +329,7 @@ impl Backend for CohereBackend {
                 cache_read_input_tokens: 0,
             });
         }
-        
+
         // Fallback for empty messages
         Ok(TokenUsage {
             input_tokens: 0,

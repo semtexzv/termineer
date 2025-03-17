@@ -13,11 +13,7 @@ mod templates;
 // Re-export AppState from api module to make it available at crate root
 pub use api::AppState;
 
-use axum::{
-    routing::get,
-    response::IntoResponse,
-    Router,
-};
+use axum::{response::IntoResponse, routing::get, Router};
 use config::Config;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -61,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get static files directory from environment or use default
     let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string());
-    
+
     // Create the router
     let app = Router::new()
         // Frontend routes
@@ -77,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(|| async { "OK" }))
         // Apply state to the router
         .with_state(state);
-    
+
     // Get the port from environment or use default
     let port = std::env::var("PORT")
         .ok()

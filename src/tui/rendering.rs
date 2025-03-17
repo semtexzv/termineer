@@ -56,12 +56,7 @@ pub fn render_ui(state: &TuiState, f: &mut Frame) {
 }
 
 /// Render the temporary output window that overlays input and grows upward
-pub fn render_temp_output(
-    state: &TuiState,
-    f: &mut Frame,
-    input_area: Rect,
-    content_area: Rect,
-) {
+pub fn render_temp_output(state: &TuiState, f: &mut Frame, input_area: Rect, content_area: Rect) {
     // Start with the input area as the base
     let mut output_area = input_area;
 
@@ -114,8 +109,7 @@ pub fn render_temp_output(
 /// Render command suggestions popup
 pub fn render_command_suggestions(state: &TuiState, f: &mut Frame) {
     // Only render if suggestions are visible and we have any
-    if !state.command_suggestions.visible
-        || state.command_suggestions.filtered_commands.is_empty()
+    if !state.command_suggestions.visible || state.command_suggestions.filtered_commands.is_empty()
     {
         return;
     }
@@ -221,7 +215,7 @@ pub fn render_command_suggestions(state: &TuiState, f: &mut Frame) {
 pub fn render_header(state: &TuiState, f: &mut Frame, area: Rect) {
     // Get agents directly using the static function
     let agents = crate::agent::get_agents();
-    
+
     // Create spans for each agent
     let agent_spans = agents
         .iter()
@@ -255,7 +249,7 @@ pub fn render_header(state: &TuiState, f: &mut Frame, area: Rect) {
     let mut all_spans = agent_spans;
     all_spans.push(Span::styled(
         " ".repeat((area.width as usize).saturating_sub(2)), // -2 for borders
-        Style::default().fg(Color::DarkGray), // Ensure text is visible but subdued
+        Style::default().fg(Color::DarkGray),                // Ensure text is visible but subdued
     ));
 
     let header = Paragraph::new(Line::from(all_spans)).block(
@@ -363,7 +357,13 @@ pub fn render_input(state: &TuiState, f: &mut Frame, area: Rect) {
     let agents = crate::agent::get_agents();
     let agent_name = agents
         .iter()
-        .find_map(|(id, name)| if *id == state.selected_agent_id { Some(name.clone()) } else { None })
+        .find_map(|(id, name)| {
+            if *id == state.selected_agent_id {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| "Unknown".to_string());
 
     // Create title with agent state

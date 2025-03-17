@@ -49,10 +49,7 @@ pub struct TuiState {
 
 impl TuiState {
     /// Create a new TUI state
-    pub fn new(
-        selected_agent_id: AgentId,
-        agent_buffer: SharedBuffer,
-    ) -> Self {
+    pub fn new(selected_agent_id: AgentId, agent_buffer: SharedBuffer) -> Self {
         Self {
             input: String::new(),
             cursor_position: 0,
@@ -103,15 +100,15 @@ impl TuiState {
     pub fn ensure_selected_agent_valid(&mut self) {
         // Get the list of all agents
         let agents = crate::agent::get_agents();
-        
+
         // Check if the currently selected agent exists in the list
         let agent_exists = agents.iter().any(|(id, _)| *id == self.selected_agent_id);
-        
+
         if !agent_exists && !agents.is_empty() {
             // If not, select the first available agent
             let (first_id, _) = agents[0];
             self.selected_agent_id = first_id;
-            
+
             // Update buffer to the new agent
             if let Ok(buffer) = crate::agent::get_agent_buffer(self.selected_agent_id) {
                 self.agent_buffer = buffer;

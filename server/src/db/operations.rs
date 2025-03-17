@@ -1,9 +1,9 @@
 use chrono::Utc;
-use sqlx::{PgPool, Error as SqlxError};
+use log::{error, info};
+use sqlx::{Error as SqlxError, PgPool};
 use uuid::Uuid;
-use log::{info, error};
 
-use crate::db::models::{User, Subscription, LicenseKey, SubscriptionStatus};
+use crate::db::models::{LicenseKey, Subscription, SubscriptionStatus, User};
 use crate::errors::ServerError;
 
 /// Operations for User model
@@ -12,36 +12,32 @@ pub struct UserOps;
 impl UserOps {
     /// Find a user by ID
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, ServerError> {
-        let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| {
-            error!("Database error finding user by ID: {}", e);
-            ServerError::Database(e.to_string())
-        })?;
-        
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| {
+                error!("Database error finding user by ID: {}", e);
+                ServerError::Database(e.to_string())
+            })?;
+
         Ok(user)
     }
-    
+
     /// Find a user by email
     pub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Option<User>, ServerError> {
-        let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE email = $1"
-        )
-        .bind(email)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| {
-            error!("Database error finding user by email: {}", e);
-            ServerError::Database(e.to_string())
-        })?;
-        
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+            .bind(email)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| {
+                error!("Database error finding user by email: {}", e);
+                ServerError::Database(e.to_string())
+            })?;
+
         Ok(user)
     }
-    
+
     /// Create a new user
     pub async fn create(
         pool: &PgPool,
@@ -54,7 +50,7 @@ impl UserOps {
         token_expires_at: Option<chrono::DateTime<Utc>>,
     ) -> Result<User, ServerError> {
         let now = Utc::now();
-        
+
         let user = sqlx::query_as::<_, User>(
             r#"
             INSERT INTO users (
@@ -64,14 +60,14 @@ impl UserOps {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
-            "#
+            "#,
         )
         .bind(Uuid::new_v4())
         .bind(email)
         .bind(name)
         .bind(auth_provider)
         .bind(auth_provider_id)
-        .bind(true)  // is_active
+        .bind(true) // is_active
         .bind(false) // has_subscription
         .bind(now)
         .bind(now)
@@ -84,11 +80,11 @@ impl UserOps {
             error!("Database error creating user: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         info!("Created new user: {}", user.email);
         Ok(user)
     }
-    
+
     /// Update user's Google OAuth tokens
     pub async fn update_google_tokens(
         pool: &PgPool,
@@ -98,48 +94,42 @@ impl UserOps {
         expires_at: Option<chrono::DateTime<Utc>>,
     ) -> Result<User, ServerError> {
         let now = Utc::now();
-        
-        let mut query = sqlx::QueryBuilder::new(
-            "UPDATE users SET updated_at = "
-        );
-        
+
+        let mut query = sqlx::QueryBuilder::new("UPDATE users SET updated_at = ");
+
         query.push_bind(now);
-        
+
         // Always update access token
         query.push(", google_access_token = ");
         query.push_bind(access_token);
-        
+
         // Only update refresh token if provided
         if let Some(rt) = &refresh_token {
             query.push(", google_refresh_token = ");
             query.push_bind(rt);
         }
-        
+
         // Only update expiry if provided
         if let Some(exp) = expires_at {
             query.push(", token_expires_at = ");
             query.push_bind(exp);
         }
-        
+
         // Add the WHERE clause
         query.push(" WHERE id = ");
         query.push_bind(user_id);
         query.push(" RETURNING *");
-        
+
         let sql = query.build();
-        
+
         // Execute the update
-        sql.execute(pool)
-            .await
-            .map_err(|e| {
-                error!("Database error updating Google tokens: {}", e);
-                ServerError::Database(e.to_string())
-            })?;
-        
+        sql.execute(pool).await.map_err(|e| {
+            error!("Database error updating Google tokens: {}", e);
+            ServerError::Database(e.to_string())
+        })?;
+
         // Fetch the updated user using query_as without compile-time verification
-        let user = sqlx::query_as::<_, User>(
-                "SELECT * FROM users WHERE id = $1"
-            )
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_one(pool)
             .await
@@ -147,11 +137,11 @@ impl UserOps {
                 error!("Database error retrieving user after token update: {}", e);
                 ServerError::Database(e.to_string())
             })?;
-        
+
         info!("Updated Google tokens for user: {}", user_id);
         Ok(user)
     }
-    
+
     /// Find or create a user from OAuth authentication
     pub async fn find_or_create_from_oauth(
         pool: &PgPool,
@@ -168,35 +158,37 @@ impl UserOps {
             // If this is a Google OAuth login and we have tokens, update them
             if auth_provider == "google" && google_access_token.is_some() {
                 return Self::update_google_tokens(
-                    pool, 
+                    pool,
                     user.id,
                     google_access_token.unwrap(),
                     google_refresh_token,
-                    token_expires_at
-                ).await;
+                    token_expires_at,
+                )
+                .await;
             }
-            
+
             // Update the user's auth provider if needed
             if user.auth_provider != auth_provider {
                 return Self::update_auth_provider(pool, user.id, auth_provider).await;
             }
-            
+
             return Ok(user);
         }
-        
+
         // Create a new user if not found
         Self::create(
-            pool, 
-            email, 
-            name, 
-            auth_provider, 
+            pool,
+            email,
+            name,
+            auth_provider,
             auth_provider_id,
             google_access_token,
             google_refresh_token,
-            token_expires_at
-        ).await
+            token_expires_at,
+        )
+        .await
     }
-    
+
     /// Find or create a user from email only (for payment processing)
     pub async fn find_or_create_from_email(
         pool: &PgPool,
@@ -207,20 +199,21 @@ impl UserOps {
         if let Some(user) = Self::find_by_email(pool, email).await? {
             return Ok(user);
         }
-        
+
         // Create a new user if not found - use "stripe" as auth provider
         Self::create(
-            pool, 
-            email, 
-            name, 
-            "stripe".to_string(), 
+            pool,
+            email,
+            name,
+            "stripe".to_string(),
             None,
             None, // google_access_token
             None, // google_refresh_token
-            None  // token_expires_at
-        ).await
+            None, // token_expires_at
+        )
+        .await
     }
-    
+
     /// Update a user's authentication provider
     pub async fn update_auth_provider(
         pool: &PgPool,
@@ -228,14 +221,14 @@ impl UserOps {
         auth_provider: String,
     ) -> Result<User, ServerError> {
         let now = Utc::now();
-        
+
         let user = sqlx::query_as::<_, User>(
             r#"
             UPDATE users
             SET auth_provider = $1, updated_at = $2
             WHERE id = $3
             RETURNING *
-            "#
+            "#,
         )
         .bind(auth_provider)
         .bind(now)
@@ -246,11 +239,11 @@ impl UserOps {
             error!("Database error updating user auth provider: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         info!("Updated auth provider for user: {}", user.email);
         Ok(user)
     }
-    
+
     /// Update a user's subscription status
     pub async fn update_subscription_status(
         pool: &PgPool,
@@ -258,14 +251,14 @@ impl UserOps {
         has_subscription: bool,
     ) -> Result<User, ServerError> {
         let now = Utc::now();
-        
+
         let user = sqlx::query_as::<_, User>(
             r#"
             UPDATE users
             SET has_subscription = $1, updated_at = $2
             WHERE id = $3
             RETURNING *
-            "#
+            "#,
         )
         .bind(has_subscription)
         .bind(now)
@@ -276,7 +269,7 @@ impl UserOps {
             error!("Database error updating user subscription status: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         info!("Updated subscription status for user: {}", user.email);
         Ok(user)
     }
@@ -287,9 +280,12 @@ pub struct SubscriptionOps;
 
 impl SubscriptionOps {
     /// Find a subscription by user ID
-    pub async fn find_by_user_id(pool: &PgPool, user_id: Uuid) -> Result<Option<Subscription>, ServerError> {
+    pub async fn find_by_user_id(
+        pool: &PgPool,
+        user_id: Uuid,
+    ) -> Result<Option<Subscription>, ServerError> {
         let subscription = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1"
+            "SELECT * FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
         )
         .bind(user_id)
         .fetch_optional(pool)
@@ -298,17 +294,17 @@ impl SubscriptionOps {
             error!("Database error finding subscription: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         Ok(subscription)
     }
-    
+
     /// Find a subscription by Stripe subscription ID
     pub async fn find_by_stripe_subscription_id(
         pool: &PgPool,
         stripe_subscription_id: &str,
     ) -> Result<Option<Subscription>, ServerError> {
         let subscription = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE stripe_subscription_id = $1"
+            "SELECT * FROM subscriptions WHERE stripe_subscription_id = $1",
         )
         .bind(stripe_subscription_id)
         .fetch_optional(pool)
@@ -317,10 +313,10 @@ impl SubscriptionOps {
             error!("Database error finding subscription by Stripe ID: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         Ok(subscription)
     }
-    
+
     /// Create a new subscription
     pub async fn create(
         pool: &PgPool,
@@ -334,13 +330,13 @@ impl SubscriptionOps {
         cancel_at_period_end: bool,
     ) -> Result<Subscription, ServerError> {
         let now = Utc::now();
-        
+
         // Begin a transaction
         let mut tx = pool.begin().await.map_err(|e| {
             error!("Failed to start transaction: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         // Create the subscription
         let subscription = sqlx::query_as::<_, Subscription>(
             r#"
@@ -351,7 +347,7 @@ impl SubscriptionOps {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
-            "#
+            "#,
         )
         .bind(Uuid::new_v4())
         .bind(user_id)
@@ -370,14 +366,14 @@ impl SubscriptionOps {
             error!("Database error creating subscription: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         // Update the user's subscription status
         sqlx::query(
             r#"
             UPDATE users
             SET has_subscription = true, updated_at = $1
             WHERE id = $2
-            "#
+            "#,
         )
         .bind(now)
         .bind(user_id)
@@ -387,17 +383,17 @@ impl SubscriptionOps {
             error!("Database error updating user subscription flag: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         // Commit the transaction
         tx.commit().await.map_err(|e| {
             error!("Failed to commit transaction: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         info!("Created new subscription for user: {}", user_id);
         Ok(subscription)
     }
-    
+
     /// Update a subscription's status
     pub async fn update_status(
         pool: &PgPool,
@@ -407,61 +403,58 @@ impl SubscriptionOps {
         cancel_at_period_end: bool,
     ) -> Result<Subscription, ServerError> {
         let now = Utc::now();
-        
+
         // Begin transaction
         let mut tx = pool.begin().await.map_err(|e| {
             error!("Failed to start transaction: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         // Update the subscription
         let mut query = "UPDATE subscriptions SET status = $1, updated_at = $2".to_string();
         let mut param_index = 3;
-        
+
         if let Some(_) = current_period_end {
             query.push_str(&format!(", current_period_end = ${}", param_index));
             param_index += 1;
         }
-        
+
         query.push_str(&format!(", cancel_at_period_end = ${}", param_index));
         param_index += 1;
-        
+
         query.push_str(&format!(" WHERE id = ${} RETURNING *", param_index));
-        
+
         let mut query_builder = sqlx::query_as::<_, Subscription>(&query)
             .bind(&status)
             .bind(now);
-        
+
         if let Some(end) = current_period_end {
             query_builder = query_builder.bind(end);
         }
-        
+
         query_builder = query_builder.bind(cancel_at_period_end);
         query_builder = query_builder.bind(subscription_id);
-        
-        let subscription = query_builder
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| {
-                error!("Database error updating subscription: {}", e);
-                ServerError::Database(e.to_string())
-            })?;
-        
+
+        let subscription = query_builder.fetch_one(&mut *tx).await.map_err(|e| {
+            error!("Database error updating subscription: {}", e);
+            ServerError::Database(e.to_string())
+        })?;
+
         // Make a copy of the status to determine active subscription state
         let status_copy = status.clone();
-        
+
         // Update the user's subscription status if needed
         let has_active_subscription = match status_copy {
             SubscriptionStatus::Active | SubscriptionStatus::Trialing => true,
             _ => false,
         };
-        
+
         sqlx::query(
             r#"
             UPDATE users
             SET has_subscription = $1, updated_at = $2
             WHERE id = $3
-            "#
+            "#,
         )
         .bind(has_active_subscription)
         .bind(now)
@@ -472,14 +465,17 @@ impl SubscriptionOps {
             error!("Database error updating user subscription flag: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         // Commit the transaction
         tx.commit().await.map_err(|e| {
             error!("Failed to commit transaction: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
-        info!("Updated subscription status to {:?} for user: {}", status, subscription.user_id);
+
+        info!(
+            "Updated subscription status to {:?} for user: {}",
+            status, subscription.user_id
+        );
         Ok(subscription)
     }
 }
@@ -489,7 +485,10 @@ pub struct LicenseOps;
 
 impl LicenseOps {
     /// Find a license by user ID
-    pub async fn find_by_user_id(pool: &PgPool, user_id: Uuid) -> Result<Option<LicenseKey>, ServerError> {
+    pub async fn find_by_user_id(
+        pool: &PgPool,
+        user_id: Uuid,
+    ) -> Result<Option<LicenseKey>, ServerError> {
         let license = sqlx::query_as::<_, LicenseKey>(
             "SELECT * FROM license_keys WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1"
         )
@@ -500,10 +499,10 @@ impl LicenseOps {
             error!("Database error finding license: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         Ok(license)
     }
-    
+
     /// Create a new license key
     pub async fn create(
         pool: &PgPool,
@@ -512,14 +511,14 @@ impl LicenseOps {
         expires_at: chrono::DateTime<Utc>,
     ) -> Result<LicenseKey, ServerError> {
         let now = Utc::now();
-        
+
         // First, deactivate any existing licenses for this user
         sqlx::query(
             r#"
             UPDATE license_keys
             SET is_active = false, updated_at = $1
             WHERE user_id = $2 AND is_active = true
-            "#
+            "#,
         )
         .bind(now)
         .bind(user_id)
@@ -529,7 +528,7 @@ impl LicenseOps {
             error!("Database error deactivating existing licenses: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         // Create the new license
         let license = sqlx::query_as::<_, LicenseKey>(
             r#"
@@ -539,13 +538,13 @@ impl LicenseOps {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-            "#
+            "#,
         )
         .bind(Uuid::new_v4())
         .bind(user_id)
         .bind(license_key)
-        .bind(true)  // is_active
-        .bind(now)   // issued_at
+        .bind(true) // is_active
+        .bind(now) // issued_at
         .bind(expires_at)
         .bind(now)
         .bind(now)
@@ -555,18 +554,18 @@ impl LicenseOps {
             error!("Database error creating license: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         info!("Created new license key for user: {}", user_id);
         Ok(license)
     }
-    
+
     /// Verify a license key
     pub async fn verify(
-        pool: &PgPool, 
-        license_key: &str
+        pool: &PgPool,
+        license_key: &str,
     ) -> Result<Option<LicenseKey>, ServerError> {
         let now = Utc::now();
-        
+
         // Verify and update the last_verified_at timestamp
         let license = sqlx::query_as::<_, LicenseKey>(
             r#"
@@ -574,7 +573,7 @@ impl LicenseOps {
             SET last_verified_at = $1, updated_at = $1
             WHERE license_key = $2 AND is_active = true AND expires_at > $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(now)
         .bind(license_key)
@@ -584,28 +583,25 @@ impl LicenseOps {
             error!("Database error verifying license: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         if let Some(ref license) = license {
             info!("Verified license key for user: {}", license.user_id);
         }
-        
+
         Ok(license)
     }
-    
+
     /// Deactivate a license key
-    pub async fn deactivate(
-        pool: &PgPool,
-        license_id: Uuid,
-    ) -> Result<LicenseKey, ServerError> {
+    pub async fn deactivate(pool: &PgPool, license_id: Uuid) -> Result<LicenseKey, ServerError> {
         let now = Utc::now();
-        
+
         let license = sqlx::query_as::<_, LicenseKey>(
             r#"
             UPDATE license_keys
             SET is_active = false, updated_at = $1
             WHERE id = $2
             RETURNING *
-            "#
+            "#,
         )
         .bind(now)
         .bind(license_id)
@@ -615,7 +611,7 @@ impl LicenseOps {
             error!("Database error deactivating license: {}", e);
             ServerError::Database(e.to_string())
         })?;
-        
+
         info!("Deactivated license key for user: {}", license.user_id);
         Ok(license)
     }

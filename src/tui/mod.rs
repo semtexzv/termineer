@@ -3,12 +3,12 @@
 //! This module implements a Text User Interface using ratatui,
 //! providing an interactive and visually appealing interface.
 
-mod interface;
-mod state;
-mod events;
-mod rendering;
 mod commands;
+mod events;
+mod interface;
 mod popup;
+mod rendering;
+mod state;
 
 // Re-export the main interface
 pub use interface::TuiInterface;

@@ -68,8 +68,11 @@ async-trait = "0.1"
 dotenvy = { workspace = true }
 
 # GUI dependencies 
-egui = "0.25.0"                 # Immediate mode GUI library
-eframe = "0.25.0"               # egui framework with winit and web support
+egui = { version = "0.31.1", features = ["accesskit"] }
+# egui framework with winit and web support
+eframe = { version = "0.31.1", features = ["accesskit"] }
+# Official Catppuccin integration for egui
+catppuccin-egui = { version = "5.5.0", default-features = false, features = ["egui31"] }
 crossterm = "0.27"
 ratatui = "0.26.1"
 atty = "0.2"
@@ -115,7 +118,3 @@ aes-gcm = { workspace = true }    # AES-GCM encryption
 walkdir = { workspace = true }    # For walking directories in build script
 quote = { workspace = true }      # For code generation
 proc-macro2 = { workspace = true }# Required by quote
-
-[patch.crates-io]
-# Important for GPUI, doesn't work with the default version of that crate.
-pathfinder_simd = { git = "https://github.com/theoparis/pathfinder.git" }

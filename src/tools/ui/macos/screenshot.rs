@@ -3,14 +3,14 @@
 //! This module provides macOS-specific implementation for the screenshot tool
 //! using the xcap crate for cross-platform screen capture.
 
-use crate::tools::ToolResult;
 use crate::llm::Content;
 use crate::llm::ImageSource;
 use crate::tools::ui::screendump;
+use crate::tools::ToolResult;
 use base64::{engine::general_purpose, Engine as _};
-use std::io::Cursor;
-use image::{DynamicImage, GenericImageView};
 use image::ImageFormat;
+use image::{DynamicImage, GenericImageView};
+use std::io::Cursor;
 use xcap::{Monitor, Window};
 
 /// Execute the macOS screenshot tool
@@ -130,9 +130,7 @@ fn parse_command(args: &str) -> ScreenshotCommand {
             let index = id.parse::<usize>().unwrap();
             // Check if monitors exist before deciding
             match Monitor::all() {
-                Ok(monitors) if index < monitors.len() => {
-                    ScreenshotCommand::SingleScreen(index)
-                },
+                Ok(monitors) if index < monitors.len() => ScreenshotCommand::SingleScreen(index),
                 _ => {
                     // Treat as window ID if index is out of bounds or error
                     ScreenshotCommand::Window(args.to_string())
@@ -186,21 +184,21 @@ fn capture_all_screens() -> Result<Vec<String>, Box<dyn std::error::Error>> {
         // Get dimensions - properly handle Result
         let width = monitor.width()?;
         let height = monitor.height()?;
-        
+
         crate::bprintln!(
-            dev: "Capturing screen {} ({}x{})", 
-            i, 
-            width, 
+            dev: "Capturing screen {} ({}x{})",
+            i,
+            width,
             height
         );
 
         // Capture the screen
         let image = monitor.capture_image()?;
-        
+
         // Convert xcap::image::Image to DynamicImage
         // The image from xcap is already an RgbaImage from the image crate
         let dynamic_image = DynamicImage::ImageRgba8(image);
-        
+
         // Process the image
         let base64_image = process_image(dynamic_image)?;
         results.push(base64_image);
@@ -223,30 +221,31 @@ fn capture_single_screen(index: usize) -> Result<Vec<String>, Box<dyn std::error
             "Screen index {} out of bounds (0-{})",
             index,
             monitors.len() - 1
-        ).into());
+        )
+        .into());
     }
 
     // Capture the specified monitor
     let monitor = &monitors[index];
-    
+
     // Get dimensions - properly handle Result
     let width = monitor.width()?;
     let height = monitor.height()?;
-    
+
     crate::bprintln!(
-        dev: "Capturing screen {} ({}x{})", 
-        index, 
-        width, 
+        dev: "Capturing screen {} ({}x{})",
+        index,
+        width,
         height
     );
 
     // Capture the screen
     let image = monitor.capture_image()?;
-    
+
     // Convert to DynamicImage
     // The image from xcap is already an RgbaImage from the image crate
     let dynamic_image = DynamicImage::ImageRgba8(image);
-    
+
     // Process the image
     let base64_image = process_image(dynamic_image)?;
 
@@ -264,35 +263,35 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
             let window = &windows[window_index];
             let title = window.title()?;
             crate::bprintln!(dev: "Found window '{}' by index {}", title, window_index);
-            
+
             // Capture the window
             let image = window.capture_image()?;
-            
+
             // Convert to DynamicImage - image is already an RgbaImage
             let dynamic_image = DynamicImage::ImageRgba8(image);
-            
+
             return process_image(dynamic_image);
         }
     }
-    
+
     // Try finding window by title match
     let windows = Window::all()?;
     for window in windows {
         if let Ok(title) = window.title() {
             if title.contains(window_id) {
                 crate::bprintln!(dev: "Found window '{}' by title match", title);
-                
+
                 // Capture the window
                 let image = window.capture_image()?;
-                
+
                 // Convert to DynamicImage - image is already an RgbaImage
                 let dynamic_image = DynamicImage::ImageRgba8(image);
-                
+
                 return process_image(dynamic_image);
             }
         }
     }
-    
+
     // If not found by xcap, fall back to our custom window finder and region capture
     // Get the window rectangle using the screendump function
     let window_rect = screendump::get_window_rect(window_id)
@@ -305,7 +304,7 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
 
     // Capture the region using monitor.capture_area
     let monitors = Monitor::all()?;
-    
+
     // Find which monitor contains this window
     let mut found_monitor = None;
     for monitor in &monitors {
@@ -334,25 +333,26 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
     // Ensure width and height stay within monitor bounds
     let width_pixels = monitor.width()? as i32;
     let height_pixels = monitor.height()? as i32;
-    
+
     let cap_width = (width as u32).min((width_pixels - rel_x) as u32);
     let cap_height = (height as u32).min((height_pixels - rel_y) as u32);
 
     // Capture the entire monitor and crop the region
     let full_image = monitor.capture_image()?;
-    
+
     // Crop the image to the desired area
     let cropped_image = image::imageops::crop_imm(
-        &full_image, 
-        rel_x as u32, 
-        rel_y as u32, 
-        cap_width, 
-        cap_height
-    ).to_image();
-    
+        &full_image,
+        rel_x as u32,
+        rel_y as u32,
+        cap_width,
+        cap_height,
+    )
+    .to_image();
+
     // Convert to DynamicImage
     let dynamic_image = DynamicImage::ImageRgba8(cropped_image);
-    
+
     // Process the image
     process_image(dynamic_image)
 }

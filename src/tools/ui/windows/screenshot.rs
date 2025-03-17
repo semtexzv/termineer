@@ -6,8 +6,8 @@
 use crate::llm::{Content, ImageSource};
 use crate::tools::ToolResult;
 use base64::{engine::general_purpose, Engine as _};
-use image::{DynamicImage, GenericImageView};
 use image::ImageOutputFormat;
+use image::{DynamicImage, GenericImageView};
 use std::io::Cursor;
 use xcap::{Monitor, Window};
 

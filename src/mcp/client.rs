@@ -2,13 +2,13 @@
 
 use crate::mcp::error::{McpError, McpResult};
 use crate::mcp::process_connection::ProcessConnection;
-use lazy_static::lazy_static;
 use crate::mcp::protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, InitializeParams,
     InitializeResult, JsonRpcMessage, ListToolsResult, MessageContent, Request, RootsCapabilities,
     ServerInfo, Tool,
 };
 use crate::mcp::Connection;
+use lazy_static::lazy_static;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -91,14 +91,14 @@ impl McpClient {
         let server_protocol_version = &result.protocol_version;
         // List of supported protocol versions (current and potentially older versions)
         let supported_versions = ["2024-11-05", "2024-10-07"];
-        
+
         if !supported_versions.contains(&server_protocol_version.as_str()) {
             return Err(McpError::ProtocolError(format!(
                 "Unsupported protocol version: {}. This client supports versions: {:?}",
                 server_protocol_version, supported_versions
             )));
         }
-        
+
         // Store server info
         let mut server_info_guard = self.server_info.lock().await;
         *server_info_guard = Some(result.server_info.clone());
@@ -184,20 +184,21 @@ impl McpClient {
 
         // Create base request message
         let params_value = serde_json::to_value(params)?;
-        
+
         // Add progress support for methods that might be long-running
         let params_value = if method == "tools/call" || method == "resources/read" {
             if let serde_json::Value::Object(mut map) = params_value {
                 // Create or get the _meta object
-                let meta = map.entry("_meta")
+                let meta = map
+                    .entry("_meta")
                     .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-                
+
                 // Add progressToken if it doesn't exist
                 if let serde_json::Value::Object(meta_obj) = meta {
                     if !meta_obj.contains_key("progressToken") {
                         meta_obj.insert(
                             "progressToken".to_string(),
-                            serde_json::Value::String(format!("token_{}", id))
+                            serde_json::Value::String(format!("token_{}", id)),
                         );
                     }
                 }
@@ -208,9 +209,9 @@ impl McpClient {
         } else {
             params_value
         };
-        
+
         // Remove protocol-level logging completely
-        
+
         let message = JsonRpcMessage {
             jsonrpc: "2.0".to_string(),
             id: Some(serde_json::Value::Number(serde_json::Number::from(id))),
@@ -229,19 +230,20 @@ impl McpClient {
         // Send request with timeout
         let response = tokio::time::timeout(
             std::time::Duration::from_secs(60), // 60 second timeout
-            conn.send_message(message)
-        ).await
+            conn.send_message(message),
+        )
+        .await
         .map_err(|_| McpError::ConnectionError("Request timed out after 60 seconds".to_string()))?
         .map_err(|e| {
             bprintln!(error: "MCP connection error: {:?}", e);
             e
         })?;
-        
+
         // Parse response
         match response.content {
             MessageContent::Response(resp) => {
                 // Remove protocol-level logging completely
-                
+
                 // Parse result
                 let result: R = serde_json::from_value(resp.result).unwrap();
                 Ok(result)

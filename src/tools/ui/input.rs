@@ -23,18 +23,11 @@ pub enum InputAction {
         double: bool,
     },
     /// Type text
-    Type {
-        text: String,
-    },
+    Type { text: String },
     /// Press a keyboard shortcut
-    KeyPress {
-        key: String,
-        modifiers: Vec<String>,
-    },
+    KeyPress { key: String, modifiers: Vec<String> },
     /// Wait for some milliseconds
-    Wait {
-        ms: u64,
-    },
+    Wait { ms: u64 },
 }
 
 /// Command types for the input tool
@@ -45,14 +38,11 @@ pub enum InputCommand {
         x: i32,
         y: i32,
         window_id: String,
-        button: MouseButtonType, 
+        button: MouseButtonType,
         double: bool,
     },
     /// Type text into a window
-    Type {
-        text: String,
-        window_id: String,
-    },
+    Type { text: String, window_id: String },
     /// Press a keyboard shortcut
     KeyPress {
         key: String,
@@ -70,7 +60,7 @@ pub enum InputCommand {
 pub fn parse_command(args: &str, body: &str) -> InputCommand {
     let args = args.trim();
     let parts: Vec<&str> = args.split_whitespace().collect();
-    
+
     if parts.is_empty() {
         return InputCommand::Type {
             text: String::new(),
@@ -123,11 +113,15 @@ pub fn parse_command(args: &str, body: &str) -> InputCommand {
                 button,
                 double,
             }
-        },
+        }
         "type" => {
             // Format: input type [window_id]
             // The text to type is provided in the body
-            let window_id = if parts.len() > 1 { parts[1].to_string() } else { String::new() };
+            let window_id = if parts.len() > 1 {
+                parts[1].to_string()
+            } else {
+                String::new()
+            };
             let text = if body.is_empty() {
                 // If no body, check if there's text in the args after 'type'
                 if parts.len() > 2 {
@@ -139,11 +133,8 @@ pub fn parse_command(args: &str, body: &str) -> InputCommand {
                 body.to_string()
             };
 
-            InputCommand::Type {
-                text,
-                window_id,
-            }
-        },
+            InputCommand::Type { text, window_id }
+        }
         "key" => {
             // Format: input key [modifiers+]key [window_id]
             // Example: input key cmd+shift+a Terminal
@@ -156,7 +147,11 @@ pub fn parse_command(args: &str, body: &str) -> InputCommand {
             }
 
             let key_combo = parts[1].to_string();
-            let window_id = if parts.len() > 2 { parts[2].to_string() } else { String::new() };
+            let window_id = if parts.len() > 2 {
+                parts[2].to_string()
+            } else {
+                String::new()
+            };
 
             // Parse key combination
             let key_parts: Vec<&str> = key_combo.split('+').collect();
@@ -170,7 +165,7 @@ pub fn parse_command(args: &str, body: &str) -> InputCommand {
 
             // Last part is the key, everything before is modifiers
             let key = key_parts.last().unwrap().to_string();
-            let modifiers = key_parts[..key_parts.len()-1]
+            let modifiers = key_parts[..key_parts.len() - 1]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
@@ -180,21 +175,22 @@ pub fn parse_command(args: &str, body: &str) -> InputCommand {
                 modifiers,
                 window_id,
             }
-        },
+        }
         "sequence" => {
             // A sequence of actions to perform
             // Format: input sequence [window_id]
             // Actions are provided as JSON in the body
-            let window_id = if parts.len() > 1 { parts[1].to_string() } else { String::new() };
-            
+            let window_id = if parts.len() > 1 {
+                parts[1].to_string()
+            } else {
+                String::new()
+            };
+
             // Parse the actions from the body
             let actions = parse_action_sequence(body);
-            
-            InputCommand::Sequence {
-                actions,
-                window_id,
-            }
-        },
+
+            InputCommand::Sequence { actions, window_id }
+        }
         _ => {
             // Default to type command
             InputCommand::Type {
@@ -208,30 +204,30 @@ pub fn parse_command(args: &str, body: &str) -> InputCommand {
 /// Parse a sequence of actions from body text
 pub fn parse_action_sequence(body: &str) -> Vec<InputAction> {
     let mut actions = Vec::new();
-    
+
     // Parse line by line as simple commands
     for line in body.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        
+
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.is_empty() {
             continue;
         }
-        
+
         match parts[0].to_lowercase().as_str() {
             "click" => {
                 if parts.len() < 3 {
                     continue;
                 }
-                
+
                 let x = parts[1].parse::<i32>().unwrap_or(0);
                 let y = parts[2].parse::<i32>().unwrap_or(0);
                 let mut button = MouseButtonType::Left;
                 let mut double = false;
-                
+
                 for i in 3..parts.len() {
                     match parts[i] {
                         "--right" => button = MouseButtonType::Right,
@@ -240,51 +236,56 @@ pub fn parse_action_sequence(body: &str) -> Vec<InputAction> {
                         _ => {}
                     }
                 }
-                
-                actions.push(InputAction::Click { x, y, button, double });
-            },
+
+                actions.push(InputAction::Click {
+                    x,
+                    y,
+                    button,
+                    double,
+                });
+            }
             "type" => {
                 let text = if parts.len() > 1 {
                     parts[1..].join(" ")
                 } else {
                     String::new()
                 };
-                
+
                 actions.push(InputAction::Type { text });
-            },
+            }
             "key" => {
                 if parts.len() < 2 {
                     continue;
                 }
-                
+
                 let key_combo = parts[1].to_string();
                 let key_parts: Vec<&str> = key_combo.split('+').collect();
-                
+
                 if key_parts.is_empty() {
                     continue;
                 }
-                
+
                 let key = key_parts.last().unwrap().to_string();
-                let modifiers = key_parts[..key_parts.len()-1]
+                let modifiers = key_parts[..key_parts.len() - 1]
                     .iter()
                     .map(|m| m.to_string())
                     .collect();
-                
+
                 actions.push(InputAction::KeyPress { key, modifiers });
-            },
+            }
             "wait" => {
                 let ms = if parts.len() > 1 {
                     parts[1].parse::<u64>().unwrap_or(100)
                 } else {
                     100
                 };
-                
+
                 actions.push(InputAction::Wait { ms });
-            },
+            }
             _ => {}
         }
     }
-    
+
     actions
 }
 
@@ -296,21 +297,26 @@ pub async fn execute_input(args: &str, body: &str, silent_mode: bool) -> ToolRes
     // Log tool invocation
     crate::bprintln!(dev: "💻 INPUT: execute_input called with args=\"{}\" body_length={} on platform={}", 
                      args, body.len(), platform);
-                     
+
     // Parse the command
     let command = parse_command(args, body);
-    
+
     // Route to platform-specific implementation
     match platform {
         #[cfg(target_os = "macos")]
         "macos" => crate::tools::ui::macos::input::execute_macos_input(command, silent_mode).await,
-        
+
         #[cfg(target_os = "windows")]
-        "windows" => crate::tools::ui::windows::input::execute_windows_input(command, silent_mode).await,
-        
+        "windows" => {
+            crate::tools::ui::windows::input::execute_windows_input(command, silent_mode).await
+        }
+
         #[cfg(target_os = "linux")]
         "linux" => crate::tools::ui::linux::input::execute_linux_input(command, silent_mode).await,
-        
-        _ => ToolResult::error(format!("Input tool not implemented for {} platform", platform))
+
+        _ => ToolResult::error(format!(
+            "Input tool not implemented for {} platform",
+            platform
+        )),
     }
 }

@@ -12,10 +12,15 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 /// Execute the task tool - create and run a subtask with its own agent
-pub async fn execute_task(args: &str, body: &str, silent_mode: bool, parent_agent_id: Option<AgentId>) -> ToolResult {
+pub async fn execute_task(
+    args: &str,
+    body: &str,
+    silent_mode: bool,
+    parent_agent_id: Option<AgentId>,
+) -> ToolResult {
     // Parse arguments to extract task name, kind, and includes
     let (task_name, kind_name, includes) = parse_task_arguments(args);
-    
+
     // Validate task instructions
     let task_instructions = body.trim();
     if task_instructions.is_empty() {
@@ -53,7 +58,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool, parent_agen
 
     // Create config for the subtask agent
     let mut config = Config::new();
-    
+
     // Inherit disabled tools from parent agent if available
     if let Some(parent_id) = parent_agent_id {
         if let Ok(parent_config) = crate::agent::get_agent_config(parent_id) {
@@ -72,11 +77,11 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool, parent_agen
             }
         }
     }
-    
+
     // Set up the system prompt based on the kind
     let enabled_tools = prompts::ALL_TOOLS;
     let grammar = prompts::select_grammar_for_model("claude-3"); // Default to Claude grammar
-    
+
     // Generate the system prompt
     if let Ok(system_prompt) = prompts::generate_system_prompt(
         enabled_tools,
@@ -96,10 +101,10 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool, parent_agen
 
     // Set the kind parameter in the config
     config.kind = kind_name;
-    
+
     // Create the subtask agent with a unique name
     let agent_name = format!("task_{}", task_name);
-    
+
     // Make a note of disabled tools for clarity in output
     if !config.disabled_tools.is_empty() && !silent_mode {
         bprintln!(
@@ -110,7 +115,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool, parent_agen
             FORMAT_RESET
         );
     }
-    
+
     let subtask_agent_id = match crate::agent::create_agent(agent_name, config) {
         Ok(id) => id,
         Err(e) => {
@@ -129,8 +134,7 @@ pub async fn execute_task(args: &str, body: &str, silent_mode: bool, parent_agen
             // Combine file context with task instructions
             format!(
                 "# File Context\n\n{}\n\n# Task Instructions\n\n{}",
-                context_content,
-                task_instructions
+                context_content, task_instructions
             )
         } else {
             task_instructions.to_string()
@@ -209,14 +213,14 @@ fn parse_task_arguments(args: &str) -> (String, Option<String>, Vec<String>) {
 /// Process include files and return their contents
 fn process_includes(includes: &[String], silent_mode: bool) -> String {
     let mut content = String::new();
-    
+
     // Process each include file
     for include_pattern in includes {
         // Handle globbing
         match glob::glob(include_pattern) {
             Ok(paths) => {
                 let mut found = false;
-                
+
                 for entry in paths {
                     match entry {
                         Ok(path) => {
@@ -244,7 +248,7 @@ fn process_includes(includes: &[String], silent_mode: bool) -> String {
                         }
                     }
                 }
-                
+
                 if !found && !silent_mode {
                     bprintln!(error:"No files found matching pattern: {}", include_pattern);
                 }
@@ -256,7 +260,7 @@ fn process_includes(includes: &[String], silent_mode: bool) -> String {
             }
         }
     }
-    
+
     content
 }
 
@@ -269,27 +273,24 @@ fn read_file<P: AsRef<Path>>(path: P) -> io::Result<String> {
 }
 
 /// Wait for agent to complete its task and return the final result
-async fn wait_for_agent_completion(
-    agent_id: AgentId,
-    silent_mode: bool
-) -> String {
+async fn wait_for_agent_completion(agent_id: AgentId, silent_mode: bool) -> String {
     let timeout = Duration::from_secs(300); // 5 minute timeout
     let start_time = Instant::now();
     let mut last_polling_time = Instant::now();
     let polling_interval = Duration::from_millis(500);
-    
+
     let mut result = String::new();
     let mut done = false;
-    
+
     // Keep checking the agent state until it's done or timeout
     while !done && start_time.elapsed() < timeout {
         // Only poll at the specified interval
         if last_polling_time.elapsed() >= polling_interval {
             last_polling_time = Instant::now();
-            
+
             // Get the agent state
             let state = crate::agent::get_agent_state(agent_id).ok();
-            
+
             match state {
                 // Agent is done, get the result
                 Some(AgentState::Done(response)) => {
@@ -301,10 +302,10 @@ async fn wait_for_agent_completion(
                         let buffer_content = extract_final_output(agent_id);
                         result = buffer_content;
                     }
-                    
+
                     done = true;
                 }
-                
+
                 // Agent is terminated, consider as done
                 Some(AgentState::Terminated) => {
                     if !silent_mode {
@@ -313,27 +314,27 @@ async fn wait_for_agent_completion(
                     result = "Task was terminated before completion".to_string();
                     done = true;
                 }
-                
+
                 // Other states - keep waiting
                 _ => {}
             }
         }
-        
+
         // Small sleep to avoid tight loop
         sleep(Duration::from_millis(50)).await;
     }
-    
+
     // If we reached timeout
     if !done {
         if !silent_mode {
             bprintln!(warn: "Task timed out after {} seconds", timeout.as_secs());
         }
         result = format!("Task timed out after {} seconds", timeout.as_secs());
-        
+
         // Terminate the agent
         let _ = crate::agent::terminate_agent(agent_id).await;
     }
-    
+
     result
 }
 
@@ -341,7 +342,7 @@ async fn wait_for_agent_completion(
 fn extract_final_output(agent_id: AgentId) -> String {
     if let Ok(buffer) = crate::agent::get_agent_buffer(agent_id) {
         let lines = buffer.lines();
-        
+
         // Simple approach: collect all meaningful content after the last user message
         // Find the last user message
         let mut last_user_idx = 0;
@@ -350,27 +351,29 @@ fn extract_final_output(agent_id: AgentId) -> String {
                 last_user_idx = i;
             }
         }
-        
+
         // Take everything after the last user message, filtering out just system messages and tool invocations
-        let full_response = lines.iter()
+        let full_response = lines
+            .iter()
             .skip(last_user_idx + 1)
             .filter(|line| {
                 // Only filter out system messages (starting with 🤖)
                 // We want to keep most content, including tool results
-                !line.content.starts_with("🤖") && 
-                !line.content.contains("Token usage:") &&
-                !line.content.trim().is_empty()
+                !line.content.starts_with("🤖")
+                    && !line.content.contains("Token usage:")
+                    && !line.content.trim().is_empty()
             })
             .map(|line| line.content.clone())
             .collect::<Vec<_>>()
             .join("\n");
-        
+
         if !full_response.is_empty() {
             return full_response;
         }
-        
+
         // If somehow we got nothing, take a simpler approach - just get the last chunk of content
-        return lines.iter()
+        return lines
+            .iter()
             .rev()
             .take(20) // Take more lines to ensure we get substantial content
             .filter(|line| !line.content.starts_with("🤖"))
@@ -381,6 +384,6 @@ fn extract_final_output(agent_id: AgentId) -> String {
             .collect::<Vec<_>>()
             .join("\n");
     }
-    
+
     "Unable to retrieve agent output".to_string()
 }

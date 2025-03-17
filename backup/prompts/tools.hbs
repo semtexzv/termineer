@@ -1,0 +1,585 @@
+{{! Tools Template Partial }}
+{{!
+  This is a partial template containing only tool definitions.
+  It can be included in other templates using inclusion syntax
+}}
+
+## General Tool Formatting
+
+All tools follow this syntax pattern:
+{{#tool "tool_name"}}[arguments]
+[optional multi-line content]{{/tool}}
+
+Results appear directly after the tool invocation, not replacing it.
+
+For tools with multi-line content (write, patch, task, etc.):
+- Place content on new lines after arguments
+- Maintain proper indentation within content 
+- End with the tool closing tag
+
+Common principles:
+- Tool names are case-insensitive
+- Arguments are space-separated
+- Error messages provide guidance for correction
+- Long outputs are automatically truncated
+
+{{! ================ SYSTEM TOOLS ================ }}
+{{#iftool "shell"}}
+### Shell
+Execute shell commands on the user's system
+{{#tool "shell"}}[command]{{/tool}}
+
+Features: Streaming output, multi-line scripts, interruption capability
+
+Example:
+{{#tool "shell"}}ls -la{{/tool}}
+{{#done "shell" 0}}
+drwxr-xr-x  14 user group 448 Feb 27 22:11 .
+[COMMAND COMPLETED SUCCESSFULLY]
+{{/done}}
+
+Interruption: Use `<continue/>` to continue or `<interrupt>Reason</interrupt>` to stop
+
+When to use: Explore directories, run commands, check configurations, execute scripts
+{{/iftool}}
+
+{{! ================ FILE OPERATIONS ================ }}
+     ```
+     <interrupt>Sufficient matches found in search results</interrupt>
+     ```
+     
+2. **User interruption**: The user can press Ctrl+C to manually stop the command at any time
+
+When interrupted, you'll see something like:
+```
+[COMMAND INTERRUPTED: Sufficient information gathered]
+```
+
+## Important Notes
+
+- For security, certain commands are restricted (e.g., curl, wget, ssh)
+- Very long output will be automatically truncated
+- The shell tool shares the same environment throughout the session
+- Environment variables and working directory changes persist between commands
+- Always check command exit status to ensure successful execution
+
+When to use:
+- Explore directories and file structures
+- Run build, test, or package management commands
+- Check environment settings and configurations
+- Execute project-specific scripts
+- Search for files or content (though grep/find can be better done with GrepTool)
+- Install dependencies or manage system packages
+
+{{! ================ FILE OPERATIONS ================ }}
+{{#iftool "read"}}
+### Read
+Read files or list directories:
+{{#tool "read"}}[offset=N] [limit=M] [filepath(s) or directory]{{/tool}}
+
+Parameters: `offset` (starting line), `limit` (max lines), `filepath(s)` (target)
+
+Example:
+{{#tool "read"}}src/main.rs{{/tool}}
+{{#done "read" 0}}
+File: src/main.rs (lines 1-50 of 100, 50 lines read)
+
+```
+fn main() {
+    // Content here
+}
+```
+{{/done}}
+
+When to use: Examine code, list directories, verify changes
+- Always check if files exist before trying to read them
+- Use with `patch` or `write` tools to read before making changes
+{{/iftool}}
+
+{{#iftool "write"}}
+### Write
+Write content to a file:
+{{#tool "write"}}[filepath]
+[content on multiple lines]
+{{/tool}}
+
+Example:
+{{#tool "write"}}/tmp/example.txt
+Content on multiple lines
+{{/tool}}
+
+When to use: Create new files, generate reports, replace existing files
+{{/iftool}}
+
+{{#iftool "patch"}}
+### Patch
+Update specific sections of file content:
+{{#tool "patch"}}[filepath]
+{{#patch}}
+[exact text to replace]
+{{else}}
+[new text to insert]
+{{/patch}}
+{{/tool}}
+
+Example:
+{{#tool "patch"}}src/main.rs
+{{#patch}}
+fn main() {
+    // Old code
+}
+{{else}}
+fn main() {
+    // New improved code
+}
+{{/patch}}
+{{/tool}}
+
+When to use: Make targeted changes, update specific code sections
+{{/iftool}}
+
+{{! ================ WEB TOOLS ================ }}
+{{#iftool "fetch"}}
+### Fetch
+Retrieve content from web URLs:
+{{#tool "fetch"}}URL{{/tool}}
+
+Example:
+{{#tool "fetch"}}https://example.com{{/tool}}
+
+When to use: **CRUCIAL FOR RESEARCH** - Access documentation, guides, reference materials, and examples from authoritative sources
+
+Workflow: 1) Search to find resources 2) Fetch from authoritative sources 3) Apply knowledge to your task
+
+{{/iftool}}
+
+{{#iftool "search"}}
+### Search
+Search the web for documentation and solutions:
+{{#tool "search"}}[search query]{{/tool}}
+
+Example:
+{{#tool "search"}}rust programming language{{/tool}}
+
+When to use: **ESSENTIAL FIRST STEP** - Begin by finding relevant documentation, tutorials, examples, and solutions
+
+Tips: Be specific with searches, include error messages, try multiple query variations
+{{/iftool}}
+
+{{! ================ UI AUTOMATION ================ }}
+{{#iftool "screenshot"}}
+### Screenshot
+Capture a screenshot of the current screen or a specific window:
+{{#tool "screenshot"}}[command] [identifier]{{/tool}}
+
+Commands:
+- No arguments - Captures all displays as separate images (default)
+- `screen [index]` - Captures a specific screen by index number (0-based)
+- `window [ID]` - Captures a specific window by ID (use `screendump` to get IDs)
+- `window [Title]` - Captures a specific window by title match
+
+Examples:
+
+Capture all screens as separate images (default behavior):
+{{#tool "screenshot"}}{{/tool}}
+
+{{#done "screenshot" 0}}
+[Multiple screen images will appear here]
+{{/done}}
+
+Capture a specific screen by index:
+{{#tool "screenshot"}}screen 0{{/tool}}
+
+{{#done "screenshot" 0}}
+[Primary screen image will appear here]
+{{/done}}
+
+Capture a specific window by ID:
+{{#tool "screenshot"}}window Safari:1{{/tool}}
+
+{{#done "screenshot" 0}}
+[Safari window image content will appear here]
+{{/done}}
+
+Capture a window by title match:
+{{#tool "screenshot"}}window Downloads{{/tool}}
+
+{{#done "screenshot" 0}}
+[Downloads window image content will appear here]
+{{/done}}
+
+When to use:
+- Multi-screen capture: Analyze all displays separately
+- Single screen capture: Focus on a specific monitor
+- Window capture: Focus on specific applications or UI elements
+- Analyze visual elements using Claude's computer vision capabilities
+- Get visual feedback about the state of applications
+- Assist with troubleshooting UI issues
+- Allow Claude to see and interpret UI elements
+- Document the current state of applications
+
+How it works:
+- Default mode captures all displays as separate images
+- Screen index mode captures a specific screen by number
+- Window mode uses accessibility APIs to find and capture specific windows
+- Works with the `screendump` tool which provides window IDs and structural information
+- Uses the same window identification system as `screendump` (App:Index format)
+- Images are automatically resized if needed to fit Claude's requirements
+- Screenshots are encoded as base64 JPEG images and sent directly to Claude
+
+For best results:
+1. Use `screendump` (without arguments) to list available windows with their IDs
+2. Use `screenshot window [ID]` to capture a specific window
+3. Use `screendump window [ID]` to get the UI structure of the same window
+{{/iftool}}
+
+{{#iftool "input"}}
+### Input
+Send mouse and keyboard inputs to windows:
+{{#tool "input"}}[command] [parameters]
+[optional content for type command or sequence]
+{{/tool}}
+
+Commands:
+- `click x y [window_id] [options]` - Click at x,y coordinates in a window
+  - Options: `--right` (right click), `--middle` (middle click), `--double` (double-click)
+- `type [window_id]` - Type text into a window (text follows on next lines)
+- `key [modifiers+]key [window_id]` - Send keyboard shortcut (e.g., cmd+shift+t)
+- `sequence [window_id]` - Execute a sequence of actions (one per line)
+
+Examples:
+
+Mouse click:
+{{#tool "input"}}click 100 200 Terminal{{/tool}}
+
+{{#done "input" 0}}
+Clicked at coordinates (100, 200) in window 'Terminal'
+{{/done}}
+
+Mouse right-click:
+{{#tool "input"}}click 300 400 Safari:1 --right{{/tool}}
+
+{{#done "input" 0}}
+Right-clicked at coordinates (300, 400) in window 'Safari:1'
+{{/done}}
+
+Type text:
+{{#tool "input"}}type TextEdit:1
+Hello, world! This is some text that will be typed into the window.
+{{/tool}}
+
+{{#done "input" 0}}
+Typed text into window 'TextEdit:1'
+{{/done}}
+
+Keyboard shortcut:
+{{#tool "input"}}key cmd+shift+t Chrome:1{{/tool}}
+
+{{#done "input" 0}}
+Sent keyboard shortcut to window 'Chrome:1'
+{{/done}}
+
+Action sequence:
+{{#tool "input"}}sequence Safari:1
+click 100 200
+wait 500
+type Hello, world!
+key return
+{{/tool}}
+
+{{#done "input" 0}}
+Action 1: Clicked at coordinates (100, 200) in window 'Safari:1'
+Action 2: Waited for 500ms
+Action 3: Typed text into window 'Safari:1'
+Action 4: Sent keyboard shortcut to window 'Safari:1'
+{{/done}}
+
+When to use:
+- Automate UI interactions in target applications
+- Click on specific buttons or elements in windows
+- Type text into form fields or editors
+- Send keyboard shortcuts for application commands
+- Create automation sequences for multi-step workflows
+- Test user interfaces programmatically
+- Interact with applications that don't have API access
+
+How it works:
+- Uses platform-specific accessibility APIs to send inputs to windows
+- Works with `screendump` to identify window positions and IDs
+- Window IDs use the App:Index format (e.g., Safari:1, Terminal:1)
+- Uses secure permissions-based access to control applications
+- Action sequences can combine clicks, typing, key presses, and wait times
+- Handles focus and application activation automatically
+{{/iftool}}
+
+{{#iftool "screendump"}}
+### Screendump
+Capture the current UI structure as text using accessibility APIs:
+{{#tool "screendump"}}[command] [identifier]{{/tool}}
+
+Commands:
+- No arguments - Lists all available windows with IDs (default)
+- `fullscreen` - Captures all visible applications and windows
+- `window [ID]` - Captures a specific window by ID
+- `window [Title]` - Captures a specific window by title
+
+Examples:
+
+List all windows (default behavior):
+{{#tool "screendump"}}{{/tool}}
+
+{{#done "screendump" 0}}
+Available Windows:
+[Terminal:1] Terminal: termineer — -zsh — 80×24
+[Safari:1] Safari: Claude AI - Safari
+[Finder:1] Finder: Downloads
+[VSCode:1] VSCode: screendump.rs
+
+Use 'screendump window [ID]' or 'screendump window [Window Title]' to view details for a specific window.
+{{/done}}
+
+Capture details for a specific window using ID:
+{{#tool "screendump"}}window Safari:1{{/tool}}
+
+{{#done "screendump" 0}}
+Window Details for 'Safari:1':
+Application: Safari
+Window: Claude AI - Safari
+Position: 240, 150
+Size: 1024×768
+
+UI Elements:
+  Element:
+    Type: AXButton
+    Description: Back
+  Element:
+    Type: AXTextField
+    Value: https://claude.ai
+{{/done}}
+
+Capture details using window title:
+{{#tool "screendump"}}window Downloads{{/tool}}
+
+{{#done "screendump" 0}}
+Window Details for 'Downloads':
+Application: Finder
+Window: Downloads
+Position: 100, 100
+Size: 800×600
+
+UI Elements:
+  Element:
+    Type: AXList
+    Description: File list
+{{/done}}
+
+When to use:
+- List all accessible windows on the system
+- Analyze the structure of specific application interfaces
+- Extract information about UI elements and their properties
+- Understand window layouts and hierarchies
+- Identify accessibility information about windows and applications
+- Get details about controls, buttons, and other interface elements
+- Find specific UI elements for automation or analysis
+- Compare UI structure across different applications
+
+How it works:
+- Uses platform-specific accessibility APIs to query UI structure
+- On macOS, uses AppleScript with System Events to access UI elements
+- Returns structured hierarchical data about windows and UI elements
+- Provides details like element roles, properties, values, and relationships
+- Complements the screenshot tool by providing structural information rather than visual representation
+- Uses a consistent window identification system via App:Index IDs
+{{/iftool}}
+
+
+{{! ================ WORKFLOW ================ }}
+{{#iftool "task"}}
+### Task
+Create a subtask to perform a specific goal
+{{#tool "task"}}[parameters] task_name
+[detailed task instructions on multiple lines]
+{{/tool}}
+
+Parameters (optional):
+- `kind=TYPE`: Specify the agent kind to use for this task (e.g., kind=researcher)
+- `include=PATTERN`: Include file(s) as context (supports glob patterns)
+
+Available agent kinds:
+{{available_kinds false}}
+
+{{#done "task" 0}}
+
+[Subtask output]
+{{/done}}
+
+Examples:
+{{#tool "task"}}kind=code_implementer
+Implement a login form validation script
+Create a JavaScript function that validates:
+- Email format
+- Password strength (8+ chars, mixed case, numbers)
+- Matching password confirmation field
+{{/tool}}
+
+{{#tool "task"}}kind=researcher include=src/config.rs
+Research how configuration is managed in this codebase
+Focus on how configuration options are defined, loaded and accessed
+Create a comprehensive overview of the configuration system
+{{/tool}}
+
+{{#tool "task"}}kind=troubleshooter include=src/error.rs include=src/logging.rs
+Debug the memory leak in user session handling
+The application shows increasing memory usage over time
+Memory grows with each user login/logout cycle
+Focus on the session cleanup in auth module
+{{/tool}}
+
+When to use:
+- Break down complex coding and development tasks into smaller, more manageable subtasks
+- Run specialized operations in isolation from the main conversation flow
+- Process detailed research or implementation tasks that require focused attention
+- Create modular solutions to complex software engineering problems
+- Parallelize efforts (e.g., one task explores codebase while another implements a specific feature)
+- **For coding tasks**: Use this as your primary approach for managing complexity
+
+Best practices for effective task usage:
+- Be highly specific about the subtask's objectives and expected outputs
+- Provide clear success criteria so the subtask knows when it's complete
+- Include relevant context from your main task to avoid redundant research
+- Use for targeted research that can be performed independently
+- Combine results from multiple subtasks for comprehensive solutions
+{{/iftool}}
+
+{{#iftool "agent"}}
+### Agent
+Create and communicate with other agents:
+{{#tool "agent"}}[subcommand] [parameters] [name]
+
+[content on multiple lines]
+{{/tool}}
+
+{{#done "agent" 1}}
+
+[Result depends on subcommand]
+{{/done}}
+
+Subcommands:
+- `create`: Create a new agent with optional parameters:
+  - `kind=TYPE`: Specify the agent kind (e.g., kind=orchestrator)
+- `send`: Send a message to another agent (by name or ID)
+
+Examples:
+
+1. Creating a new agent with default kind:
+{{#tool "agent" }}create research_agent
+Research the latest JavaScript frameworks and provide a summary
+of their key features, performance characteristics, and use cases.
+{{/tool}}
+
+{{#done "agent" 0}}
+
+Agent 'research_agent' created with ID: 2
+Initial instructions sent to the agent.
+{{/done}}
+
+2. Creating a specialized agent with specific kind:
+{{#tool "agent" }}create kind=codebase_explorer code_explorer
+Explore the src/ directory and create a comprehensive map of:
+1. Main components and their responsibilities
+2. Key data structures and their relationships
+3. Control flow for the main application paths
+{{/tool}}
+
+{{#done "agent" 0}}
+
+Agent 'code_explorer' created with ID: 3
+Initial instructions sent to the agent.
+{{/done}}
+
+3. Sending a message to another agent:
+{{#tool "agent"}}send research_agent
+
+Please also include information about TypeScript integration
+in your framework comparison.
+{{/tool}}
+
+{{#done "agent" 0}}
+
+Message sent to agent research_agent [ID: 2]
+{{/done}}
+
+When to use:
+- Create specialized agents for parallel research or tasks
+- Delegate complex subtasks to dedicated agents
+- Enable collaborative problem-solving across multiple experts
+- Create supervisor-worker agent structures
+- Establish agent communication networks for complex workflows
+{{/iftool}}
+
+{{#iftool "wait"}}
+### Wait
+Pause the agent until a message is received:
+{{#tool "wait"}}
+
+[reason for waiting]
+{{/tool}}
+
+{{#done "wait" 0}}Resumed{{/done}}
+
+Example:
+{{#tool "wait"}}
+
+Waiting for database query results from the database_agent
+{{/tool}}
+
+{{#done "wait" 1}}Resumed{{/done}}
+
+When to use:
+- Wait for messages from other agents
+- Pause execution while waiting for external events
+- Signal to users that you're ready for additional input
+- Create synchronization points in multi-agent workflows
+{{/iftool}}
+
+{{#iftool "done"}}
+### Done
+Signal task completion with optional summary:
+{{#tool "done"}}
+
+[summary on multiple lines]
+{{/tool}}
+
+{{#done "done" 0}}{{/done}}
+
+Use this tool when a task is complete to provide a final summary and end the conversation.
+
+Example:
+{{#tool "done"}}
+Task completed. Created new file and configured settings.
+All requested changes have been implemented successfully.
+{{/tool}}
+
+{{#done "done" 1}}{{/done}}
+{{/iftool}}
+
+{{! ================ MCP TOOLS ================ }}
+{{#if mcp_tools}}
+## MCP Tools
+
+{{#each mcp_tools}}
+{{#each this}}
+{{/each}}
+## {{this.server}} {{this.name}}
+{{this.description}}
+{{#tool this.server}}{{this.name}}
+{{this.example_request}}
+{{/tool}}
+
+{{#done this.server 0}}
+
+[tool output...]
+{{/done}}
+
+{{/each}}
+{{/if}}

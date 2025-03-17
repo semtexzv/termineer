@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 //! Google Gemini API integration for Termineer
-//! 
+//!
 //! Implementation of the LLM provider for Google's Gemini models.
 //! Supports Gemini 1.0, 1.5, and 2.0 model families with
 //! appropriate token context limits.
@@ -155,10 +155,10 @@ impl GeminiBackend {
         system: Option<&str>,
     ) -> Vec<GeminiContent> {
         let mut gemini_contents = Vec::new();
-        
+
         // Get the system message either from the parameter or from the messages
         let mut system_text = system.unwrap_or("").to_string();
-        
+
         // If no system message provided as parameter, look for it in the messages
         if system_text.is_empty() {
             // Find the first system message in the array
@@ -171,27 +171,27 @@ impl GeminiBackend {
                 }
             }
         }
-        
+
         let has_system = !system_text.is_empty();
-        
+
         // Track if we've prepended the system message to a user message
         let mut system_prepended = false;
-        
+
         // Process messages
         for message in messages {
             let (role, is_user) = match message.role.as_str() {
                 "user" => (Some("user"), true),
                 "assistant" => (Some("model"), false),
                 "system" => continue, // Skip system messages, handled separately
-                _ => (None, false), // Skip tool messages or other unknown roles
+                _ => (None, false),   // Skip tool messages or other unknown roles
             };
-            
+
             if role.is_none() {
                 continue; // Skip this message
             }
 
             let mut parts = Vec::new();
-            
+
             // For the first user message, prepend system message if any
             if is_user && has_system && !system_prepended {
                 // Extract text from content
@@ -200,23 +200,21 @@ impl GeminiBackend {
                     let mut combined_text = system_text.clone();
                     combined_text.push_str("\n\n");
                     combined_text.push_str(&text);
-                    
+
                     parts.push(GeminiPart {
                         text: Some(combined_text),
                     });
-                    
+
                     system_prepended = true;
                 }
             } else {
                 // Process content based on type
                 let content_text = extract_text_content(&message.content);
                 if let Some(text) = content_text {
-                    parts.push(GeminiPart {
-                        text: Some(text),
-                    });
+                    parts.push(GeminiPart { text: Some(text) });
                 }
             }
-            
+
             if !parts.is_empty() {
                 gemini_contents.push(GeminiContent {
                     parts,
@@ -224,7 +222,7 @@ impl GeminiBackend {
                 });
             }
         }
-        
+
         // If we have a system message but no user message to prepend it to
         if has_system && !system_prepended {
             // Create a synthetic user message with the system prompt
@@ -235,7 +233,7 @@ impl GeminiBackend {
                 role: Some("user".to_string()),
             });
         }
-        
+
         gemini_contents
     }
 
@@ -245,17 +243,17 @@ impl GeminiBackend {
         url: &str,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
-        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
-        
+        use crate::llm::retry_utils::{send_api_request_with_retry, RetryConfig};
+
         // Create retry configuration - use linear backoff for Gemini
         let config = RetryConfig {
             max_attempts: 5,
-            base_delay_ms: 1000, // 1 second initial delay
-            max_delay_ms: 30000, // Maximum 30 second delay (per TODO)
-            timeout_secs: 180,   // 3 minute timeout (per TODO range of 100-200s)
+            base_delay_ms: 1000,    // 1 second initial delay
+            max_delay_ms: 30000,    // Maximum 30 second delay (per TODO)
+            timeout_secs: 180,      // 3 minute timeout (per TODO range of 100-200s)
             use_exponential: false, // Use linear backoff for Gemini
         };
-        
+
         // Create a request builder closure
         let prepare_request = || {
             self.client
@@ -263,18 +261,18 @@ impl GeminiBackend {
                 .header("Content-Type", "application/json")
                 .json(&request_json)
         };
-        
-        // Use the standardized retry utility
-        send_api_request_with_retry::<T, _>(&self.client, url, prepare_request, config, "Gemini").await
-    }
 
+        // Use the standardized retry utility
+        send_api_request_with_retry::<T, _>(&self.client, url, prepare_request, config, "Gemini")
+            .await
+    }
 }
 
 // Helper function to extract text content from Content enum
 fn extract_text_content(content: &Content) -> Option<String> {
     match content {
         Content::Text { text } => Some(text.clone()),
-        _ => None
+        _ => None,
     }
 }
 
@@ -293,27 +291,25 @@ impl Backend for GeminiBackend {
         if thinking_budget.is_some() {
             bprintln!(info: "Thinking is not supported by Gemini models, ignoring thinking_budget");
         }
-        
+
         if cache_points.is_some() {
             bprintln!(info: "Cache points are not supported by Gemini models, ignoring cache_points");
         }
-        
+
         let gemini_contents = self.convert_messages_to_gemini_format(messages, system);
-        
+
         // Default max tokens if not provided
         let default_max_tokens = 2048; // Reasonable default
         let tokens = max_tokens.unwrap_or(default_max_tokens);
-        
+
         let generation_config = GeminiGenerationConfig {
             max_output_tokens: Some(tokens as u32),
             temperature: Some(0.7), // Default temperature
             top_p: Some(0.95),      // Default top_p
             top_k: None,            // Default top_k
-            stop_sequences: stop_sequences
-                .map(|seqs| seqs.to_vec())
-                .unwrap_or_default(),
+            stop_sequences: stop_sequences.map(|seqs| seqs.to_vec()).unwrap_or_default(),
         };
-        
+
         let request = GeminiRequest {
             contents: gemini_contents,
             generation_config: Some(generation_config),
@@ -323,23 +319,24 @@ impl Backend for GeminiBackend {
         // Construct the API endpoint URL
         let api_url = format!(
             "{}/models/{}:generateContent?key={}",
-            API_BASE_URL,
-            self.model_name, 
-            self.api_key
+            API_BASE_URL, self.model_name, self.api_key
         );
 
         // Use the common send_api_request method
-        let gemini_response: GeminiResponse = 
-            self.send_api_request(&api_url, serde_json::to_value(request).unwrap()).await?;
+        let gemini_response: GeminiResponse = self
+            .send_api_request(&api_url, serde_json::to_value(request).unwrap())
+            .await?;
 
         // Extract the generated text
         if gemini_response.candidates.is_empty() {
-            return Err(LlmError::ApiError("No candidates returned from Gemini API".to_string()));
+            return Err(LlmError::ApiError(
+                "No candidates returned from Gemini API".to_string(),
+            ));
         }
 
         let candidate = &gemini_response.candidates[0];
         let mut response_text = String::new();
-        
+
         for part in &candidate.content.parts {
             if let Some(part_text) = &part.text {
                 response_text.push_str(part_text);
@@ -357,17 +354,22 @@ impl Backend for GeminiBackend {
         } else {
             // If token usage is not provided, use approximate counting
             TokenUsage {
-                input_tokens: 0,   // Will be provided by actual token counting
+                input_tokens: 0,                        // Will be provided by actual token counting
                 output_tokens: response_text.len() / 4, // Rough estimate
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
             }
         };
 
-        let finish_reason = candidate.finish_reason.clone().unwrap_or_else(|| "unknown".to_string());
+        let finish_reason = candidate
+            .finish_reason
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
 
         Ok(LlmResponse {
-            content: vec![Content::Text { text: response_text }],
+            content: vec![Content::Text {
+                text: response_text,
+            }],
             usage: Some(token_usage),
             stop_reason: Some(finish_reason),
             stop_sequence: None, // Not provided by Gemini
@@ -381,15 +383,16 @@ impl Backend for GeminiBackend {
     ) -> Result<TokenUsage, LlmError> {
         // Use a simple character-based estimation instead of API call
         // This avoids errors with models that don't support countTokens
-        let estimate_tokens = messages.iter()
+        let estimate_tokens = messages
+            .iter()
             .map(|msg| {
                 match &msg.content {
                     Content::Text { text } => text.len() / 4, // Rough estimate: ~4 chars per token
-                    _ => 0
+                    _ => 0,
                 }
             })
             .sum();
-            
+
         if let Some(sys) = system {
             let sys_tokens = sys.len() / 4;
             Ok(TokenUsage {
@@ -425,54 +428,55 @@ impl Backend for GeminiBackend {
 mod tests {
     use super::*;
     use crate::llm::MessageInfo;
-    
+
     #[test]
     fn test_message_conversion() {
-        let client = GeminiBackend::new(
-            "test_key".to_string(),
-            "gemini-2.0-flash".to_string(),
-        );
-        
+        let client = GeminiBackend::new("test_key".to_string(), "gemini-2.0-flash".to_string());
+
         let messages = vec![
             Message {
                 role: "system".to_string(),
-                content: Content::Text { text: "You are a helpful assistant.".to_string() },
+                content: Content::Text {
+                    text: "You are a helpful assistant.".to_string(),
+                },
                 info: MessageInfo::System,
             },
             Message {
                 role: "user".to_string(),
-                content: Content::Text { text: "Hello, how are you?".to_string() },
+                content: Content::Text {
+                    text: "Hello, how are you?".to_string(),
+                },
                 info: MessageInfo::User,
             },
         ];
-        
+
         // First test with no external system prompt (uses the one from messages)
         let system_prompt = None;
-        
+
         let gemini_contents = client.convert_messages_to_gemini_format(&messages, system_prompt);
-        
+
         assert_eq!(gemini_contents.len(), 1);
         assert_eq!(gemini_contents[0].role, Some("user".to_string()));
         assert_eq!(gemini_contents[0].parts.len(), 1);
         assert_eq!(
-            gemini_contents[0].parts[0].text, 
+            gemini_contents[0].parts[0].text,
             Some("You are a helpful assistant.\n\nHello, how are you?".to_string())
         );
-        
+
         // Test with an explicit system prompt which should override the one in messages
         let explicit_system = Some("I am an explicit system prompt.");
-        
+
         let gemini_contents = client.convert_messages_to_gemini_format(&messages, explicit_system);
-        
+
         assert_eq!(gemini_contents.len(), 1);
         assert_eq!(gemini_contents[0].role, Some("user".to_string()));
         assert_eq!(gemini_contents[0].parts.len(), 1);
         assert_eq!(
-            gemini_contents[0].parts[0].text, 
+            gemini_contents[0].parts[0].text,
             Some("I am an explicit system prompt.\n\nHello, how are you?".to_string())
         );
     }
-    
+
     #[test]
     fn test_model_token_limits() {
         assert_eq!(get_model_token_limit("gemini-1.0-pro"), 32_768);

@@ -1,5 +1,5 @@
 //! DeepSeek API integration for Termineer
-//! 
+//!
 //! Implementation of the LLM provider for DeepSeek's models
 //! including deepseek-chat (V3) and deepseek-reasoner (R1).
 
@@ -19,9 +19,9 @@ const API_BASE_URL: &str = "https://api.deepseek.com";
 /// for a given model name.
 fn get_model_token_limit(model_name: &str) -> usize {
     match model_name {
-        "deepseek-chat" => 32_768, // DeepSeek-V3 (32K context)
+        "deepseek-chat" => 32_768,     // DeepSeek-V3 (32K context)
         "deepseek-reasoner" => 32_768, // DeepSeek-R1 reasoner model (32K context)
-        _ => 16_000, // Default to a conservative limit if unknown model
+        _ => 16_000,                   // Default to a conservative limit if unknown model
     }
 }
 
@@ -138,8 +138,8 @@ impl DeepSeekBackend {
                 "user" => "user",
                 "assistant" => "assistant",
                 "system" => continue, // Skip, already handled
-                "tool" => "tool", // DeepSeek supports tool messages with function calling
-                _ => continue,    // Skip unknown roles
+                "tool" => "tool",     // DeepSeek supports tool messages with function calling
+                _ => continue,        // Skip unknown roles
             };
 
             // Convert content based on type
@@ -170,20 +170,20 @@ impl DeepSeekBackend {
         endpoint: &str,
         request_json: serde_json::Value,
     ) -> Result<T, LlmError> {
-        use crate::llm::retry_utils::{RetryConfig, send_api_request_with_retry};
-        
+        use crate::llm::retry_utils::{send_api_request_with_retry, RetryConfig};
+
         // Create retry configuration - use linear backoff for DeepSeek
         let config = RetryConfig {
             max_attempts: 5,
-            base_delay_ms: 1000, // 1 second initial delay
-            max_delay_ms: 30000, // Maximum 30 second delay (per TODO)
-            timeout_secs: 180,   // 3 minute timeout (per TODO range of 100-200s)
+            base_delay_ms: 1000,    // 1 second initial delay
+            max_delay_ms: 30000,    // Maximum 30 second delay (per TODO)
+            timeout_secs: 180,      // 3 minute timeout (per TODO range of 100-200s)
             use_exponential: false, // Use linear backoff for DeepSeek
         };
-        
+
         // Construct the API URL
         let api_url = format!("{}{}", API_BASE_URL, endpoint);
-        
+
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
             self.client
@@ -192,9 +192,16 @@ impl DeepSeekBackend {
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .json(&request_json)
         };
-        
+
         // Use the standardized retry utility
-        send_api_request_with_retry::<T, _>(&self.client, &api_url, prepare_request, config, "DeepSeek").await
+        send_api_request_with_retry::<T, _>(
+            &self.client,
+            &api_url,
+            prepare_request,
+            config,
+            "DeepSeek",
+        )
+        .await
     }
 }
 
@@ -213,19 +220,17 @@ impl Backend for DeepSeekBackend {
         if thinking_budget.is_some() {
             bprintln!(info: "Thinking is not supported by DeepSeek, ignoring thinking_budget");
         }
-        
+
         if cache_points.is_some() {
             bprintln!(info: "Cache points are not supported by DeepSeek, ignoring cache_points");
         }
-        
+
         // Convert messages to DeepSeek format
         let deepseek_messages = self.convert_messages(messages, system);
-        
+
         // Set up stop sequences if provided
-        let stop = stop_sequences
-            .map(|seqs| seqs.to_vec())
-            .unwrap_or_default();
-        
+        let stop = stop_sequences.map(|seqs| seqs.to_vec()).unwrap_or_default();
+
         // Create the request
         let request = DeepSeekRequest {
             model: self.model_name.clone(),
@@ -238,12 +243,15 @@ impl Backend for DeepSeekBackend {
         };
 
         // Send the request to the chat completions endpoint
-        let deepseek_response: DeepSeekResponse = 
-            self.send_api_request("/chat/completions", serde_json::to_value(request).unwrap()).await?;
+        let deepseek_response: DeepSeekResponse = self
+            .send_api_request("/chat/completions", serde_json::to_value(request).unwrap())
+            .await?;
 
         // Extract the generated text
         if deepseek_response.choices.is_empty() {
-            return Err(LlmError::ApiError("No choices returned from DeepSeek API".to_string()));
+            return Err(LlmError::ApiError(
+                "No choices returned from DeepSeek API".to_string(),
+            ));
         }
 
         let choice = &deepseek_response.choices[0];
@@ -251,21 +259,25 @@ impl Backend for DeepSeekBackend {
 
         // For the reasoning model, we might have reasoning content
         let reasoning_text = choice.message.reasoning_content.clone();
-        
+
         // Prepare final content
         let content = if self.model_name == "deepseek-reasoner" && reasoning_text.is_some() {
             // For deepseek-reasoner, we include both reasoning and final answer
             let reasoning = reasoning_text.unwrap_or_default();
             vec![
-                Content::Thinking { 
-                    signature: None, 
-                    thinking: Some(reasoning.clone()) 
+                Content::Thinking {
+                    signature: None,
+                    thinking: Some(reasoning.clone()),
                 },
-                Content::Text { text: response_text }
+                Content::Text {
+                    text: response_text,
+                },
             ]
         } else {
             // Regular response for other models
-            vec![Content::Text { text: response_text }]
+            vec![Content::Text {
+                text: response_text,
+            }]
         };
 
         // Extract token usage
@@ -278,12 +290,16 @@ impl Backend for DeepSeekBackend {
             }
         } else {
             // Approximate token usage if not provided
-            let output_len = content.iter().map(|c| match c {
-                Content::Text { text } => text.len(),
-                Content::Thinking { thinking, .. } => thinking.as_ref().map_or(0, |t| t.len()),
-                _ => 0,
-            }).sum::<usize>() / 4; // Rough estimate
-            
+            let output_len = content
+                .iter()
+                .map(|c| match c {
+                    Content::Text { text } => text.len(),
+                    Content::Thinking { thinking, .. } => thinking.as_ref().map_or(0, |t| t.len()),
+                    _ => 0,
+                })
+                .sum::<usize>()
+                / 4; // Rough estimate
+
             TokenUsage {
                 input_tokens: 0,
                 output_tokens: output_len,
@@ -293,7 +309,10 @@ impl Backend for DeepSeekBackend {
         };
 
         // Extract finish reason
-        let finish_reason = choice.finish_reason.clone().unwrap_or_else(|| "unknown".to_string());
+        let finish_reason = choice
+            .finish_reason
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
 
         Ok(LlmResponse {
             content,
@@ -310,20 +329,23 @@ impl Backend for DeepSeekBackend {
     ) -> Result<TokenUsage, LlmError> {
         // Use a simple character-based estimation
         // This is a rough approximation since we don't have a token counting endpoint
-        let estimate_tokens: usize = messages.iter()
+        let estimate_tokens: usize = messages
+            .iter()
             .map(|msg| {
                 match &msg.content {
                     Content::Text { text } => text.len() / 4, // Rough estimate: ~4 chars per token
                     Content::Image { .. } => 0, // DeepSeek doesn't support images, so count as 0
-                    Content::Thinking { thinking, .. } => thinking.as_ref().map_or(0, |t| t.len() / 4),
+                    Content::Thinking { thinking, .. } => {
+                        thinking.as_ref().map_or(0, |t| t.len() / 4)
+                    }
                     Content::RedactedThinking { data } => data.as_ref().map_or(0, |d| d.len() / 4),
                     Content::Document { source } => source.len() / 4,
                 }
             })
             .sum();
-            
+
         let sys_tokens: usize = system.map_or(0, |sys| sys.len() / 4);
-        
+
         Ok(TokenUsage {
             input_tokens: estimate_tokens + sys_tokens,
             output_tokens: 0,
@@ -349,33 +371,30 @@ impl Backend for DeepSeekBackend {
 mod tests {
     use super::*;
     use crate::llm::MessageInfo;
-    
+
     #[test]
     fn test_message_conversion() {
-        let client = DeepSeekBackend::new(
-            "test_key".to_string(),
-            "deepseek-chat".to_string(),
-        );
-        
-        let messages = vec![
-            Message {
-                role: "user".to_string(),
-                content: Content::Text { text: "Hello, how are you?".to_string() },
-                info: MessageInfo::User,
+        let client = DeepSeekBackend::new("test_key".to_string(), "deepseek-chat".to_string());
+
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: Content::Text {
+                text: "Hello, how are you?".to_string(),
             },
-        ];
-        
+            info: MessageInfo::User,
+        }];
+
         let system_prompt = Some("You are a helpful assistant.");
-        
+
         let deepseek_messages = client.convert_messages(&messages, system_prompt);
-        
+
         assert_eq!(deepseek_messages.len(), 2);
         assert_eq!(deepseek_messages[0].role, "system");
         assert_eq!(deepseek_messages[0].content, "You are a helpful assistant.");
         assert_eq!(deepseek_messages[1].role, "user");
         assert_eq!(deepseek_messages[1].content, "Hello, how are you?");
     }
-    
+
     #[test]
     fn test_model_token_limits() {
         assert_eq!(get_model_token_limit("deepseek-chat"), 32_768);

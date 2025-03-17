@@ -9,6 +9,7 @@ mod conversation;
 pub mod jsonpath;
 mod llm;
 
+mod gui;
 mod mcp;
 mod output;
 mod prompts;
@@ -186,6 +187,11 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::ListKinds) => {
             // List available agent kinds and exit
             list_available_kinds().map_err(|e| format_err!("Error listing kinds: {}", e))?;
+            return Ok(());
+        }
+        Some(Commands::Gui) => {
+            // Start the GUI
+            gui::run_gui();
             return Ok(());
         }
         Some(Commands::Workflow {

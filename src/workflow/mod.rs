@@ -4,10 +4,10 @@
 //! steps such as shell commands, agent messages, file operations, etc.
 //! using YAML files stored in the `.termineer/workflows` directory.
 
-pub mod types;
+pub mod cli;
 pub mod context;
 pub mod executor;
 pub mod loader;
-pub mod cli;
+pub mod types;
 
 // We don't re-export components to avoid circular dependencies

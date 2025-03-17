@@ -14,7 +14,7 @@ pub struct McpServerConfig {
 
     /// Arguments for the command
     pub args: Vec<String>,
-    
+
     /// Environment variables to set for the command
     #[serde(default)]
     pub env: HashMap<String, String>,
@@ -33,12 +33,12 @@ impl McpConfig {
     fn get_home_config_path() -> Option<PathBuf> {
         dirs::home_dir().map(|path| path.join(".termineer").join("mcp").join("config.json"))
     }
-    
+
     /// Get path to the local config
     fn get_local_config_path() -> PathBuf {
         PathBuf::from(".termineer").join("config.json")
     }
-    
+
     /// Merge another config into this one, with this one taking precedence
     pub fn merge(&mut self, other: McpConfig) {
         // Merge mcp_servers maps, with self taking precedence
@@ -48,33 +48,33 @@ impl McpConfig {
             }
         }
     }
-    
+
     /// Load MCP configuration from .termineer/config.json and ~/.termineer/mcp/config.json
     pub fn load() -> Result<Option<Self>> {
         let mut result = None;
-        
+
         // Try loading config from home directory first
         if let Some(home_path) = Self::get_home_config_path() {
             if home_path.exists() {
                 let config_content = std::fs::read_to_string(&home_path)
                     .with_context(|| format!("Failed to read home config file: {:?}", home_path))?;
-                
+
                 let home_config: McpConfig = serde_json::from_str(&config_content)
                     .with_context(|| "Failed to parse home MCP configuration")?;
-                
+
                 result = Some(home_config);
             }
         }
-        
+
         // Check for local config
         let local_path = Self::get_local_config_path();
         if local_path.exists() {
             let config_content = std::fs::read_to_string(&local_path)
                 .with_context(|| format!("Failed to read local config file: {:?}", local_path))?;
-            
+
             let local_config: McpConfig = serde_json::from_str(&config_content)
                 .with_context(|| "Failed to parse local MCP configuration")?;
-            
+
             // If we have a home config, merge the local config into it (local takes precedence)
             if let Some(ref mut combined_config) = result {
                 combined_config.merge(local_config);
@@ -83,7 +83,7 @@ impl McpConfig {
                 result = Some(local_config);
             }
         }
-        
+
         Ok(result)
     }
 }
@@ -151,19 +151,19 @@ mod tests {
         std::env::set_current_dir(original_dir).unwrap();
         fs::remove_dir_all(temp_dir).unwrap();
     }
-    
+
     #[test]
     fn test_config_merge() {
         // Create base config
         let mut base_config = McpConfig {
             mcp_servers: HashMap::new(),
         };
-        
+
         // Add server to base config with environment variables
         let mut env_vars1 = HashMap::new();
         env_vars1.insert("ENV1".to_string(), "value1".to_string());
         env_vars1.insert("COMMON".to_string(), "base_value".to_string());
-        
+
         base_config.mcp_servers.insert(
             "server1".to_string(),
             McpServerConfig {
@@ -172,12 +172,12 @@ mod tests {
                 env: env_vars1,
             },
         );
-        
+
         // Create second config with different server and overlapping server
         let mut other_config = McpConfig {
             mcp_servers: HashMap::new(),
         };
-        
+
         // Add unique server to other config (with empty env map to test default)
         other_config.mcp_servers.insert(
             "server2".to_string(),
@@ -187,12 +187,12 @@ mod tests {
                 env: HashMap::new(),
             },
         );
-        
+
         // Add overlapping server with different config and env vars
         let mut env_vars2 = HashMap::new();
         env_vars2.insert("ENV2".to_string(), "value2".to_string());
         env_vars2.insert("COMMON".to_string(), "override_value".to_string());
-        
+
         other_config.mcp_servers.insert(
             "server1".to_string(),
             McpServerConfig {
@@ -201,25 +201,52 @@ mod tests {
                 env: env_vars2,
             },
         );
-        
+
         // Merge configs (base should have priority)
         base_config.merge(other_config);
-        
+
         // Check results
-        assert_eq!(base_config.mcp_servers.len(), 2, "Should have 2 servers after merge");
-        
+        assert_eq!(
+            base_config.mcp_servers.len(),
+            2,
+            "Should have 2 servers after merge"
+        );
+
         // Check that server1 keeps original values (base has priority)
         let server1 = base_config.mcp_servers.get("server1").unwrap();
-        assert_eq!(server1.command, "cmd1", "server1 command should remain from base");
-        assert_eq!(server1.args[0], "arg1", "server1 args should remain from base");
-        assert_eq!(server1.env.get("ENV1").unwrap(), "value1", "server1 env var ENV1 should remain from base");
-        assert_eq!(server1.env.get("COMMON").unwrap(), "base_value", "server1 env var COMMON should remain from base");
-        assert!(!server1.env.contains_key("ENV2"), "server1 should not have ENV2 from other config");
-        
+        assert_eq!(
+            server1.command, "cmd1",
+            "server1 command should remain from base"
+        );
+        assert_eq!(
+            server1.args[0], "arg1",
+            "server1 args should remain from base"
+        );
+        assert_eq!(
+            server1.env.get("ENV1").unwrap(),
+            "value1",
+            "server1 env var ENV1 should remain from base"
+        );
+        assert_eq!(
+            server1.env.get("COMMON").unwrap(),
+            "base_value",
+            "server1 env var COMMON should remain from base"
+        );
+        assert!(
+            !server1.env.contains_key("ENV2"),
+            "server1 should not have ENV2 from other config"
+        );
+
         // Check that server2 was added
         let server2 = base_config.mcp_servers.get("server2").unwrap();
-        assert_eq!(server2.command, "cmd2", "server2 should be added from other");
-        assert_eq!(server2.args[0], "arg2", "server2 args should be added from other");
+        assert_eq!(
+            server2.command, "cmd2",
+            "server2 should be added from other"
+        );
+        assert_eq!(
+            server2.args[0], "arg2",
+            "server2 args should be added from other"
+        );
         assert!(server2.env.is_empty(), "server2 env vars should be empty");
     }
 }
@@ -268,7 +295,7 @@ async fn initialize_mcp_server(
     // Extract command and arguments
     let executable = &config.command;
     let args_slice: Vec<&str> = config.args.iter().map(|s| s.as_str()).collect();
-    
+
     // Log environment variables if present
     if !config.env.is_empty() && !silent_mode {
         bprintln!(
@@ -286,14 +313,13 @@ async fn initialize_mcp_server(
                 server_name
             );
         }
-        return ToolResult::success(format!(
-            "Already connected to MCP server: {}",
-            server_name
-        ));
+        return ToolResult::success(format!("Already connected to MCP server: {}", server_name));
     }
 
     // Create provider with environment variables
-    match McpToolProvider::new_process_with_env(server_name, executable, &args_slice, &config.env).await {
+    match McpToolProvider::new_process_with_env(server_name, executable, &args_slice, &config.env)
+        .await
+    {
         Ok(provider) => {
             let provider: Arc<McpToolProvider> = Arc::new(provider);
 
