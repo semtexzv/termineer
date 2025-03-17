@@ -12,9 +12,9 @@ use crate::tools::ToolResult;
 use accessibility_ng::{AXUIElement, AXUIElementAttributes};
 use accessibility_sys_ng::{pid_t, AXIsProcessTrusted};
 use core_graphics_types::geometry::{CGPoint, CGSize};
-use objc2::rc::{Id, Retained};
+use objc2::rc::{ Retained};
 use objc2::runtime::NSObject;
-use objc2::{class, msg_send, msg_send_id, sel};
+use objc2::{class, msg_send};
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSArray, NSString};
 

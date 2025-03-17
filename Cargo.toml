@@ -88,7 +88,6 @@ indexmap = "2.8.0"
 
 # Dependencies for Computer Use feature
 enigo = "0.3.0"        # Cross-platform keyboard and mouse control
-tempfile = "3.10.1"    # Temporary file/directory handling for tests
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Replaced objc with objc2 and related crates
