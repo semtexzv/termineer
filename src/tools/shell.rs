@@ -67,10 +67,17 @@ pub async fn execute_shell(
     interrupt_data: Arc<Mutex<InterruptData>>,
     silent_mode: bool,
 ) -> Result<mpsc::Receiver<ShellOutput>, Box<dyn std::error::Error>> {
-    // If body is provided, use it as a script instead of the args
+    // Combine args and body for multiline scripts if both are provided
     let command_str = if !body.is_empty() {
-        body.to_string()
+        if !command_to_run.is_empty() {
+            // Both args and body are provided, combine them
+            format!("{}\n{}", command_to_run, body)
+        } else {
+            // Only body is provided
+            body.to_string()
+        }
     } else {
+        // Only args are provided
         command_to_run.to_string()
     };
 
