@@ -161,7 +161,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     let before_text = patch_content[before_start..after_delimiter].trim();
     let after_text = patch_content[after_start..end_delimiter].trim();
 
-    // Apply the patch
+    // Apply the patch - check for unique occurrence
     if !file_content.contains(before_text) {
         if !silent_mode {
             // Use buffer-based printing directly
@@ -171,6 +171,32 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         return ToolResult::error(format!(
             "Text to replace not found in the file: '{}'",
             before_text
+        ));
+    }
+
+    // Count occurrences of the before_text in file_content
+    let mut count = 0;
+    let mut start_index = 0;
+    while let Some(index) = file_content[start_index..].find(before_text) {
+        count += 1;
+        start_index += index + 1;
+        
+        // Early exit if we've already found multiple occurrences
+        if count > 1 {
+            break;
+        }
+    }
+
+    // Check if the text appears multiple times in the file
+    if count > 1 {
+        if !silent_mode {
+            // Use buffer-based printing directly
+            bprintln !(error:"Patch failed: Text to replace occurs multiple times ({} occurrences) in the file. Please provide more context to make the patch unique.", count);
+        }
+
+        return ToolResult::error(format!(
+            "Ambiguous patch: Text to replace occurs multiple times ({} occurrences) in the file. Please provide more context to make the patch unique.",
+            count
         ));
     }
 
