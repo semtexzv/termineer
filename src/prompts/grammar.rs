@@ -303,15 +303,6 @@ impl Grammar for MarkdownGrammar {
             // No content, just the tool name
             return format!("{}{}\n{}", MD_TOOL_CALL_START, name, MD_CODE_END);
         }
-
-        // If content has newlines, format accordingly
-        if trimmed_content.contains('\n') {
-            return format!(
-                "{}{}\n{}\n{}",
-                MD_TOOL_CALL_START, name, trimmed_content, MD_CODE_END
-            );
-        }
-
         // For simple single-line content
         format!(
             "{}{} {}\n{}",

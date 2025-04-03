@@ -234,28 +234,45 @@ async fn main() -> anyhow::Result<()> {
             // Dump prompt templates and exit
             // The template name is already in the config
             if let Some(template_name) = &config.dump_prompts {
-                match prompts::protected::get_prompt_template(template_name) {
-                    Some(template_content) => {
-                        // Print the template content to stdout
-                        println!("// Template: {}", template_name);
-                        println!("{}", template_content);
-                    }
-                    None => {
-                        // Template not found
-                        eprintln!("Error: Template '{}' not found", template_name);
+                // Determine grammar: Use specified grammar or default to XML for dumping
+                let grammar_type = config.grammar_type.unwrap_or(
+                    // Default to XML if no grammar is specified via --grammar flag
+                    crate::prompts::grammar::formats::GrammarType::XmlTags,
+                );
+                let grammar = crate::prompts::grammar::formats::get_grammar_by_type(grammar_type);
 
+                // Enable all possible tools for dumping
+                let mut all_tools_vec: Vec<&str> = crate::prompts::ALL_TOOLS.to_vec();
+                all_tools_vec.extend_from_slice(crate::prompts::PLUS_TOOLS);
+                all_tools_vec.sort_unstable();
+                all_tools_vec.dedup();
+
+                // Render the template
+                match prompts::render_template(template_name, &all_tools_vec, grammar) {
+                    Ok(rendered_content) => {
+                        // Print the rendered template content to stdout
+                        println!(
+                            "// Template: {} (Grammar: {:?})",
+                            template_name, grammar_type
+                        );
+                        println!("{}", rendered_content);
+                    }
+                    Err(e) => {
+                        // Error during rendering
+                        eprintln!("Error rendering template '{}': {}", template_name, e);
                         // List available templates to help the user
                         eprintln!("\nAvailable templates:");
                         for available in prompts::protected::list_available_templates() {
                             eprintln!("  - {}", available);
                         }
-
                         std::process::exit(1);
                     }
                 }
             } else {
-                // This shouldn't happen as the command requires a template parameter
-                eprintln!("Error: No template name specified");
+                // This case should theoretically not be reachable because clap enforces
+                // the `template` argument for the `DumpPrompts` command.
+                // However, handle it defensively.
+                eprintln!("Error: No template name specified for dump-prompts.");
                 std::process::exit(1);
             }
             return Ok(());

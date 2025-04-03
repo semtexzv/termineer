@@ -88,28 +88,25 @@ struct GeminiPart {
 
 // Gemini API response types
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiResponse {
     candidates: Vec<GeminiCandidate>,
-    #[serde(default)]
-    usage_metadata: Option<GeminiUsageMetadata>,
+    usage_metadata: GeminiUsageMetadata,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiCandidate {
     content: GeminiContent,
-    #[serde(default, rename = "finishReason")]
     finish_reason: Option<String>,
-    #[serde(default, rename = "safetyRatings")]
     safety_ratings: Option<Vec<GeminiSafetyRating>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiUsageMetadata {
-    #[serde(default, rename = "promptTokenCount")]
     prompt_token_count: Option<u32>,
-    #[serde(default, rename = "candidatesTokenCount")]
     candidates_token_count: Option<u32>,
-    #[serde(default, rename = "totalTokenCount")]
     total_token_count: Option<u32>,
 }
 
@@ -121,8 +118,8 @@ struct GeminiSafetyRating {
 
 // Token counting response
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiCountTokensResponse {
-    #[serde(default, rename = "totalTokens")]
     total_tokens: Option<u32>,
 }
 
@@ -344,21 +341,17 @@ impl Backend for GeminiBackend {
         }
 
         // Extract token usage
-        let token_usage = if let Some(usage) = &gemini_response.usage_metadata {
-            TokenUsage {
-                input_tokens: usage.prompt_token_count.unwrap_or(0) as usize,
-                output_tokens: usage.candidates_token_count.unwrap_or(0) as usize,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            }
-        } else {
-            // If token usage is not provided, use approximate counting
-            TokenUsage {
-                input_tokens: 0,                        // Will be provided by actual token counting
-                output_tokens: response_text.len() / 4, // Rough estimate
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            }
+        let token_usage = TokenUsage {
+            input_tokens: gemini_response
+                .usage_metadata
+                .prompt_token_count
+                .unwrap_or(0) as usize,
+            output_tokens: gemini_response
+                .usage_metadata
+                .candidates_token_count
+                .unwrap_or(0) as usize,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
         };
 
         let finish_reason = candidate
@@ -381,34 +374,49 @@ impl Backend for GeminiBackend {
         messages: &[Message],
         system: Option<&str>,
     ) -> Result<TokenUsage, LlmError> {
-        // Use a simple character-based estimation instead of API call
-        // This avoids errors with models that don't support countTokens
-        let estimate_tokens = messages
-            .iter()
-            .map(|msg| {
-                match &msg.content {
-                    Content::Text { text } => text.len() / 4, // Rough estimate: ~4 chars per token
-                    _ => 0,
-                }
-            })
-            .sum();
+        // Convert messages to Gemini format
+        let gemini_contents = self.convert_messages_to_gemini_format(messages, system);
 
-        if let Some(sys) = system {
-            let sys_tokens = sys.len() / 4;
-            Ok(TokenUsage {
-                input_tokens: estimate_tokens + sys_tokens,
-                output_tokens: 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            })
-        } else {
-            Ok(TokenUsage {
-                input_tokens: estimate_tokens,
-                output_tokens: 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            })
-        }
+        // Prepare request body for countTokens API
+        // Note: Gemini countTokens request only needs 'contents'
+        let request_body = serde_json::json!({
+            "contents": gemini_contents,
+        });
+
+        // Construct the API endpoint URL for countTokens
+        let api_url = format!(
+            "{}/models/{}:countTokens?key={}",
+            API_BASE_URL, self.model_name, self.api_key
+        );
+
+        // Call the countTokens API using the shared request sender
+        let response: GeminiCountTokensResponse = self
+            .send_api_request(&api_url, request_body)
+            .await
+            .map_err(|e| {
+                // Add context to the error
+                LlmError::ApiError(format!(
+                    "Gemini countTokens API call failed for model {}: {}",
+                    self.model_name, e
+                ))
+            })?;
+
+        // Extract the token count from the response
+        let total_tokens = response.total_tokens.ok_or_else(|| {
+            LlmError::ApiError(format!(
+                "Gemini countTokens response for model {} did not contain 'totalTokens'",
+                self.model_name
+            ))
+        })?;
+
+        // Return the result in the TokenUsage struct
+        // Note: countTokens only provides the total input tokens. Output is 0 here.
+        Ok(TokenUsage {
+            input_tokens: total_tokens as usize,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        })
     }
 
     fn max_token_limit(&self) -> usize {

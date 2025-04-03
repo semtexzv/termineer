@@ -236,11 +236,33 @@ where
         match response {
             Ok(res) => {
                 if res.status().is_success() {
-                    return res.json::<T>().await.map_err(|e| {
+                    // Read the response body first to allow logging it on parsing failure
+                    let response_body = match res.text().await {
+                        Ok(body) => body,
+                        Err(e) => {
+                            // Error reading the response body itself
+                            return Err(LlmError::ApiError(format!(
+                                "Failed to read {} response body: {}",
+                                provider_name, e
+                            )));
+                        }
+                    };
+
+                    // Attempt to parse the captured body
+                    return serde_json::from_str::<T>(&response_body).map_err(|e| {
+                        // Log the raw body along with the parsing error
+                        bprintln!(error: "Failed to parse {} response. Error: {}. Body:\n{}", provider_name, e, response_body);
                         LlmError::ApiError(format!(
                             "Failed to parse {} response: {}",
                             provider_name, e
                         ))
+                        // Consider including a truncated body in the error message itself if needed,
+                        // but logging it might be sufficient. Example:
+                        // let truncated_body = response_body.chars().take(500).collect::<String>();
+                        // LlmError::ApiError(format!(
+                        //     "Failed to parse {} response: {}. Body (truncated): {}",
+                        //     provider_name, e, truncated_body
+                        // ))
                     });
                 } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                     // Handle rate limiting (429 Too Many Requests)
