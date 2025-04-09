@@ -235,6 +235,9 @@ where
 
         match response {
             Ok(res) => {
+                // Log the HTTP status code received
+                bprintln!(dev: "{} API response status: {}", provider_name, res.status());
+
                 if res.status().is_success() {
                     // Read the response body first to allow logging it on parsing failure
                     let response_body = match res.text().await {

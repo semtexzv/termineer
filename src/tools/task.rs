@@ -59,25 +59,6 @@ pub async fn execute_task(
     // Create config for the subtask agent
     let mut config = Config::new();
 
-    // Inherit disabled tools from parent agent if available
-    if let Some(parent_id) = parent_agent_id {
-        if let Ok(parent_config) = crate::agent::get_agent_config(parent_id) {
-            // Copy the disabled tools list from parent
-            if !parent_config.disabled_tools.is_empty() {
-                if !silent_mode {
-                    bprintln!(
-                        "{}Inheriting {} disabled tools from parent agent: {}{}",
-                        FORMAT_GRAY,
-                        parent_config.disabled_tools.len(),
-                        parent_config.disabled_tools.join(", "),
-                        FORMAT_RESET
-                    );
-                }
-                config.disabled_tools = parent_config.disabled_tools.clone();
-            }
-        }
-    }
-
     // Set up the system prompt based on the kind
     let enabled_tools = prompts::ALL_TOOLS;
     let grammar = prompts::select_grammar_for_model("claude-3"); // Default to Claude grammar

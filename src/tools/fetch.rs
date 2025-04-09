@@ -1,329 +1,214 @@
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
+use reqwest::Client; // Already present, but good to ensure
+use scraper::{Html, Selector}; // Import scraper types
+use std::time::Instant; // For timing if needed later
 
-/// Strips HTML tags and JavaScript from the input text, but preserves links
-/// in a format like "link text [URL]" for better readability
-fn strip_html_and_js(html: &str) -> String {
-    // A simpler but more robust approach to strip HTML
+/// Extracts text content from HTML using the scraper library.
+/// It attempts to preserve some structure by adding newlines around block elements.
+fn extract_text_with_scraper(html: &str) -> String {
+    let document = Html::parse_document(html);
     let mut result = String::new();
-    let mut in_tag = false;
-    let mut in_script = false;
-    let mut in_style = false;
-    let mut in_anchor = false;
-    let mut tag_buffer = String::new();
-    let mut link_url = String::new();
-    let mut link_text = String::new();
+    let body_selector = Selector::parse("body").unwrap(); // Start from body to ignore head content
 
-    // Use a character-based approach rather than byte indexing
-    let chars: Vec<char> = html.chars().collect();
-    let mut i = 0;
+    // Select the body element, or use the root if body is not found
+    let root_element = document.select(&body_selector).next().unwrap_or(document.root_element());
 
-    while i < chars.len() {
-        // Handle tags
-        if !in_tag && i < chars.len() - 1 && chars[i] == '<' {
-            in_tag = true;
-            tag_buffer.clear();
-            tag_buffer.push('<');
-            i += 1;
-            continue;
-        }
-
-        if in_tag {
-            tag_buffer.push(chars[i]);
-
-            // Check for end of tag
-            if chars[i] == '>' {
-                in_tag = false;
-                let tag = tag_buffer.to_lowercase();
-
-                // Track script and style sections
-                if tag.starts_with("<script") {
-                    in_script = true;
-                } else if tag == "</script>" {
-                    in_script = false;
-                } else if tag.starts_with("<style") {
-                    in_style = true;
-                } else if tag == "</style>" {
-                    in_style = false;
-                }
-                // Handle anchor tags specially to preserve links
-                else if tag.starts_with("<a ") {
-                    in_anchor = true;
-                    link_text.clear();
-                    link_url.clear();
-
-                    // Extract href attribute
-                    if let Some(href_start) = tag.find("href=\"") {
-                        let href_content_start = href_start + 6; // 6 = length of href="
-                        if let Some(href_end) = tag[href_content_start..].find('"') {
-                            link_url = tag[href_content_start..(href_content_start + href_end)]
-                                .to_string();
+    // Recursive function to traverse the DOM and extract text
+    fn process_node(element: scraper::ElementRef, result: &mut String) {
+        for node in element.children() {
+            match node.value() {
+                scraper::Node::Text(text_node) => {
+                    let trimmed_text = text_node.text.trim(); // Trim the individual text node
+                    if !trimmed_text.is_empty() {
+                        // Ensure a single space separates from previous non-whitespace content,
+                        // unless the result already ends with whitespace/newline.
+                        if !result.is_empty() && !result.ends_with(|c: char| c.is_whitespace() || c == '\n') {
+                            result.push(' ');
                         }
-                    } else if let Some(href_start) = tag.find("href='") {
-                        let href_content_start = href_start + 6; // 6 = length of href='
-                        if let Some(href_end) = tag[href_content_start..].find('\'') {
-                            link_url = tag[href_content_start..(href_content_start + href_end)]
-                                .to_string();
-                        }
-                    }
-                } else if tag == "</a>" {
-                    in_anchor = false;
-                    // Only add the link if we have both text and URL
-                    if !link_text.is_empty() && !link_url.is_empty() {
-                        result.push_str(&format!("{} [{}]", link_text.trim(), link_url));
-                    } else if !link_text.is_empty() {
-                        result.push_str(&link_text);
+                        result.push_str(trimmed_text);
                     }
                 }
-                // Special handling for structural tags
-                else if tag == "</p>"
-                    || tag == "</div>"
-                    || tag == "</h1>"
-                    || tag == "</h2>"
-                    || tag == "</h3>"
-                    || tag == "</h4>"
-                    || tag == "</h5>"
-                    || tag == "</h6>"
-                    || tag == "<br>"
-                    || tag == "<br/>"
-                    || tag == "</li>"
-                    || tag == "</tr>"
-                    || tag == "</td>"
-                {
-                    result.push('\n');
-                } else if tag == "<hr>" || tag == "<hr/>" {
-                    result.push_str("\n----------\n");
+                scraper::Node::Element(el) => {
+                    let tag_name = el.name().to_lowercase();
+                    // Skip script and style tags entirely
+                    if tag_name == "script" || tag_name == "style" {
+                        continue;
+                    }
+
+                    // Add newlines before/after block-level elements for structure
+                    let is_block = matches!(tag_name.as_str(),
+                        "p" | "div" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" |
+                        "ul" | "ol" | "li" | "table" | "tr" | "td" | "th" | "blockquote" | "pre" | "article" | "section" | "header" | "footer" | "nav" | "aside" | "figure" | "figcaption" | "address"
+                    );
+
+                    if is_block && !result.is_empty() && !result.ends_with('\n') {
+                         // Add a newline before starting a new block element if needed
+                         result.push('\n');
+                    }
+
+                    // Special handling for <a> tags to preserve links
+                    if tag_name == "a" {
+                        let href = el.attr("href").unwrap_or("").trim();
+                        let mut link_text = String::new();
+                        // Recursively process children to get the link text
+                        process_node(scraper::ElementRef::wrap(node).unwrap(), &mut link_text);
+                        let link_text = link_text.trim(); // Trim whitespace from extracted link text
+
+                        if !link_text.is_empty() && !href.is_empty() {
+                            // Add space if needed before the link
+                            if !result.is_empty() && !result.ends_with(|c: char| c.is_whitespace() || c == '\n') {
+                                result.push(' ');
+                            }
+                            result.push_str(&format!("{} [{}]", link_text, href));
+                            // REMOVED: result.push(' '); // Let subsequent processing handle spacing/newlines
+                        } else if !link_text.is_empty() {
+                            // If no href, just add the text
+                             if !result.is_empty() && !result.ends_with(|c: char| c.is_whitespace() || c == '\n') {
+                                result.push(' ');
+                            }
+                            result.push_str(link_text);
+                            result.push(' ');
+                        }
+                        // Skip default processing for children of <a> as we handled it
+                        continue; // Skip the generic recursive call below for <a>
+                    }
+
+                    // Recursively process children for non-<a> tags
+                    process_node(scraper::ElementRef::wrap(node).unwrap(), result);
+
+                    if is_block && !result.is_empty() && !result.ends_with('\n') {
+                         // Add a newline after finishing a block element if needed
+                         result.push('\n');
+                    } else if tag_name == "br" {
+                        // Handle <br> tags explicitly
+                        result.push('\n');
+                    }
                 }
+                _ => {} // Ignore comments, etc.
             }
-
-            i += 1;
-            continue;
         }
-
-        // Skip content inside script and style tags
-        if in_script || in_style {
-            i += 1;
-            continue;
-        }
-
-        // Handle HTML entities
-        if chars[i] == '&' && i < chars.len() - 2 {
-            let mut entity = String::new();
-            let start_idx = i;
-
-            // Collect the entity
-            while i < chars.len() && chars[i] != ';' && entity.len() < 10 {
-                entity.push(chars[i]);
-                i += 1;
-            }
-
-            // Only process if we found a semicolon
-            if i < chars.len() && chars[i] == ';' {
-                entity.push(';');
-                i += 1;
-
-                // Get the processed entity character
-                let entity_char = match entity.as_str() {
-                    "&nbsp;" => ' ',
-                    "&lt;" => '<',
-                    "&gt;" => '>',
-                    "&amp;" => '&',
-                    "&quot;" => '"',
-                    "&apos;" => '\'',
-                    _ => '&', // For unknown entities
-                };
-
-                // Add to link text if in anchor, otherwise to main result
-                if in_anchor {
-                    link_text.push(entity_char);
-                } else {
-                    result.push(entity_char);
-                }
-            } else {
-                // Not a valid entity, reset and just add the '&'
-                i = start_idx + 1;
-
-                // Add to link text if in anchor, otherwise to main result
-                if in_anchor {
-                    link_text.push('&');
-                } else {
-                    result.push('&');
-                }
-            }
-
-            continue;
-        }
-
-        // Regular character - add to result or link text
-        if in_anchor {
-            link_text.push(chars[i]);
-        } else {
-            result.push(chars[i]);
-        }
-        i += 1;
     }
 
-    // Post-processing: clean up multiple newlines and spaces
-    let mut cleaned = String::new();
-    let mut last_char_was_newline = false;
-    let mut last_char_was_space = false;
+    process_node(root_element, &mut result);
 
-    for c in result.chars() {
-        if c == '\n' {
+    // Final cleanup: Consolidate multiple newlines into single newlines
+    let mut cleaned = String::new();
+    let mut last_char_was_newline = true; // Start as true to prevent leading newline
+
+    for line in result.lines() {
+        let trimmed_line = line.trim();
+        if !trimmed_line.is_empty() {
             if !last_char_was_newline {
                 cleaned.push('\n');
-                last_char_was_newline = true;
-                last_char_was_space = false;
             }
-        } else if c.is_whitespace() {
-            if !last_char_was_space && !last_char_was_newline {
-                cleaned.push(' ');
-                last_char_was_space = true;
-                last_char_was_newline = false;
-            }
-        } else {
-            cleaned.push(c);
+            cleaned.push_str(trimmed_line);
             last_char_was_newline = false;
-            last_char_was_space = false;
+        } else if !last_char_was_newline {
+            // Allow at most one empty line (which becomes a single newline)
+            cleaned.push('\n');
+            last_char_was_newline = true;
         }
     }
+    // Ensure no trailing newline if the original didn't end with significant content
+    if cleaned.ends_with('\n') && result.trim_end().ends_with(|c: char| !c.is_whitespace()) {
+       cleaned.pop();
+    }
 
-    cleaned.trim().to_string()
+    cleaned
 }
 
 #[cfg(test)]
-mod tests {
+mod scraper_tests {
     use super::*;
 
     #[test]
-    fn test_strip_html_basic_tags() {
-        let html = "<div><p>This is a <b>test</b> paragraph.</p></div>";
-        let expected = "This is a test paragraph.";
-        assert_eq!(strip_html_and_js(html), expected);
+    fn test_extract_basic_text() {
+        let html = "<html><body><p>Just some text.</p><div>More text here.</div></body></html>";
+        let expected = "Just some text.\nMore text here.";
+        assert_eq!(extract_text_with_scraper(html), expected);
     }
 
     #[test]
-    fn test_strip_html_links() {
-        let html =
-            "<p>Visit our <a href=\"https://example.com\">website</a> for more information.</p>";
-        let expected = "Visit our website [https://example.com] for more information.";
-        assert_eq!(strip_html_and_js(html), expected);
+    fn test_extract_with_link() {
+        let html = "<p>Visit <a href=\"https://example.com\">Example Site</a>.</p>";
+        let expected = "Visit Example Site [https://example.com] ."; // Note the space added after the link
+        assert_eq!(extract_text_with_scraper(html), expected.trim()); // Trim final space for comparison
+    }
+
+     #[test]
+    fn test_extract_link_with_nested_tags() {
+        let html = "<p>Check <a href=\"/page\"><b>bold</b> link</a>.</p>";
+        let expected = "Check bold link [/page] .";
+        assert_eq!(extract_text_with_scraper(html), expected.trim());
     }
 
     #[test]
-    fn test_strip_html_links_with_single_quotes() {
-        let html =
-            "<p>Check out <a href='https://rust-lang.org'>Rust</a> programming language.</p>";
-        let expected = "Check out Rust [https://rust-lang.org] programming language.";
-        assert_eq!(strip_html_and_js(html), expected);
+    fn test_extract_multiple_links() {
+        let html = "<p><a href=\"/1\">Link 1</a> and <a href=\"/2\">Link 2</a></p>";
+        let expected = "Link 1 [/1] and Link 2 [/2]";
+        assert_eq!(extract_text_with_scraper(html), expected);
+    }
+
+     #[test]
+    fn test_extract_link_no_href() {
+        let html = "<p>This is <a>just text</a>.</p>";
+        let expected = "This is just text ."; // Link text is preserved, space added
+        assert_eq!(extract_text_with_scraper(html), expected.trim());
+    }
+
+     #[test]
+    fn test_extract_link_no_text() {
+        let html = "<p>Link: <a href=\"/empty\"></a></p>";
+        let expected = "Link:"; // No link text, so nothing added for the anchor
+        assert_eq!(extract_text_with_scraper(html), expected);
+    }
+
+
+    #[test]
+    fn test_ignore_script_and_style() {
+        let html = "<style>body { color: red; }</style><p>Visible text</p><script>alert('invisible');</script>";
+        let expected = "Visible text";
+        assert_eq!(extract_text_with_scraper(html), expected);
     }
 
     #[test]
-    fn test_strip_html_nested_tags() {
-        let html = "<div><h1>Title</h1><div><p>Nested <span>content</span> here.</p></div></div>";
-        let expected = "Title\nNested content here.";
-        assert_eq!(strip_html_and_js(html), expected);
+    fn test_newline_handling_for_blocks() {
+        let html = "<h1>Title</h1><p>Paragraph 1.</p><div>Div content.</div><p>Paragraph 2.</p>";
+        let expected = "Title\nParagraph 1.\nDiv content.\nParagraph 2.";
+        assert_eq!(extract_text_with_scraper(html), expected);
+    }
+
+     #[test]
+    fn test_br_tag_handling() {
+        let html = "<p>Line one<br>Line two</p>";
+        let expected = "Line one\nLine two";
+         assert_eq!(extract_text_with_scraper(html), expected);
     }
 
     #[test]
-    fn test_strip_html_script_and_style() {
-        let html = "<html><body><p>Text</p><script>alert('hidden');</script><p>More text</p><style>.hidden{}</style></body></html>";
-        let expected = "Text\nMore text";
-        assert_eq!(strip_html_and_js(html), expected);
+    fn test_whitespace_trimming() {
+        let html = "<p>  Lots  of   spaces  </p>";
+        let expected = "Lots of spaces"; // Inner spaces are collapsed by trim() on text nodes
+        assert_eq!(extract_text_with_scraper(html), expected);
     }
 
-    #[test]
-    fn test_strip_html_entities() {
-        let html = "This has &lt;brackets&gt; and &quot;quotes&quot; and &amp; character.";
-        let expected = "This has <brackets> and \"quotes\" and & character.";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_line_breaks() {
-        let html = "<p>Line 1</p><p>Line 2</p><br>Line 3<hr>Line 4";
-        let expected = "Line 1\nLine 2\nLine 3\n----------\nLine 4";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_whitespace_normalization() {
-        let html = "Too    many    spaces and \n\n\n newlines.";
-        let expected = "Too many spaces and \nnewlines.";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_tables() {
-        let html = "<table><tr><td>Cell 1</td><td>Cell 2</td></tr><tr><td>Cell 3</td><td>Cell 4</td></tr></table>";
-        let expected = "Cell 1\nCell 2\nCell 3\nCell 4";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_lists() {
-        let html = "<ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>";
-        let expected = "Item 1\nItem 2\nItem 3";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_empty_content() {
-        let html = "";
-        let expected = "";
-        assert_eq!(strip_html_and_js(html), expected);
-
-        let html = "<div></div>";
-        let expected = "";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_malformed_tags() {
-        let html = "This has <unclosed tag and <b>this is bold</b>.";
-        let expected = "This has this is bold.";
-        assert_eq!(strip_html_and_js(html), expected);
-    }
-
-    #[test]
-    fn test_strip_html_complex_document() {
-        // Using a string that's assembled piece by piece to avoid any parsing issues
-        let html = String::from("<!DOCTYPE html>")
-            + "<html>"
-            + "<head>"
-            + "<title>Test Document</title>"
-            + "<style>body { font-family: Arial; }</style>"
-            + "<script>console.log('This should be removed');</script>"
-            + "</head>"
-            + "<body>"
-            + "<header>"
-            + "<h1>Main Title</h1>"
-            + "<nav>Navigation: <a href='/link1'>Link 1</a> | <a href='/link2'>Link 2</a></nav>"
-            + "</header>"
-            + "<main>"
-            + "<section>"
-            + "<h2>Section Title</h2>"
-            + "<p>This is <em>important</em> content with some <strong>bold text</strong>.</p>"
-            + "<ul>"
-            + "<li>List item 1</li>"
-            + "<li>List item 2</li>"
-            + "</ul>"
-            + "</section>"
-            + "<hr>"
-            + "<section>"
-            + "<table>"
-            + "<tr><th>Header 1</th><th>Header 2</th></tr>"
-            + "<tr><td>Data 1</td><td>Data 2</td></tr>"
-            + "</table>"
-            + "</section>"
-            + "</main>"
-            + "<footer>&copy; 2023 Test Company</footer>"
-            + "</body>"
-            + "</html>";
-
-        let expected = "Test DocumentMain Title\nNavigation: Link 1 [/link1] | Link 2 [/link2]Section Title\nThis is important content with some bold text.\nList item 1\nList item 2\n----------\nHeader 1Header 2\nData 1\nData 2\n& 2023 Test Company";
-        assert_eq!(strip_html_and_js(&html), expected);
-    }
+     #[test]
+    fn test_complex_structure() {
+        let html = r#"
+            <body>
+                <h1>Main Heading</h1>
+                <p>
+                    This is a paragraph with a <a href="http://test.com">link</a>.
+                    It also has <strong>strong</strong> text.
+                </p>
+                <div><script>var x=1;</script>Another block.</div>
+                <ul><li>Item 1</li><li>Item 2 with <a href="/item2">nested link</a></li></ul>
+            </body>
+        "#;
+        let expected = "Main Heading\nThis is a paragraph with a link [http://test.com] .\nIt also has strong text.\nAnother block.\nItem 1\nItem 2 with nested link [/item2]";
+        assert_eq!(extract_text_with_scraper(html), expected);
+     }
 }
 
 /// Extract URL from arguments
@@ -394,7 +279,8 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
 
     // Process text based on content type
     let processed_text = if content_type.contains("text/html") || content_type.contains("html") {
-        strip_html_and_js(&text)
+        // Use the new scraper-based function
+        extract_text_with_scraper(&text)
     } else {
         // For plain text, JSON, or other formats, use as-is
         text

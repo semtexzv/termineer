@@ -158,49 +158,6 @@ impl AgentManager {
         }
     }
 
-    /// Get agent's configuration
-    ///
-    /// This function uses an internal messaging mechanism to get the agent's current configuration.
-    /// Since this is primarily used for inheriting disabled tools, a simpler implementation
-    /// is used to minimize changes to the codebase.
-    pub fn get_agent_config(&self, id: AgentId) -> Result<Config, AgentError> {
-        // For now, we'll use a simple approach that only allows access to essential config
-        // This is a temporary implementation that could be expanded in the future
-
-        // Create a new default config
-        let mut config = Config::new();
-
-        // Find the agent, if it exists
-        if let Some(handle) = self.agents.get(&id) {
-            // Access the agent's buffer to read information from its messages
-            let buffer = handle.buffer.clone();
-            let lines = buffer.lines();
-
-            // Look for log messages about disabled tools in the buffer
-            // The lines() method returns a MutexGuard, not an iterator, so we need to use it correctly
-            let lines_vec = lines.iter().collect::<Vec<_>>();
-            for line in lines_vec {
-                if line.content.contains("tools disabled") {
-                    // Try to extract the names of disabled tools from the message
-                    if let Some(idx) = line.content.rfind(':') {
-                        let tools_part = &line.content[idx + 1..];
-                        let disabled_list = tools_part
-                            .split(',')
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty())
-                            .collect::<Vec<String>>();
-                        config.disabled_tools = disabled_list;
-                        break;
-                    }
-                }
-            }
-
-            return Ok(config);
-        } else {
-            Err(AgentError::AgentNotFound(id))
-        }
-    }
-
     /// Get a reference to an agent handle by ID
     pub fn get_agent_handle(&self, id: AgentId) -> Option<&AgentHandle> {
         self.agents.get(&id)

@@ -402,37 +402,6 @@ impl Backend for OpenRouterBackend {
         })
     }
 
-    async fn count_tokens(
-        &self,
-        messages: &[Message],
-        system: Option<&str>,
-    ) -> Result<TokenUsage, LlmError> {
-        // Use a simple character-based estimation
-        // This is a rough approximation since OpenRouter doesn't provide a token counting endpoint
-        let estimate_tokens: usize = messages
-            .iter()
-            .map(|msg| {
-                match &msg.content {
-                    Content::Text { text } => text.len() / 4, // Rough estimate: ~4 chars per token
-                    Content::Image { .. } => 1000,            // Rough estimate for images
-                    Content::Thinking { thinking, .. } => {
-                        thinking.as_ref().map_or(0, |t| t.len() / 4)
-                    }
-                    Content::RedactedThinking { data } => data.as_ref().map_or(0, |d| d.len() / 4),
-                    Content::Document { source } => source.len() / 4,
-                }
-            })
-            .sum();
-
-        let sys_tokens: usize = system.map_or(0, |sys| sys.len() / 4);
-
-        Ok(TokenUsage {
-            input_tokens: estimate_tokens + sys_tokens,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
-    }
 
     fn max_token_limit(&self) -> usize {
         get_model_token_limit(&self.model_name)

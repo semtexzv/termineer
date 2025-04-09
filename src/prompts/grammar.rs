@@ -22,10 +22,12 @@ pub struct ToolInvocation {
 /// Represents a step in the conversation
 #[derive(Debug, Clone)]
 pub struct ParsedResponse {
-    // Agent prefix
-    pub prefix: String,
-    // Tool invocation
+    // Agent prefix (text before the first tool call)
+    pub human_text_prefix: String,
+    // Parsed tool invocation details
     pub tool: Option<ToolInvocation>,
+    // Raw text (including first tool call).
+    pub keep_part: String,
 }
 
 /// Stop sequences for LLM generation
@@ -140,8 +142,9 @@ impl Grammar for XmlGrammar {
         if !response.contains(TOOL_START) {
             // No tool invocation found
             return ParsedResponse {
-                prefix: response.to_string(),
+                human_text_prefix: response.to_string(),
                 tool: None,
+                keep_part: response.to_string(),
             };
         }
 
@@ -152,6 +155,7 @@ impl Grammar for XmlGrammar {
 
                 // Get the text before the tool invocation
                 let text_before_tool = response[0..tool_start_idx].trim().to_string();
+                let text_including_tool = response[0..tool_end_idx + TOOL_END.len()].trim().to_string();
 
                 // Extract tool content
                 let tool_content = &response[tool_start_idx + TOOL_START.len()..tool_end_idx];
@@ -166,28 +170,31 @@ impl Grammar for XmlGrammar {
                 if args.is_empty() {
                     // No tool name found, return the original text
                     return ParsedResponse {
-                        prefix: response.to_string(),
+                        human_text_prefix: response.to_string(),
                         tool: None,
+                        keep_part: response.to_string(),
                     };
                 }
 
                 let tool_name = args.remove(0).to_lowercase();
 
                 return ParsedResponse {
-                    prefix: text_before_tool,
+                    human_text_prefix: text_before_tool,
                     tool: Some(ToolInvocation {
                         name: tool_name,
                         args: args.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
                         body: body.to_string(),
                     }),
+                    keep_part: text_including_tool,
                 };
             }
         }
 
         // If we reach here, no proper tool invocation was found
         ParsedResponse {
-            prefix: response.to_string(),
+            human_text_prefix: response.to_string(),
             tool: None,
+            keep_part: response.to_string(),
         }
     }
 
@@ -314,8 +321,9 @@ impl Grammar for MarkdownGrammar {
         // Defensive programming - return early if response is empty or too short
         if response.is_empty() || response.len() < MD_TOOL_CALL_START.len() + 3 {
             return ParsedResponse {
-                prefix: response.to_string(),
+                human_text_prefix: response.to_string(),
                 tool: None,
+                keep_part: response.to_string(),
             };
         }
 
@@ -323,8 +331,9 @@ impl Grammar for MarkdownGrammar {
         if !response.contains(MD_TOOL_CALL_START) {
             // No tool invocation found
             return ParsedResponse {
-                prefix: response.to_string(),
+                human_text_prefix: response.to_string(),
                 tool: None,
+                keep_part: response.to_string(),
             };
         }
 
@@ -336,8 +345,9 @@ impl Grammar for MarkdownGrammar {
                 None => {
                     // This shouldn't happen given our earlier check, but just in case
                     return ParsedResponse {
-                        prefix: response.to_string(),
+                        human_text_prefix: response.to_string(),
                         tool: None,
+                        keep_part: response.to_string(),
                     };
                 }
             };
@@ -348,11 +358,9 @@ impl Grammar for MarkdownGrammar {
                 let code_end_idx =
                     tool_start_idx + MD_TOOL_CALL_START.len() + code_end_relative_idx;
                 // Get the text before the tool invocation (safely)
-                let text_before_tool = if tool_start_idx > 0 {
-                    response[0..tool_start_idx].trim().to_string()
-                } else {
-                    String::new()
-                };
+                let text_before_tool =  response[0..tool_start_idx].trim().to_string();
+
+                let text_including_tool = response[0..code_end_idx + MD_CODE_END.len()].trim().to_string();
 
                 // Extract the entire code block content (without the backticks and marker)
                 // Use safe substring operations with bounds checking
@@ -363,8 +371,9 @@ impl Grammar for MarkdownGrammar {
                         None => {
                             // Bounds error - fall back to treating as plain text
                             return ParsedResponse {
-                                prefix: response.to_string(),
+                                human_text_prefix: response.to_string(),
                                 tool: None,
+                                keep_part: response.to_string(),
                             };
                         }
                     }
@@ -391,28 +400,31 @@ impl Grammar for MarkdownGrammar {
                 if args.is_empty() {
                     // No tool name found - return the original text
                     return ParsedResponse {
-                        prefix: response.to_string(),
+                        human_text_prefix: response.to_string(),
                         tool: None,
+                        keep_part: response.to_string(),
                     };
                 }
 
                 let tool_name = args.remove(0).to_lowercase();
 
                 return ParsedResponse {
-                    prefix: text_before_tool,
+                    human_text_prefix: text_before_tool,
                     tool: Some(ToolInvocation {
                         name: tool_name,
                         args: args.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
                         body: body.to_string(),
                     }),
+                    keep_part: text_including_tool,
                 };
             }
         }
 
         // If we reach here, no proper tool invocation was found
         ParsedResponse {
-            prefix: response.to_string(),
+            human_text_prefix: response.to_string(),
             tool: None,
+            keep_part: response.to_string()
         }
     }
 

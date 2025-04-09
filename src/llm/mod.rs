@@ -33,24 +33,6 @@ pub trait Backend: Send + Sync {
         max_tokens: Option<usize>, // Maximum tokens to generate in the response
     ) -> Result<LlmResponse, LlmError>;
 
-    /// Count tokens for messages without making a full API request
-    ///
-    /// This allows efficiently tracking token usage without guessing.
-    /// Different LLM providers have different token counting algorithms, so this
-    /// method delegates to the provider-specific implementation.
-    ///
-    /// # Arguments
-    /// * `messages` - The conversation messages to count tokens for
-    /// * `system` - Optional system prompt
-    ///
-    /// # Returns
-    /// Token usage statistics or an error
-    async fn count_tokens(
-        &self,
-        messages: &[Message],
-        system: Option<&str>,
-    ) -> Result<TokenUsage, LlmError>;
-
     /// Get the maximum token limit for this model
     ///
     /// Returns the total context window size for the current model,

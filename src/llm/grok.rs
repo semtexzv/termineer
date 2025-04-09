@@ -184,11 +184,11 @@ impl Backend for GrokBackend {
     ) -> Result<LlmResponse, LlmError> {
         // Grok doesn't support thinking or cache points
         if thinking_budget.is_some() {
-            crate::bprintln!(dev: "Thinking is not supported by Grok models, ignoring thinking_budget");
+            // crate::bprintln!(dev: "Thinking is not supported by Grok models, ignoring thinking_budget");
         }
 
         if cache_points.is_some() {
-            crate::bprintln!(dev: "Cache points are not supported by Grok models, ignoring cache_points");
+            // crate::bprintln!(dev: "Cache points are not supported by Grok models, ignoring cache_points");
         }
 
         // Convert messages to Grok format
@@ -243,42 +243,6 @@ impl Backend for GrokBackend {
         })
     }
 
-    async fn count_tokens(
-        &self,
-        messages: &[Message],
-        system: Option<&str>,
-    ) -> Result<TokenUsage, LlmError> {
-        // Grok doesn't have a tokenization endpoint, so we'll use a character-based estimate
-        // Rough approximation: 1 token ≈ 4 characters
-
-        let char_count = messages
-            .iter()
-            .filter_map(|msg| {
-                if let Content::Text { text } = &msg.content {
-                    Some(text.len())
-                } else {
-                    None
-                }
-            })
-            .sum::<usize>();
-
-        // Add system message if present
-        let total_chars = if let Some(sys) = system {
-            char_count + sys.len()
-        } else {
-            char_count
-        };
-
-        // Estimate tokens (approximate)
-        let estimated_tokens = (total_chars as f64 / 4.0).ceil() as usize;
-
-        Ok(TokenUsage {
-            input_tokens: estimated_tokens,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
-    }
 
     fn max_token_limit(&self) -> usize {
         get_model_token_limit(&self.model)

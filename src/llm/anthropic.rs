@@ -278,46 +278,4 @@ impl Backend for Anthropic {
         // Get the token limit based on the model name pattern
         get_model_token_limit(&self.model)
     }
-
-    async fn count_tokens(
-        &self,
-        messages: &[Message],
-        system: Option<&str>,
-    ) -> Result<TokenUsage, LlmError> {
-        // Create the token counting request
-        let request = CountTokensRequest {
-            model: self.model.clone(),
-            messages: messages.to_vec(),
-            system: system.map(|s| s.to_string()),
-        };
-
-        // Convert to JSON and prepare for the API
-        let mut json = serde_json::to_value(request.clone()).map_err(|e| {
-            LlmError::ApiError(format!("Failed to serialize token count request: {}", e))
-        })?;
-
-        // Remove info field which is not part of the API schema
-        jsonpath::remove(&mut json, "/messages[..]/info").map_err(|e| {
-            LlmError::ApiError(format!("Failed to process token count request: {}", e))
-        })?;
-
-        // Use the improved send_api_request method with appropriate URL and timeout
-        // This reuses the same robust retry/timeout logic we implemented earlier
-        let response: CountTokensResponse = self
-            .send_api_request(
-                json,
-                &*COUNT_TOKENS_URL,
-                Duration::from_secs(Self::TOKEN_COUNT_TIMEOUT_SECS),
-            )
-            .await?;
-
-        // Create TokenUsage from the response
-        // Note: count_tokens only provides input tokens, output tokens will be 0
-        Ok(TokenUsage {
-            input_tokens: response.input_tokens,
-            output_tokens: 0, // No output for token counting
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
-    }
 }

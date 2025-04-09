@@ -228,11 +228,11 @@ impl Backend for CohereBackend {
     ) -> Result<LlmResponse, LlmError> {
         // Cohere doesn't support thinking or cache points
         if thinking_budget.is_some() {
-            bprintln!(dev: "Thinking is not supported by Cohere models, ignoring thinking_budget");
+            // bprintln!(dev: "Thinking is not supported by Cohere models, ignoring thinking_budget");
         }
 
         if cache_points.is_some() {
-            bprintln!(dev: "Cache points are not supported by Cohere models, ignoring cache_points");
+            // bprintln!(dev: "Cache points are not supported by Cohere models, ignoring cache_points");
         }
 
         // Convert messages to Cohere format
@@ -289,55 +289,6 @@ impl Backend for CohereBackend {
         })
     }
 
-    async fn count_tokens(
-        &self,
-        messages: &[Message],
-        system: Option<&str>,
-    ) -> Result<TokenUsage, LlmError> {
-        // Extract all text content from messages
-        let mut texts = Vec::new();
-
-        // Add system message if present
-        if let Some(sys) = system {
-            texts.push(sys.to_string());
-        }
-
-        // Add message content
-        for msg in messages {
-            if let Content::Text { text } = &msg.content {
-                texts.push(text.clone());
-            }
-        }
-
-        // If we have texts to count
-        if !texts.is_empty() {
-            // Create request for token counting
-            let request = CohereTokenCountRequest { texts };
-
-            // Send request to token counting endpoint
-            let count_response: CohereTokenCountResponse = self
-                .send_api_request("/tokenize", serde_json::to_value(request).unwrap())
-                .await?;
-
-            // Sum all token counts
-            let total_tokens: usize = count_response.tokens.iter().sum::<u32>() as usize;
-
-            return Ok(TokenUsage {
-                input_tokens: total_tokens,
-                output_tokens: 0, // No output for token counting
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            });
-        }
-
-        // Fallback for empty messages
-        Ok(TokenUsage {
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
-    }
 
     fn max_token_limit(&self) -> usize {
         get_model_token_limit(&self.model)

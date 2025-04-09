@@ -7,7 +7,7 @@ use crate::serde::element_array;
 use serde::{Deserialize, Serialize};
 
 /// Response from an LLM provider
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)] // Added Clone and PartialEq
 pub struct LlmResponse {
     /// The content of the response
     pub content: Vec<Content>,
@@ -23,7 +23,7 @@ pub struct LlmResponse {
 }
 
 /// Token usage statistics
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)] // Added PartialEq
 pub struct TokenUsage {
     /// Input tokens for the current request
     pub input_tokens: usize,
@@ -111,13 +111,13 @@ impl Message {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)] // Added PartialEq
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageSource {
     Base64 { media_type: String, data: String },
 }
 /// Content of a message
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)] // Added PartialEq
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Content {
     /// Thinking (internal reasoning)

@@ -218,11 +218,11 @@ impl Backend for DeepSeekBackend {
     ) -> Result<LlmResponse, LlmError> {
         // DeepSeek doesn't support thinking or cache features
         if thinking_budget.is_some() {
-            bprintln!(info: "Thinking is not supported by DeepSeek, ignoring thinking_budget");
+            // bprintln!(info: "Thinking is not supported by DeepSeek, ignoring thinking_budget");
         }
 
         if cache_points.is_some() {
-            bprintln!(info: "Cache points are not supported by DeepSeek, ignoring cache_points");
+            // bprintln!(info: "Cache points are not supported by DeepSeek, ignoring cache_points");
         }
 
         // Convert messages to DeepSeek format
@@ -322,37 +322,6 @@ impl Backend for DeepSeekBackend {
         })
     }
 
-    async fn count_tokens(
-        &self,
-        messages: &[Message],
-        system: Option<&str>,
-    ) -> Result<TokenUsage, LlmError> {
-        // Use a simple character-based estimation
-        // This is a rough approximation since we don't have a token counting endpoint
-        let estimate_tokens: usize = messages
-            .iter()
-            .map(|msg| {
-                match &msg.content {
-                    Content::Text { text } => text.len() / 4, // Rough estimate: ~4 chars per token
-                    Content::Image { .. } => 0, // DeepSeek doesn't support images, so count as 0
-                    Content::Thinking { thinking, .. } => {
-                        thinking.as_ref().map_or(0, |t| t.len() / 4)
-                    }
-                    Content::RedactedThinking { data } => data.as_ref().map_or(0, |d| d.len() / 4),
-                    Content::Document { source } => source.len() / 4,
-                }
-            })
-            .sum();
-
-        let sys_tokens: usize = system.map_or(0, |sys| sys.len() / 4);
-
-        Ok(TokenUsage {
-            input_tokens: estimate_tokens + sys_tokens,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        })
-    }
 
     fn max_token_limit(&self) -> usize {
         get_model_token_limit(&self.model_name)

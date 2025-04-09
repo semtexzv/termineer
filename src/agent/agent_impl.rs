@@ -433,7 +433,7 @@ impl Agent {
         match cmd {
             AgentCommand::SetModel(model) => {
                 if let Err(e) = self.set_model(model.clone()) {
-                    bprintln !(error:"Failed to set model to {}: {}", model, e);
+                    bprintln!(error:"Failed to set model to {}: {}", model, e);
                 } else {
                     bprintln!("Model set to {}", model);
                 }
@@ -517,15 +517,7 @@ impl Agent {
         // Track time between interruption checks (to prevent excessive API calls)
         let mut last_check_time = std::time::Instant::now();
 
-        // Configure interruption check interval based on command type
-        // Shorter for commands that produce a lot of output quickly
-        let min_check_interval =
-            if cmd_args.contains("grep") || cmd_args.contains("find") || cmd_args.contains("watch")
-            {
-                Duration::from_secs(5) // Check more frequently for verbose commands
-            } else {
-                Duration::from_secs(10) // Standard interval for most commands
-            };
+        let min_check_interval = Duration::from_secs(30);
 
         // Track if we have a partial tool result in the conversation
         let mut has_partial_result = false;
@@ -829,7 +821,7 @@ impl Agent {
         };
 
         // Log the detailed implementation strategy only in debug mode
-        bprintln !(dev: "Creating interruption check prompt for command running for {}", elapsed_time_str);
+        bprintln!(dev: "Creating interruption check prompt for command running for {}", elapsed_time_str);
 
         // Create a tailored prompt for the interruption check
         // This prompt is a business-sensitive part of the implementation and is intentionally
@@ -855,7 +847,7 @@ impl Agent {
         );
 
         // Log interruption check only in debug builds
-        bprintln !(dev:
+        bprintln!(dev:
             "{}{}Checking if shell command should be interrupted...{}",
             crate::constants::FORMAT_BLUE,
             crate::constants::FORMAT_BOLD,
@@ -879,13 +871,13 @@ impl Agent {
         let max_tokens_for_check = 100;
 
         // Log token budget and timeout details only in debug builds
-        bprintln !(dev: "Interruption check using token budget of {} to minimize cost", max_tokens_for_check);
+        bprintln!(dev: "Interruption check using token budget of {} to minimize cost", max_tokens_for_check);
 
         // Start a timeout for the interruption check
         let timeout_duration = tokio::time::Duration::from_secs(15);
 
         // Log timeout details only in debug builds
-        bprintln !(dev: "Using {}s timeout for interruption check to prevent hanging", timeout_duration.as_secs());
+        bprintln!(dev: "Using {}s timeout for interruption check to prevent hanging", timeout_duration.as_secs());
 
         // Handle the LLM response with proper error conversion and timeout
         let response = match tokio::time::timeout(
@@ -899,13 +891,13 @@ impl Agent {
                 Some(max_tokens_for_check), // Always use the small token limit for interruption checks
             ),
         )
-        .await
+            .await
         {
             Ok(result) => match result {
                 Ok(response) => response,
                 Err(e) => {
                     // Convert the error to a Send + Sync error by using the string representation
-                    bprintln !(error:"Interruption check failed: {}", e);
+                    bprintln!(error:"Interruption check failed: {}", e);
 
                     // Remove the temporary message before returning
                     self.conversation.pop();
@@ -916,7 +908,7 @@ impl Agent {
             Err(_) => {
                 // Timeout occurred - clean up and return no interruption
                 // In debug mode, show detailed implementation info about the timeout
-                bprintln !(dev:
+                bprintln!(dev:
                     "Interruption check timed out after {} seconds",
                     timeout_duration.as_secs()
                 );
@@ -936,7 +928,7 @@ impl Agent {
 
         // Check if we got a proper stop sequence
         if response.stop_reason.as_deref() != Some("stop_sequence") {
-            bprintln !(dev: "Interruption check completed: continue execution");
+            bprintln!(dev: "Interruption check completed: continue execution");
             return Ok(InterruptionCheck {
                 interrupted: false,
                 reason: None,
@@ -1116,7 +1108,7 @@ impl Agent {
                             "exe", "bin", "o", "a", "so", "dylib", "dll", "class", "jar", "war",
                             "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "bmp", "ico",
                         ]
-                        .contains(&extension)
+                            .contains(&extension)
                         {
                             bprintln!(
                                 "{}Skipping binary file: {}{}",
@@ -1145,16 +1137,37 @@ impl Agent {
 
                         // Update total content size
                         total_content_size += file_content.len();
+                        let path = &path.to_string_lossy();
 
-                        // Format message with file path and content
-                        let message =
-                            format!("# File: {}\n```\n{}\n```", path.display(), file_content);
+                        self.conversation.push(Message::text("assistant", self.grammar.format_tool_call("read", path), MessageInfo::Assistant));
 
-                        // Add to conversation
-                        self.conversation
-                            .push(Message::text("user", message, MessageInfo::User));
+                        // Simulate a read tool call for this file
+                        let read_result = crate::tools::read::execute_read(
+                            path,
+                            "", // No body for read tool
+                            true, // Use silent mode to avoid duplicate console output
+                        )
+                            .await;
 
-                        included_count += 1;
+                        // Add the result content to the conversation
+                        if read_result.success {
+                            for content_item in read_result.content {
+                                // Push each content item with User info, as if it came from a tool result
+                                self.conversation
+                                    .push(Message::new("user", content_item, MessageInfo::User));
+                            }
+                            included_count += 1;
+                        } else {
+                            // Log the error if reading failed
+                            let error_msg = read_result.to_text();
+                            bprintln!(
+                                "{}Error reading autoinclude file '{}': {}{}",
+                                crate::constants::FORMAT_RED,
+                                path,
+                                error_msg,
+                                crate::constants::FORMAT_RESET
+                            );
+                        }
                     }
                     Err(e) => {
                         // Just log errors for individual files but continue processing
@@ -1184,11 +1197,11 @@ impl Agent {
             // Also add a message directly to the conversation context
             self.conversation.push(Message::text(
                 "user",
-                format!("📚 *Automatically included {} files (total size: {} KB) from patterns in .termineer/autoinclude*", 
-                    included_count, 
-                    total_content_size / 1024
+                format!("📚 *Automatically included {} files (total size: {} KB) from patterns in .termineer/autoinclude*",
+                        included_count,
+                        total_content_size / 1024
                 ),
-                MessageInfo::System
+                MessageInfo::System,
             ));
         }
 
@@ -1205,58 +1218,6 @@ impl Agent {
 
         // Get necessary values for token counting
         let thinking_budget = Some(self.config.thinking_budget);
-        let safe_token_limit = self.llm.safe_input_token_limit();
-
-        // Apply conversation truncation if needed to stay within token limits
-        // This prevents the conversation from exceeding the model's context window
-        // by intelligently replacing older tool outputs with placeholders
-        let needs_cache_reset = {
-            // Temporary scope to limit borrow of system_prompt
-            let system_prompt = self.config.system_prompt.as_deref();
-
-            // Count tokens in the current conversation using the LLM backend's accurate counter
-            // This ensures we have precise token counts for making truncation decisions
-            match self
-                .llm
-                .count_tokens(&self.conversation, system_prompt)
-                .await
-            {
-                Ok(usage) => {
-                    // Only apply truncation if we successfully counted tokens
-                    // Check if truncation is needed and apply it
-                    if let Some(truncation_result) = truncate_conversation(
-                        &mut self.conversation,
-                        safe_token_limit,
-                        &usage,
-                        &self.truncation_config,
-                    ) {
-                        // Log truncation occurred
-                        bprintln!(
-                            "🔍 {}Truncated{} {} tool outputs to save approximately {} tokens",
-                            crate::constants::FORMAT_BOLD,
-                            crate::constants::FORMAT_RESET,
-                            truncation_result.truncated_messages,
-                            truncation_result.estimated_tokens_saved
-                        );
-
-                        // Need to reset cache points after truncation
-                        true
-                    } else {
-                        false
-                    }
-                }
-                Err(e) => {
-                    // Log token counting error but continue without truncation
-                    bprintln !(error:"Failed to count tokens for truncation: {}", e);
-                    false
-                }
-            }
-        };
-
-        // Reset cache points if needed
-        if needs_cache_reset {
-            self.reset_cache_points();
-        }
 
         // Apply conversation maintenance to remove empty messages
         // This ensures the conversation structure is clean before sending to the LLM
@@ -1305,8 +1266,12 @@ impl Agent {
             }
         }
 
+
         // Parse the assistant's response using this agent's grammar
         let parsed = self.grammar.parse_response(&assistant_message);
+        drop(assistant_message);
+
+        bprintln!(dev: "Response: {}", parsed.keep_part);
 
         // If tools are not enabled, or no tool was found, handle as a regular response
         if !self.config.enable_tools || parsed.tool.is_none() {
@@ -1321,23 +1286,21 @@ impl Agent {
                 }
 
                 // Print the assistant's response using buffer-based printing
-                crate::conversation::print_assistant_response(&assistant_message);
+                crate::conversation::print_assistant_response(&parsed.keep_part);
             }
 
             self.conversation.push(Message::text(
                 "assistant",
-                assistant_message.clone(),
+                parsed.keep_part.clone(),
                 MessageInfo::Assistant,
             ));
-
-            // No session saving needed
 
             // If this is a regular response, set the state back to Idle
             // so the agent waits for the next user input
             self.state = AgentState::Idle;
 
             return Ok(MessageResult {
-                response: assistant_message.clone(),
+                response: parsed.keep_part.clone(),
                 continue_processing: false, // Stop processing, wait for user input
                 token_usage: response.usage,
             });
@@ -1359,17 +1322,14 @@ impl Agent {
         }
 
         // Display the assistant's text before executing the tool
-        if !parsed.prefix.is_empty() {
-            crate::conversation::print_assistant_response(&parsed.prefix);
+        if !parsed.human_text_prefix.is_empty() {
+            crate::conversation::print_assistant_response(&parsed.human_text_prefix);
         }
-
-        // Everything before and including the tool invocation (we need this for conversation history)
-        let full_assistant_message = assistant_message.clone();
 
         // Create the tool call message
         let tool_call_message = Message::text(
             "assistant",
-            full_assistant_message,
+            parsed.keep_part.clone(),
             MessageInfo::ToolCall {
                 tool_name: tool_name.clone(),
                 tool_index: Some(self.tool_invocation_counter),
@@ -1474,11 +1434,11 @@ impl Agent {
 
         if response_message_len > 500
             || response
-                .usage
-                .as_ref()
-                .map(|u| u.input_tokens)
-                .unwrap_or_default()
-                > 500
+            .usage
+            .as_ref()
+            .map(|u| u.input_tokens)
+            .unwrap_or_default()
+            > 500
         {
             self.cache_here();
         }

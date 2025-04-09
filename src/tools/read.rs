@@ -16,6 +16,7 @@ const MAX_READABLE_LINES: usize = 1000;
 struct ReadArgs {
     offset: Option<usize>,
     limit: Option<usize>,
+    lines_specified: bool, // Flag to indicate if lines=START-END was used
     paths: Vec<String>,
 }
 
@@ -36,11 +37,11 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
         return ToolResult::error(error_msg);
     }
 
-    // If offset or limit is specified, only read a single file
-    if parsed_args.offset.is_some() || parsed_args.limit.is_some() {
+    // If offset, limit, or lines is specified, only read a single file
+    if parsed_args.offset.is_some() || parsed_args.limit.is_some() || parsed_args.lines_specified {
         if parsed_args.paths.len() > 1 {
             let error_msg =
-                "Offset and limit parameters can only be used with a single file".to_string();
+                "Offset, limit, and lines parameters can only be used with a single file".to_string();
 
             if !silent_mode {
                 // Use buffer-based printing
@@ -67,75 +68,126 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
     read_multiple_files(&parsed_args.paths, silent_mode).await
 }
 
-/// Parse the command arguments into a structured format
+/// Parse the command arguments into a structured format, handling parameters anywhere.
 fn parse_arguments(args: &str) -> ReadArgs {
     let mut offset: Option<usize> = None;
     let mut limit: Option<usize> = None;
-    let mut remaining_args = args.trim().to_string();
+    let mut lines_specified = false;
+    let mut paths = Vec::new();
 
-    // Extract offset parameter
-    if let Some(offset_idx) = remaining_args.find("offset=") {
-        let offset_start = offset_idx + 7; // Length of "offset="
-        let offset_end = find_param_end(&remaining_args[offset_start..])
-            .map_or(remaining_args.len(), |end| offset_start + end);
+    let parts: Vec<&str> = args.trim().split_whitespace().collect();
 
-        if let Ok(val) = remaining_args[offset_start..offset_end]
-            .trim()
-            .parse::<usize>()
-        {
-            offset = Some(val);
+    for part in parts {
+        if part.starts_with("offset=") {
+            if let Some(val_str) = part.strip_prefix("offset=") {
+                if let Ok(val) = val_str.parse::<usize>() {
+                    offset = Some(val);
+                } else {
+                    bprintln!(warn: "Invalid offset value: {}", val_str);
+                }
+            }
+        } else if part.starts_with("limit=") {
+            if let Some(val_str) = part.strip_prefix("limit=") {
+                if let Ok(val) = val_str.parse::<usize>() {
+                    limit = Some(val);
+                } else {
+                    bprintln!(warn: "Invalid limit value: {}", val_str);
+                }
+            }
+        } else if part.starts_with("lines=") {
+            if let Some(range_str) = part.strip_prefix("lines=") {
+                let range_parts: Vec<&str> = range_str.splitn(2, '-').collect();
+                if range_parts.len() == 2 {
+                    if let (Ok(start), Ok(end)) = (range_parts[0].parse::<usize>(), range_parts[1].parse::<usize>()) {
+                        if start >= 1 && end >= start {
+                            // Convert 1-based lines to 0-based offset and limit
+                            offset = Some(start - 1);
+                            limit = Some(end - start + 1);
+                            lines_specified = true;
+                        } else {
+                            bprintln!(warn: "Invalid line range in lines={}: start must be >= 1 and end >= start", range_str);
+                        }
+                    } else {
+                        bprintln!(warn: "Invalid number format in lines={}", range_str);
+                    }
+                } else {
+                    bprintln!(warn: "Invalid format for lines parameter. Use lines=START-END. Got: {}", range_str);
+                }
+            }
+        } else {
+            // Assume it's a path
+            paths.push(part.to_string());
         }
-
-        // Remove the parameter from the string
-        remaining_args = format!(
-            "{} {}",
-            &remaining_args[..offset_idx].trim(),
-            &remaining_args[offset_end..].trim()
-        )
-        .trim()
-        .to_string();
     }
 
-    // Extract limit parameter
-    if let Some(limit_idx) = remaining_args.find("limit=") {
-        let limit_start = limit_idx + 6; // Length of "limit="
-        let limit_end = find_param_end(&remaining_args[limit_start..])
-            .map_or(remaining_args.len(), |end| limit_start + end);
+    // If lines= was specified, it overrides offset= and limit=
+    // We already set offset and limit based on lines= if it was valid.
+    // No need for explicit override logic here, as the last parsed value wins.
+    // However, if lines_specified is true, we should probably clear offset/limit if they were set *before* lines=
+    // Let's refine: parse lines= first, then offset/limit, but ignore offset/limit if lines_specified is true.
 
-        if let Ok(val) = remaining_args[limit_start..limit_end]
-            .trim()
-            .parse::<usize>()
-        {
-            limit = Some(val);
+    // Re-parse to prioritize lines=
+    let mut final_offset: Option<usize> = None;
+    let mut final_limit: Option<usize> = None;
+    let mut final_lines_specified = false;
+    let mut final_paths = Vec::new();
+
+    for part in args.trim().split_whitespace() {
+        if part.starts_with("lines=") {
+            if let Some(range_str) = part.strip_prefix("lines=") {
+                let range_parts: Vec<&str> = range_str.splitn(2, '-').collect();
+                if range_parts.len() == 2 {
+                    if let (Ok(start), Ok(end)) = (range_parts[0].parse::<usize>(), range_parts[1].parse::<usize>()) {
+                        if start >= 1 && end >= start {
+                            final_offset = Some(start - 1);
+                            final_limit = Some(end - start + 1);
+                            final_lines_specified = true;
+                        } else {
+                             bprintln!(warn: "Invalid line range in lines={}: start must be >= 1 and end >= start. Ignoring.", range_str);
+                        }
+                    } else {
+                         bprintln!(warn: "Invalid number format in lines={}. Ignoring.", range_str);
+                    }
+                } else {
+                     bprintln!(warn: "Invalid format for lines parameter. Use lines=START-END. Got: {}. Ignoring.", range_str);
+                }
+            }
+        } else if part.starts_with("offset=") {
+            if !final_lines_specified { // Only parse if lines= wasn't specified or was invalid
+                if let Some(val_str) = part.strip_prefix("offset=") {
+                    if let Ok(val) = val_str.parse::<usize>() {
+                        final_offset = Some(val);
+                    } else {
+                        bprintln!(warn: "Invalid offset value: {}. Ignoring.", val_str);
+                    }
+                }
+            }
+        } else if part.starts_with("limit=") {
+             if !final_lines_specified { // Only parse if lines= wasn't specified or was invalid
+                if let Some(val_str) = part.strip_prefix("limit=") {
+                    if let Ok(val) = val_str.parse::<usize>() {
+                        final_limit = Some(val);
+                    } else {
+                        bprintln!(warn: "Invalid limit value: {}. Ignoring.", val_str);
+                    }
+                }
+            }
+        } else {
+            // Assume it's a path
+            final_paths.push(part.to_string());
         }
-
-        // Remove the parameter from the string
-        remaining_args = format!(
-            "{} {}",
-            &remaining_args[..limit_idx].trim(),
-            &remaining_args[limit_end..].trim()
-        )
-        .trim()
-        .to_string();
     }
 
-    // Split remaining arguments into paths
-    let paths: Vec<String> = remaining_args
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect();
 
     ReadArgs {
-        offset,
-        limit,
-        paths,
+        offset: final_offset,
+        limit: final_limit,
+        lines_specified: final_lines_specified,
+        paths: final_paths,
     }
 }
 
-/// Helper function to find the end of a parameter value
-fn find_param_end(s: &str) -> Option<usize> {
-    s.find(|c: char| c.is_whitespace())
-}
+// Removed find_param_end as it's no longer needed with the new parsing logic
 
 /// Read multiple files and combine their outputs
 async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolResult {
@@ -307,11 +359,16 @@ async fn read_file_content(
 
             // Format the output to clearly indicate line numbers and truncation if it occurred
             let truncation_notice = if was_truncated {
-                format!("\n\n{} TRUNCATION NOTICE {}\nFile content was truncated to {} lines maximum.\nTo read additional content, use offset parameter:\n  read offset={} limit=1000 {}\n", 
+                // Suggest the next offset using 1-based line numbers for user clarity
+                let next_offset_suggestion = start_line + MAX_READABLE_LINES; // 0-based offset for the next chunk
+                format!("\n\n{} TRUNCATION NOTICE {}\nFile content was truncated to {} lines maximum.\nTo read additional content, use offset parameter:\n  read offset={} limit=1000 {}\nOr use lines=START-END:\n  read lines={}-{} {}\n", 
                     "=".repeat(15), 
                     "=".repeat(15),
                     MAX_READABLE_LINES,
-                    start_line + MAX_READABLE_LINES,
+                    next_offset_suggestion, // Use 0-based offset for the parameter
+                    safe_display_path,
+                    next_offset_suggestion + 1, // Start line (1-based)
+                    next_offset_suggestion + 1 + MAX_READABLE_LINES.saturating_sub(1), // End line (1-based)
                     safe_display_path
                 )
             } else {
@@ -392,10 +449,20 @@ async fn read_file_content(
                         MAX_READABLE_LINES,
                         FORMAT_RESET
                     );
+                    // Suggest both offset and lines syntax for the next chunk
+                    let next_offset_suggestion = start_line + MAX_READABLE_LINES; // 0-based offset
                     bprintln !(tool: "read",
                         "{}   To read more, use: read offset={} limit=1000 {}{}",
                         FORMAT_YELLOW,
-                        start_line + MAX_READABLE_LINES,
+                        next_offset_suggestion,
+                        safe_display_path,
+                        FORMAT_RESET
+                    );
+                    bprintln !(tool: "read",
+                        "{}   Or use: read lines={}-{} {}{}",
+                        FORMAT_YELLOW,
+                        next_offset_suggestion + 1, // Start line (1-based)
+                        next_offset_suggestion + 1 + MAX_READABLE_LINES.saturating_sub(1), // End line (1-based)
                         safe_display_path,
                         FORMAT_RESET
                     );
@@ -424,7 +491,7 @@ async fn read_image_file(
     silent_mode: bool,
 ) -> ToolResult {
     use base64::{engine::general_purpose, Engine as _};
-    use image::{DynamicImage, ImageFormat};
+    use image::{ImageFormat};
     use std::io::Cursor;
 
     // Read the file as binary

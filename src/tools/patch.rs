@@ -54,7 +54,6 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Ok(content) => content,
         Err(e) => {
             if !silent_mode {
-                // Use buffer-based printing directly
                 bprintln !(error:"Error reading file '{}': {}", filename, e);
             }
 
@@ -67,7 +66,6 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Some(pos) => pos,
         None => {
             if !silent_mode {
-                // Use buffer-based printing directly
                 bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE);
             }
 
@@ -78,11 +76,12 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         }
     };
 
+    bprintln!(dev: "rest: {}", &patch_content[before_delimiter..]);
+
     let after_delimiter = match patch_content[before_delimiter..].find(PATCH_DELIMITER_AFTER) {
         Some(pos) => before_delimiter + pos,
         None => {
             if !silent_mode {
-                // Use buffer-based printing directly
                 bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER);
             }
 
@@ -97,7 +96,6 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Some(pos) => after_delimiter + pos,
         None => {
             if !silent_mode {
-                // Use buffer-based printing directly
                 bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_END);
             }
 
@@ -107,30 +105,6 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             ));
         }
     };
-
-    // Check the order of delimiters
-    if before_delimiter >= after_delimiter {
-        let error_msg =
-            "Invalid patch: BEFORE delimiter must come before AFTER delimiter".to_string();
-
-        if !silent_mode {
-            // Use buffer-based printing
-            bprintln !(error:"{}", error_msg);
-        }
-
-        return ToolResult::error(error_msg);
-    }
-
-    if after_delimiter >= end_delimiter {
-        let error_msg = "Invalid patch: AFTER delimiter must come before END delimiter".to_string();
-
-        if !silent_mode {
-            // Use buffer-based printing
-            bprintln !(error:"{}", error_msg);
-        }
-
-        return ToolResult::error(error_msg);
-    }
 
     // Extract the before and after text
     // Skip the delimiter line itself by finding the next newline
@@ -161,19 +135,6 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     let before_text = patch_content[before_start..after_delimiter].trim();
     let after_text = patch_content[after_start..end_delimiter].trim();
 
-    // Apply the patch - check for unique occurrence
-    if !file_content.contains(before_text) {
-        if !silent_mode {
-            // Use buffer-based printing directly
-            bprintln !(error:"Text to replace not found in the file: '{}'", before_text);
-        }
-
-        return ToolResult::error(format!(
-            "Text to replace not found in the file: '{}'",
-            before_text
-        ));
-    }
-
     // Count occurrences of the before_text in file_content
     let mut count = 0;
     let mut start_index = 0;
@@ -185,6 +146,18 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         if count > 1 {
             break;
         }
+    }
+
+    if count == 0 {
+        if !silent_mode {
+            // Use buffer-based printing directly
+            bprintln !(error:"Text to replace not found in the file: '{}'", before_text);
+        }
+
+        return ToolResult::error(format!(
+            "Text to replace not found in the file: '{}'",
+            before_text
+        ));
     }
 
     // Check if the text appears multiple times in the file
