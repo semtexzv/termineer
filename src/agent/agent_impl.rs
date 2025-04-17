@@ -1055,11 +1055,6 @@ impl Agent {
         &mut self,
         force: bool,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        // Check if we should add autoinclude files (either conversation is empty or force=true)
-        if self.conversation.is_empty() && !force {
-            return Ok(0);
-        }
-
         // Path to autoinclude file
         let autoinclude_path = ".termineer/autoinclude";
 
