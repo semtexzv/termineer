@@ -320,6 +320,9 @@ impl GeminiBackend {
     ) -> Result<(String, usize, TokenUsage), LlmError> { // Returns (cache_name, num_messages_cached, creation_token_usage)
         let model_for_cache = format!("models/{}", self.model_name); // Use the full model path
         let num_messages_cached = contents_to_cache.len(); // Count messages being cached
+        bprintln!(dev: "Gemini Cache: Attempting to create cache for {} messages with model '{}'", num_messages_cached, self.model_name);
+
+        let model_for_cache = format!("models/{}", self.model_name); // Use the full model path
 
         let cache_input = GeminiCachedContentInput {
             model: model_for_cache.clone(),
@@ -328,10 +331,31 @@ impl GeminiBackend {
         };
 
         let api_url = format!("{}/cachedContents?key={}", API_BASE_URL, self.api_key);
+        let request_json = serde_json::to_value(cache_input).map_err(|e| LlmError::ConfigError(format!("Failed to serialize cache request: {}", e)))?;
 
-        let response: GeminiCachedContentResponse = self
-            .send_api_request(&api_url, serde_json::to_value(cache_input).unwrap())
-            .await?;
+        // Log the request payload (truncated if large)
+        let request_str = request_json.to_string();
+        let request_preview = if request_str.len() > 500 {
+            format!("{}...", &request_str[..500])
+        } else {
+            request_str
+        };
+        bprintln!(dev: "Gemini Cache: Sending create cache request to {}: {}", api_url, request_preview);
+
+        // Send the request and handle potential errors
+        let response_result = self
+            .send_api_request::<GeminiCachedContentResponse>(&api_url, request_json)
+            .await;
+
+        let response = match response_result {
+            Ok(resp) => resp,
+            Err(e) => {
+                // Log the specific error during cache creation
+                bprintln!(error: "Gemini Cache: Error creating CachedContent: {}", e);
+                // Propagate the error
+                return Err(e);
+            }
+        };
 
         // Extract token usage from the cache creation response
         // Assume totalTokenCount reflects the tokens written to the cache
@@ -370,198 +394,20 @@ impl Backend for GeminiBackend {
         messages: &[Message],
         system: Option<&str>,
         stop_sequences: Option<&[String]>,
-        thinking_budget: Option<usize>,
-        cache_points: Option<&BTreeSet<usize>>,
+        _: Option<usize>,
+        _: Option<&BTreeSet<usize>>,
         max_tokens: Option<usize>,
     ) -> Result<LlmResponse, LlmError> {
-        // Gemini doesn't support thinking or cache control
-        if thinking_budget.is_some() {
-            // bprintln!(info: "Thinking is not supported by Gemini models, ignoring thinking_budget");
-        }
-
-        if cache_points.is_some() {
-            // bprintln!(dev: "Gemini Cache: Note - BTreeSet cache_points are ignored by Gemini provider.");
-        }
-
-        // --- Gemini Context Caching Logic ---
-        const CACHE_TOKEN_THRESHOLD: usize = 25000;
 
         // Convert *all* messages and system prompt
-        let all_gemini_contents = self.convert_messages_to_gemini_format(messages);
-        let system_instruction_content = system.map(|s| GeminiContent {
+        let request_contents = self.convert_messages_to_gemini_format(messages);
+        let request_system_instruction = system.map(|s| GeminiContent {
             parts: vec![GeminiPart { text: Some(s.to_string()) }],
             role: None,
         });
 
-        let mut request_contents = all_gemini_contents.clone(); // Start assuming we send everything
-        let mut request_system_instruction = system_instruction_content.clone();
-        let mut cached_content_name: Option<String> = None;
-        let mut use_cache = false;
-        let mut cache_creation_tokens = 0; // Track tokens used for cache creation
-
-        // Check if the model name indicates a preview or experimental version
-        let model_name_lower = self.model_name.to_lowercase();
-        let is_preview_or_exp = model_name_lower.contains("preview") || model_name_lower.contains("exp");
-
-        if is_preview_or_exp {
-             bprintln!(dev: "Gemini Cache: Skipping caching for preview/experimental model '{}'", self.model_name);
-             // Ensure cache is not used and no creation tokens are counted
-             use_cache = false; // Explicitly set to false
-             cached_content_name = None; // Ensure no cache name is used
-             cache_creation_tokens = 0; // Ensure no creation tokens are counted
-             // request_contents and request_system_instruction remain the full conversation
-        } else {
-            // --- Original Caching Logic Start ---
-            // Check if we can reuse an existing cache
-            if let Some((ref existing_cache_name, num_cached)) = *self.last_cache_info.lock().unwrap() {
-                if num_cached < all_gemini_contents.len() {
-                    // Check if the cached part matches the current conversation start
-                    if all_gemini_contents[..num_cached] == request_contents[..num_cached]
-                       && system_instruction_content == request_system_instruction // Ensure system prompt matches too
-                    {
-                        let new_contents = all_gemini_contents[num_cached..].to_vec();
-                        if !new_contents.is_empty() {
-                            bprintln!(dev: "Gemini Cache: Reusing cache '{}' ({} messages). Sending {} new messages.",
-                                     existing_cache_name, num_cached, new_contents.len());
-                            request_contents = new_contents;
-                            request_system_instruction = None; // System prompt is in the cache
-                            cached_content_name = Some(existing_cache_name.clone());
-                            use_cache = true;
-                        } else {
-                             bprintln!(dev: "Gemini Cache: Request matches existing cache '{}' exactly, but sending full request to ensure response.", existing_cache_name);
-                             // Invalidate cache as we are sending the full request now
-                             *self.last_cache_info.lock().unwrap() = None;
-                        }
-                    } else {
-                         bprintln!(dev: "Gemini Cache: Existing cache '{}' does not match current conversation prefix. Invalidating.", existing_cache_name);
-                         // Invalidate cache if prefix doesn't match
-                         *self.last_cache_info.lock().unwrap() = None;
-                    }
-                } else {
-                     bprintln!(dev: "Gemini Cache: Current conversation shorter than or equal to existing cache '{}'. Invalidating.", existing_cache_name);
-                     // Invalidate cache if conversation is now shorter or same length
-                     *self.last_cache_info.lock().unwrap() = None;
-                }
-            }
-
-            // If we didn't reuse a cache, check if we should create one
-            // let mut cache_creation_tokens = 0; // Moved declaration outside the block
-            if !use_cache {
-                let total_input_tokens = self.count_tokens(&all_gemini_contents, system_instruction_content.as_ref()).await?;
-                bprintln!(dev: "Gemini Cache: Estimated total input tokens: {}", total_input_tokens);
-
-                if total_input_tokens > CACHE_TOKEN_THRESHOLD && all_gemini_contents.len() > 1 {
-                    bprintln!(dev: "Gemini Cache: Token count {} exceeds threshold {}, attempting to create cache.", total_input_tokens, CACHE_TOKEN_THRESHOLD);
-
-                    // Cache system prompt + all messages except the last one
-                    let num_to_cache = all_gemini_contents.len() - 1;
-                    let contents_to_cache = all_gemini_contents[..num_to_cache].to_vec();
-                    let system_to_cache = system_instruction_content.clone();
-
-                    match self.create_cached_content(contents_to_cache, system_to_cache).await {
-                        Ok((new_cache_name, _num_cached, creation_usage)) => {
-                            bprintln!(dev: "Gemini Cache: Successfully created cache: {}", new_cache_name);
-                            cached_content_name = Some(new_cache_name);
-                            cache_creation_tokens = creation_usage.cache_creation_input_tokens; // Store creation tokens
-                            // Prepare request to use the cache: only send the last message
-                            request_contents = vec![all_gemini_contents.last().unwrap().clone()];
-                            request_system_instruction = None; // System prompt is in the cache
-                            // Cache info (name, count) was already stored in create_cached_content
-                        }
-                        Err(e) => {
-                            bprintln!(warn: "Gemini Cache: Failed to create CachedContent: {}. Proceeding without cache.", e);
-                            // Invalidate cache info if creation failed
-                             *self.last_cache_info.lock().unwrap() = None;
-                            // Fallback: request_contents and request_system_instruction remain the full set
-                        }
-                    }
-                } else {
-                     bprintln!(dev: "Gemini Cache: Token count {} is below threshold {} or too few messages, skipping cache creation.", total_input_tokens, CACHE_TOKEN_THRESHOLD);
-                     // Invalidate cache if below threshold
-                     *self.last_cache_info.lock().unwrap() = None;
-                     // Use full content, no cache name
-                     cached_content_name = None;
-                }
-            }
-            // --- Original Caching Logic End ---
-        }
-
-        // Check if we can reuse an existing cache
-        if let Some((ref existing_cache_name, num_cached)) = *self.last_cache_info.lock().unwrap() {
-            if num_cached < all_gemini_contents.len() {
-                // Check if the cached part matches the current conversation start
-                if all_gemini_contents[..num_cached] == request_contents[..num_cached]
-                   && system_instruction_content == request_system_instruction // Ensure system prompt matches too
-                {
-                    let new_contents = all_gemini_contents[num_cached..].to_vec();
-                    if !new_contents.is_empty() {
-                        bprintln!(dev: "Gemini Cache: Reusing cache '{}' ({} messages). Sending {} new messages.",
-                                 existing_cache_name, num_cached, new_contents.len());
-                        request_contents = new_contents;
-                        request_system_instruction = None; // System prompt is in the cache
-                        cached_content_name = Some(existing_cache_name.clone());
-                        use_cache = true;
-                    } else {
-                         bprintln!(dev: "Gemini Cache: Request matches existing cache '{}' exactly, but sending full request to ensure response.", existing_cache_name);
-                         // Invalidate cache as we are sending the full request now
-                         *self.last_cache_info.lock().unwrap() = None;
-                    }
-                } else {
-                     bprintln!(dev: "Gemini Cache: Existing cache '{}' does not match current conversation prefix. Invalidating.", existing_cache_name);
-                     // Invalidate cache if prefix doesn't match
-                     *self.last_cache_info.lock().unwrap() = None;
-                }
-            } else {
-                 bprintln!(dev: "Gemini Cache: Current conversation shorter than or equal to existing cache '{}'. Invalidating.", existing_cache_name);
-                 // Invalidate cache if conversation is now shorter or same length
-                 *self.last_cache_info.lock().unwrap() = None;
-            }
-        }
-
-        // If we didn't reuse a cache, check if we should create one
-        let mut cache_creation_tokens = 0; // Track tokens used for cache creation
-        if !use_cache {
-            let total_input_tokens = self.count_tokens(&all_gemini_contents, system_instruction_content.as_ref()).await?;
-            bprintln!(dev: "Gemini Cache: Estimated total input tokens: {}", total_input_tokens);
-
-            if total_input_tokens > CACHE_TOKEN_THRESHOLD && all_gemini_contents.len() > 1 {
-                bprintln!(dev: "Gemini Cache: Token count {} exceeds threshold {}, attempting to create cache.", total_input_tokens, CACHE_TOKEN_THRESHOLD);
-
-                // Cache system prompt + all messages except the last one
-                let num_to_cache = all_gemini_contents.len() - 1;
-                let contents_to_cache = all_gemini_contents[..num_to_cache].to_vec();
-                let system_to_cache = system_instruction_content.clone();
-
-                match self.create_cached_content(contents_to_cache, system_to_cache).await {
-                    Ok((new_cache_name, _num_cached, creation_usage)) => {
-                        bprintln!(dev: "Gemini Cache: Successfully created cache: {}", new_cache_name);
-                        cached_content_name = Some(new_cache_name);
-                        cache_creation_tokens = creation_usage.cache_creation_input_tokens; // Store creation tokens
-                        // Prepare request to use the cache: only send the last message
-                        request_contents = vec![all_gemini_contents.last().unwrap().clone()];
-                        request_system_instruction = None; // System prompt is in the cache
-                        // Cache info (name, count) was already stored in create_cached_content
-                    }
-                    Err(e) => {
-                        bprintln!(warn: "Gemini Cache: Failed to create CachedContent: {}. Proceeding without cache.", e);
-                        // Invalidate cache info if creation failed
-                         *self.last_cache_info.lock().unwrap() = None;
-                        // Fallback: request_contents and request_system_instruction remain the full set
-                    }
-                }
-            } else {
-                 bprintln!(dev: "Gemini Cache: Token count {} is below threshold {} or too few messages, skipping cache creation.", total_input_tokens, CACHE_TOKEN_THRESHOLD);
-                 // Invalidate cache if below threshold
-                 *self.last_cache_info.lock().unwrap() = None;
-                 // Use full content, no cache name
-                 cached_content_name = None;
-            }
-        }
-        // --- End Caching Logic ---
-
-
-        // Default max tokens if not provided - Increased to 8k
-        let default_max_tokens = 8192; // Increased default
+        // Default max tokens if not provided - Increased to 16k for Gemini 1.5 Pro+
+        let default_max_tokens = 16384; // 16k default
         let tokens = max_tokens.unwrap_or(default_max_tokens);
 
         let generation_config = GeminiGenerationConfig {
@@ -578,7 +424,7 @@ impl Backend for GeminiBackend {
             system_instruction: request_system_instruction, // Potentially modified system instruction
             generation_config: Some(generation_config),
             safety_settings: None,
-            cached_content: cached_content_name, // Add the cache name if using cache
+            cached_content: None,
         };
 
         // Construct the API endpoint URL
@@ -649,7 +495,7 @@ impl Backend for GeminiBackend {
                 .cached_content_token_count // Tokens read from the cache
                 .unwrap_or(0) as usize,
             // Use the value captured during cache creation, or 0 if no cache was created in this step
-            cache_creation_input_tokens: cache_creation_tokens,
+            cache_creation_input_tokens: 0,
         };
 
         let finish_reason = candidate
