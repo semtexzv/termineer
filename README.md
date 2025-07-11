@@ -242,6 +242,22 @@ In non-interactive mode, it sends a single message and returns the response with
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+### Releasing a New Version
+
+To create a new release, use the `release.sh` script:
+
+```bash
+./release.sh
+```
+
+This will automatically increment the patch version, update the necessary files, and push a new git tag to trigger the release workflow.
+
+To specify a version, use the `-v` flag:
+
+```bash
+./release.sh -v 0.3.0
+```
+
 ## License
 
 MIT
