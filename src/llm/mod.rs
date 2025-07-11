@@ -12,6 +12,7 @@ pub mod factory;
 pub mod gemini;
 pub mod grok;
 pub mod openrouter;
+pub mod openai; // Add openai module
 pub mod retry_utils;
 mod types;
 

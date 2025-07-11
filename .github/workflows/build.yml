@@ -57,6 +57,12 @@ jobs:
         with:
           targets: ${{ matrix.target.rust_target }}
 
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
       # Run tests before building
       - name: Run tests
         if: matrix.target.name == 'linux-x64'  # Only run tests once

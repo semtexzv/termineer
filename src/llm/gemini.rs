@@ -57,6 +57,25 @@ struct GeminiRequest {
     /// The name of the cached content to use (e.g., "cachedContents/xxxxxxxx")
     #[serde(skip_serializing_if = "Option::is_none", rename = "cachedContent")]
     cached_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<GeminiTool>>, // Add tools field
+}
+
+// Define structures for the 'tools' field based on Gemini API docs
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GeminiTool {
+    // We only need the grounding tool for now
+    #[serde(skip_serializing_if = "Option::is_none")]
+    google_search: Option<GoogleSearch>,
+    // function_declarations field would go here if defining custom functions
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GoogleSearch {
+    // Empty struct signifies enabling the tool with default behavior
+    // We can add disable_attribution later if needed
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq)] // Added Clone and PartialEq
@@ -286,32 +305,6 @@ impl GeminiBackend {
             .await
     }
 
-    /// Count tokens for the given messages and system prompt.
-    async fn count_tokens(
-        &self,
-        contents: &[GeminiContent],
-        system_instruction: Option<&GeminiContent>,
-    ) -> Result<usize, LlmError> {
-        let request = GeminiRequest {
-            contents: contents.to_vec(),
-            system_instruction: None,
-            generation_config: None,
-            safety_settings: None,
-            cached_content: None,
-        };
-
-        let api_url = format!(
-            "{}/models/{}:countTokens?key={}",
-            API_BASE_URL, self.model_name, self.api_key
-        );
-
-        let response: GeminiCountTokensResponse = self
-            .send_api_request(&api_url, serde_json::to_value(request).unwrap())
-            .await?;
-
-        Ok(response.total_tokens.unwrap_or(0) as usize)
-    }
-
     /// Create a CachedContent resource on the Gemini API.
     async fn create_cached_content(
         &self,
@@ -425,6 +418,11 @@ impl Backend for GeminiBackend {
             generation_config: Some(generation_config),
             safety_settings: None,
             cached_content: None,
+            // Enable Google Search grounding tool
+            tools: Some(vec![GeminiTool {
+                google_search: Some(GoogleSearch {}),
+                // function_declarations: None, // No custom functions needed for search
+            }]),
         };
 
         // Construct the API endpoint URL

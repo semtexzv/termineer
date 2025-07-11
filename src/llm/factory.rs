@@ -8,6 +8,7 @@ use crate::llm::anthropic::Anthropic;
 use crate::llm::cohere::CohereBackend;
 use crate::llm::deepseek::DeepSeekBackend;
 use crate::llm::grok::GrokBackend;
+use crate::llm::openai::OpenAIBackend; // Import OpenAIBackend
 use crate::llm::openrouter::OpenRouterBackend;
 use crate::llm::{Backend, LlmError};
 use std::env;
@@ -31,6 +32,12 @@ pub enum Provider {
     Grok,
     /// Unknown provider
     Unknown(String),
+}
+
+/// Resolve OpenAI API key from environment variables
+fn resolve_openai_api_key() -> Result<String, LlmError> {
+    env::var("OPENAI_API_KEY")
+        .map_err(|_| LlmError::ConfigError("OPENAI_API_KEY environment variable not set".into()))
 }
 
 /// Model information after parsing
@@ -68,7 +75,7 @@ fn parse_model_string(model_str: &str) -> ModelInfo {
         // Extract provider and model for non-OpenRouter providers
         let provider_type = match provider.trim().to_lowercase().as_str() {
             "anthropic" => Provider::Anthropic,
-            "openai" => Provider::OpenAI,
+            "openai" => Provider::OpenAI, // Handle explicit openai/ prefix
             "google" => Provider::Google,
             "deepseek" => Provider::DeepSeek,
             "cohere" => Provider::Cohere,
@@ -115,6 +122,10 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
         Provider::Anthropic => {
             let api_key = resolve_anthropic_api_key()?;
             Ok(Box::new(Anthropic::new(api_key, model_info.model_name)))
+        }
+        Provider::OpenAI => { // Add OpenAI provider case
+            let api_key = resolve_openai_api_key()?;
+            Ok(Box::new(OpenAIBackend::new(api_key, model_info.model_name)))
         }
         Provider::Google => {
             let api_key = resolve_google_api_key()?;
@@ -170,11 +181,12 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
                 "{}. Currently supporting these providers:\n\
                  - Anthropic models: 'claude-3-opus', 'claude-3-sonnet', etc.\n\
                  - Google models: 'gemini-1.5-pro', 'gemini-1.0-pro', etc.\n\
+                 - OpenAI models: 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', etc.\n\
                  - DeepSeek models: 'deepseek-chat', 'deepseek-reasoner'\n\
                  - Cohere models: 'command-r', 'command-r-plus', 'command-light', etc.\n\
                  - Grok models: 'grok-2-1212', 'grok-beta'\n\
                  - OpenRouter: 'openrouter/openai/gpt-4o', 'openrouter/anthropic/claude-3-opus', etc.\n\
-                 - Explicit provider format: 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'grok/grok-2-1212'",
+                 - Explicit provider format: 'openai/gpt-4o', 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'grok/grok-2-1212'",
                 provider_msg
             )))
         }

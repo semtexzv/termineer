@@ -5,6 +5,8 @@
 
 use crate::serde::element_array;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue; // Import JsonValue
+use std::collections::HashMap; // Import HashMap
 
 /// Response from an LLM provider
 #[derive(Debug, Clone, PartialEq)] // Added Clone and PartialEq
@@ -142,4 +144,5 @@ pub enum Content {
 
     /// Document content
     Document { source: String },
+
 }
