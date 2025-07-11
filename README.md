@@ -242,6 +242,18 @@ In non-interactive mode, it sends a single message and returns the response with
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+### Git Hooks (Recommended)
+
+This repository includes a `pre-push` Git hook that automatically runs all tests before you can push your changes. This helps ensure that broken code is not accidentally pushed to the repository.
+
+**To install the hook**, run the following command from the root of the repository:
+
+```bash
+ln -s -f ../../scripts/pre-push .git/hooks/pre-push
+```
+
+This creates a symbolic link from your local Git hooks directory to the version-controlled script.
+
 ### Releasing a New Version
 
 To create a new release, use the `release.sh` script:

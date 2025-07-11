@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# This pre-push hook runs tests before allowing a push to the remote.
+# This ensures that code pushed to the repository has passed all local tests.
+#
+# To install this hook, run the following command from the root of the repository:
+# ln -s -f ../../scripts/pre-push .git/hooks/pre-push
+
+echo "Running pre-push hook: Executing tests..."
+
+# Run the tests. If they fail, the script will exit with a non-zero status,
+# which will prevent the push.
+cargo test --all
+
+# If the tests pass, the script will exit with a zero status, and the push will proceed.
+echo "Tests passed. Proceeding with push."
