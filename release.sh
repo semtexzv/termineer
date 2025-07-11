@@ -84,8 +84,12 @@ git commit -m "Bump version to $NEW_VERSION for release"
 
 # Create tag with -npm suffix to trigger NPM release
 TAG_NAME="v$NEW_VERSION-npm"
-echo "Creating and pushing tag: $TAG_NAME"
+echo "Creating tag: $TAG_NAME"
 git tag "$TAG_NAME"
+
+# Push commit and tag
+echo "Pushing commit and tag to origin"
+git push origin master
 git push origin "$TAG_NAME"
 
 echo "Release process initiated for version $NEW_VERSION"
