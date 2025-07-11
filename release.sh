@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Check for a clean working directory
+if ! git diff-index --quiet HEAD --; then
+  echo "Working directory is not clean. Please commit or stash your changes."
+  exit 1
+fi
+
 # Default behavior: increment patch version if no version specified
 NEW_VERSION=""
 
