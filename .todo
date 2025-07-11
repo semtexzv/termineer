@@ -25,5 +25,22 @@ Use bevy to create a simple GUI.
 - Something like renaming the variant as Input, and then having flag to mark input from user vs the orchestrator
 - field named Source, and enum InputSource.
 
-# Modify system template generation so that the first user query can be included.
+# Modify system template generation so that the first user query can be inlcuded.
 # Lazily generate system prompt when first query arrives
+
+# Release Process
+- [ ] **Automate NPM Release Notes:**
+  **Goal:** Automatically generate release notes from Git history and embed them in the `README.md` so they are visible on npmjs.com. This process should be fully integrated into the existing `release.sh` script.
+
+  **Phase 1: One-Time Setup**
+  - [ ] **Install `git-cliff`:** The release script should check for `git-cliff`. If not present, it should guide the user to install it with `cargo install git-cliff`.
+  - [ ] **Create `cliff.toml` Configuration:** Generate a `cliff.toml` file to define the template for the release notes. This will be configured to group commits by type (e.g., "Features", "Fixes", "CI").
+  - [ ] **Create a Canonical `CHANGELOG.md`:** Generate a full changelog for all existing versions and save it to a new `CHANGELOG.md` file. This file will serve as the complete history.
+  - [ ] **Prepare `README.md`:** Add a special marker, like `<!-- LATEST_CHANGELOG -->`, to the `README.md` where the script will inject the latest release notes.
+
+  **Phase 2: Integrate with `release.sh`**
+  - [ ] **Update `release.sh` to Check for `git-cliff`:** Add a check at the start of the script to ensure the tool is available.
+  - [ ] **Update `release.sh` to Generate Release Notes:** Before committing, the script should run `git-cliff` to generate notes for the new version (from the last tag to `HEAD`).
+  - [ ] **Update `release.sh` to Update `CHANGELOG.md`:** The new notes should be prepended to the main `CHANGELOG.md` file.
+  - [ ] **Update `release.sh` to Update `README.md`:** The script should replace the `<!-- LATEST_CHANGELOG -->` marker in the `README.md` with the new notes.
+  - [ ] **Update `release.sh` to Commit All Changes:** The `git commit` step should be modified to include `CHANGELOG.md` and the updated `README.md`.
