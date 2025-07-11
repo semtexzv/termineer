@@ -6,11 +6,17 @@
 # To install this hook, run the following command from the root of the repository:
 # ln -s -f ../../scripts/pre-push .git/hooks/pre-push
 
-echo "Running pre-push hook: Executing tests..."
+echo "Running pre-push hook: Executing linter and tests..."
+
+# Run the linter. If it fails, the script will exit with a non-zero status,
+# which will prevent the push.
+echo "Running linter..."
+cargo clippy -- -D warnings
 
 # Run the tests. If they fail, the script will exit with a non-zero status,
 # which will prevent the push.
+echo "Running tests..."
 cargo test --all
 
 # If the tests pass, the script will exit with a zero status, and the push will proceed.
-echo "Tests passed. Proceeding with push."
+echo "Linter and tests passed. Proceeding with push."
