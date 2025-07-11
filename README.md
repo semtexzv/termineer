@@ -254,6 +254,10 @@ ln -s -f ../../scripts/pre-push .git/hooks/pre-push
 
 This creates a symbolic link from your local Git hooks directory to the version-controlled script.
 
+### Viewing Release Notes
+
+Since this is a private repository, release notes are available on the [GitHub Releases](https://github.com/semtexzv/termineer/releases) page for authenticated users with access.
+
 ### Releasing a New Version
 
 To create a new release, use the `release.sh` script:
