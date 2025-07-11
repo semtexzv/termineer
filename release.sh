@@ -76,16 +76,9 @@ if grep -q "$CURRENT_VERSION" README.md 2>/dev/null; then
   rm README.md.bak
 fi
 
-# Update version in .termineer/info if it exists
-if grep -q "$CURRENT_VERSION" .termineer/info 2>/dev/null; then
-  echo "Updating version in .termineer/info"
-  sed -i.bak "s/$CURRENT_VERSION/$NEW_VERSION/g" .termineer/info
-  rm .termineer/info.bak
-fi
-
 # Commit changes
 echo "Committing changes"
-git add Cargo.toml README.md .termineer/info 2>/dev/null || true
+git add Cargo.toml README.md 2>/dev/null || true
 git commit -m "Bump version to $NEW_VERSION for release"
 
 # Create tag with -npm suffix to trigger NPM release
