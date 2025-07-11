@@ -38,6 +38,10 @@ license = "MIT"
 [features]
 default = []
 
+[profile.test]
+opt-level = 3
+debug = true
+
 [profile.dev.package."*"]
 opt-level = 3
 
