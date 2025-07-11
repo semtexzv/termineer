@@ -25,7 +25,7 @@ fn extract_template_description(file_path: &Path) -> Option<String> {
     let reader = BufReader::new(file);
 
     // Look for the first line that starts with "{{!"
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
         let trimmed = line.trim();
         if trimmed.starts_with("{{!") {
             // Extract the description part (after the dash)
@@ -202,7 +202,7 @@ fn generate_encrypted_prompts_module(
     // Add standard agent kinds with aligned descriptions
     kinds_content.push_str("Standard agent kinds:\n");
     for template in &standard_templates {
-        let full_path = format!("kind/{}", template);
+        let full_path = format!("kind/{template}");
         let description = descriptions
             .get(&full_path)
             .map(|desc| desc.to_string())
@@ -210,13 +210,13 @@ fn generate_encrypted_prompts_module(
 
         // Calculate spaces needed for alignment
         let spaces = " ".repeat(column_width - template.len());
-        kinds_content.push_str(&format!("- {}{}  │  {}\n", template, spaces, description));
+        kinds_content.push_str(&format!("- {template}{spaces}  │  {description}\n"));
     }
 
     // Add plus agent kinds with aligned descriptions
     kinds_content.push_str("\nPlus agent kinds:\n");
     for template in &plus_templates {
-        let full_path = format!("kind/plus/{}", template);
+        let full_path = format!("kind/plus/{template}");
         let description = descriptions
             .get(&full_path)
             .map(|desc| desc.to_string())
@@ -224,7 +224,7 @@ fn generate_encrypted_prompts_module(
 
         // Calculate spaces needed for alignment
         let spaces = " ".repeat(column_width - template.len());
-        kinds_content.push_str(&format!("- {}{}  │  {}\n", template, spaces, description));
+        kinds_content.push_str(&format!("- {template}{spaces}  │  {description}\n"));
     }
 
     // Create a TokenStream for encrypted files array entries
@@ -232,7 +232,7 @@ fn generate_encrypted_prompts_module(
     for (path, dest_path) in encrypted_files {
         let path_str = path.clone();
         let include_path = dest_path.to_string_lossy().replace('\\', "/");
-        let include_expr = format!("include_bytes!(r#\"{}\"#)", include_path);
+        let include_expr = format!("include_bytes!(r#\"{include_path}\"#)");
         let include_tokens: TokenStream = include_expr.parse().unwrap();
 
         encrypted_files_tokens.push(quote! {
@@ -343,7 +343,7 @@ fn generate_encrypted_prompts_module(
 
     // Write the generated code to the output file
     let mut output_file = File::create(&output_path).unwrap();
-    write!(output_file, "{}", module).unwrap();
+    write!(output_file, "{module}").unwrap();
 
     println!(
         "cargo:warning=Generated encrypted prompts module with {} kinds at: {}",
