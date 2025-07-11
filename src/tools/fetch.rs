@@ -97,17 +97,12 @@ fn extract_text_with_scraper(html: &str) -> String {
     let mut last_char_was_newline = true; // Start as true to prevent leading newline
 
     for line in result.lines() {
-        let trimmed_line = line.trim();
-        if !trimmed_line.is_empty() {
-            if !last_char_was_newline {
+        let processed_line: String = line.split_whitespace().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
+        if !processed_line.is_empty() {
+            if !cleaned.is_empty() {
                 cleaned.push('\n');
             }
-            cleaned.push_str(trimmed_line);
-            last_char_was_newline = false;
-        } else if !last_char_was_newline {
-            // Allow at most one empty line (which becomes a single newline)
-            cleaned.push('\n');
-            last_char_was_newline = true;
+            cleaned.push_str(&processed_line);
         }
     }
     // Ensure no trailing newline if the original didn't end with significant content
