@@ -71,7 +71,7 @@ impl SharedBuffer {
                 queue.push_back(line);
                 Ok(())
             }
-            Err(e) => Err(format!("Failed to lock buffer queue: {}", e)),
+            Err(e) => Err(format!("Failed to lock buffer queue: {e}")),
         }
     }
 
@@ -81,7 +81,7 @@ impl SharedBuffer {
         match self.queue.lock() {
             Ok(mut queue) => queue.pop_front(),
             Err(e) => {
-                eprintln!("Failed to lock buffer queue: {}", e);
+                eprintln!("Failed to lock buffer queue: {e}");
                 None
             }
         }

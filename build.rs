@@ -313,26 +313,26 @@ fn generate_encrypted_prompts_module(
             if sections.len() > 0 {
                 result.push_str(sections[0]);
                 result.push_str("\n");
-            }
-
-            // Include Plus kinds for Plus and Pro modes (second section)
-            if sections.len() > 1 {
-                match mode {
-                    crate::config::AppMode::Plus | crate::config::AppMode::Pro => {
-                        result.push_str("\n");
-                        result.push_str(sections[1]);
-                        result.push_str("\n");
-                    },
-                    _ => {}
-                }
-            }
-
-            // Include Pro kinds only for Pro mode (third section if it exists)
-            if sections.len() > 2 {
-                if let crate::config::AppMode::Pro = mode {
-                    result.push_str("\n");
-                    result.push_str(sections[2]);
-                    result.push_str("\n");
+                
+                // Include Plus kinds for Plus and Pro modes (second section)
+                if sections.len() > 1 {
+                    match mode {
+                        crate::config::AppMode::Plus | crate::config::AppMode::Pro => {
+                            result.push_str("\n");
+                            result.push_str(sections[1]);
+                            result.push_str("\n");
+                        },
+                        _ => {}
+                    }
+                    
+                    // Include Pro kinds only for Pro mode (third section if it exists)
+                    if sections.len() > 2 {
+                        if let crate::config::AppMode::Pro = mode {
+                            result.push_str("\n");
+                            result.push_str(sections[2]);
+                            result.push_str("\n");
+                        }
+                    }
                 }
             }
 

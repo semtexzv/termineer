@@ -77,10 +77,10 @@ impl UIElement {
         let result = writer.into_inner().into_inner();
 
         let xml_string =
-            String::from_utf8(result).map_err(|e| format!("XML encoding error: {}", e))?;
+            String::from_utf8(result).map_err(|e| format!("XML encoding error: {e}"))?;
 
         // Log the XML string for debugging
-        crate::bprintln!(dev: "🖥️ STRUCTURE: Generated XML for UIWindow:\n{}", xml_string);
+        crate::bprintln!(dev: "🖥️ STRUCTURE: Generated XML for UIWindow:\n{xml_string}");
 
         Ok(xml_string)
     }
@@ -126,45 +126,45 @@ impl UIElement {
         // Write element start
         writer
             .write_event(Event::Start(elem))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         // Write title if present
         if let Some(title) = &self.title {
             writer
                 .write_event(Event::Start(BytesStart::new("title")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::Text(BytesText::new(title)))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::End(BytesEnd::new("title")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
         }
 
         // Write description if present
         if let Some(desc) = &self.description {
             writer
                 .write_event(Event::Start(BytesStart::new("description")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::Text(BytesText::new(desc)))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::End(BytesEnd::new("description")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
         }
 
         // Write value if present
         if let Some(val) = &self.value {
             writer
                 .write_event(Event::Start(BytesStart::new("value")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::Text(BytesText::new(val)))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::End(BytesEnd::new("value")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
         }
 
         // Write additional attributes
@@ -174,13 +174,13 @@ impl UIElement {
 
             writer
                 .write_event(Event::Start(attr_elem))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::Text(BytesText::new(value)))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
             writer
                 .write_event(Event::End(BytesEnd::new("attribute")))
-                .map_err(|e| format!("XML write error: {}", e))?;
+                .map_err(|e| format!("XML write error: {e}"))?;
         }
 
         // Write children recursively
@@ -191,7 +191,7 @@ impl UIElement {
         // Close element
         writer
             .write_event(Event::End(BytesEnd::new("UIElement")))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         Ok(())
     }
@@ -228,12 +228,12 @@ impl UIWindow {
                 Some("UTF-8"),
                 None,
             )))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         // Root element
         writer
             .write_event(Event::Start(BytesStart::new("UITree")))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         // Window information
         let mut window_elem = BytesStart::new("Window");
@@ -246,7 +246,7 @@ impl UIWindow {
 
         writer
             .write_event(Event::Start(window_elem))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         // UI tree if available
         if let Some(tree) = &self.ui_tree {
@@ -256,22 +256,22 @@ impl UIWindow {
         // Close window element
         writer
             .write_event(Event::End(BytesEnd::new("Window")))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         // Close root element
         writer
             .write_event(Event::End(BytesEnd::new("UITree")))
-            .map_err(|e| format!("XML write error: {}", e))?;
+            .map_err(|e| format!("XML write error: {e}"))?;
 
         let result = writer.into_inner().into_inner();
         let raw_xml =
-            String::from_utf8(result).map_err(|e| format!("XML encoding error: {}", e))?;
+            String::from_utf8(result).map_err(|e| format!("XML encoding error: {e}"))?;
 
         // Format the XML with proper indentation
         let formatted_xml = Self::format_xml_string(&raw_xml)?;
 
         // Log the formatted XML string for debugging
-        crate::bprintln!(dev: "🖥️ STRUCTURE: Generated XML for UIWindow:\n{}", formatted_xml);
+        crate::bprintln!(dev: "🖥️ STRUCTURE: Generated XML for UIWindow:\n{formatted_xml}");
 
         Ok(formatted_xml)
     }

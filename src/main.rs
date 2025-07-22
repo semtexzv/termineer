@@ -78,7 +78,7 @@ pub async fn get_mcp_tools_info() -> HashMap<String, Vec<(String, String)>> {
 async fn initialize_and_log_mcp() {
     // Initialize MCP connections from config (silent mode = true)
     if let Err(e) = crate::mcp::config::initialize_mcp_from_config(true).await {
-        bprintln!(error: "Failed to initialize MCP connections: {}", e);
+        bprintln!(error: "Failed to initialize MCP connections: {e}");
         // Continue even if MCP initialization fails
     }
 
@@ -259,11 +259,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                     Err(e) => {
                         // Error during rendering
-                        eprintln!("Error rendering template '{}': {}", template_name, e);
+                        eprintln!("Error rendering template '{template_name}': {e}");
                         // List available templates to help the user
                         eprintln!("\nAvailable templates:");
                         for available in prompts::protected::list_available_templates() {
-                            eprintln!("  - {}", available);
+                            eprintln!("  - {available}");
                         }
                         std::process::exit(1);
                     }
@@ -355,20 +355,20 @@ async fn run_interactive_mode(config: Config) -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     // Use buffer printing for the error
-                    bprintln!(error: "Failed to create main agent: {}", e);
+                    bprintln!(error: "Failed to create main agent: {e}");
 
                     // Also print to stderr for TUI visibility
                     execute!(
                         io::stderr(),
                         SetForegroundColor(Color::Red),
-                        Print(format!("Failed to create main agent: {}", e)),
+                        Print(format!("Failed to create main agent: {e}")),
                         ResetColor,
                         cursor::MoveToNextLine(1)
                     )?;
 
                     Err(Box::new(std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Failed to create main agent: {}", e),
+                        format!("Failed to create main agent: {e}"),
                     ))
                     .into())
                 }
@@ -439,10 +439,10 @@ async fn run_workflow_mode(
                     Ok(id)
                 }
                 Err(e) => {
-                    bprintln!(error: "Failed to create main agent: {}", e);
+                    bprintln!(error: "Failed to create main agent: {e}");
                     Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Failed to create main agent: {}", e),
+                        format!("Failed to create main agent: {e}"),
                     )
                     .into())
                 }
@@ -471,7 +471,7 @@ async fn run_workflow_mode(
                     )
                     .await
                     {
-                        bprintln!(error: "Workflow error: {}", e);
+                        bprintln!(error: "Workflow error: {e}");
                     }
 
                     // Clean up: terminate all agents
@@ -480,7 +480,7 @@ async fn run_workflow_mode(
                     Ok(())
                 }
                 Err(e) => {
-                    bprintln!(error: "Failed to load workflow: {}", e);
+                    bprintln!(error: "Failed to load workflow: {e}");
 
                     // Clean up: terminate all agents
                     agent::terminate_all().await;
@@ -530,14 +530,14 @@ async fn run_single_query_mode(config: Config, query: String) -> anyhow::Result<
                 }
                 Err(e) => {
                     // Use buffer printing for the error
-                    bprintln!(error: "Failed to create main agent: {}", e);
+                    bprintln!(error: "Failed to create main agent: {e}");
 
                     // Also print to stderr for CLI visibility
-                    eprintln!("Failed to create main agent: {}", e);
+                    eprintln!("Failed to create main agent: {e}");
 
                     Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Failed to create main agent: {}", e),
+                        format!("Failed to create main agent: {e}"),
                     )
                     .into())
                 }
@@ -587,7 +587,7 @@ async fn run_single_query_mode(config: Config, query: String) -> anyhow::Result<
         match agent::run_agent_to_completion(main_agent_id, query, Some(timeout_seconds)).await {
             Ok(response) => response,
             Err(e) => {
-                eprintln!("Failed to get response: {}", e);
+                eprintln!("Failed to get response: {e}");
                 String::new()
             }
         };

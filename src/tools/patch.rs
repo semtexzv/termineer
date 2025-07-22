@@ -38,7 +38,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     let validated_path = match crate::tools::path_utils::validate_path(filename) {
         Ok(path) => path,
         Err(e) => {
-            let error_msg = format!("Security error for file '{}': {}", filename, e);
+            let error_msg = format!("Security error for file '{filename}': {e}");
 
             if !silent_mode {
                 // Use buffer-based printing directly
@@ -54,10 +54,10 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Ok(content) => content,
         Err(e) => {
             if !silent_mode {
-                bprintln !(error:"Error reading file '{}': {}", filename, e);
+                bprintln !(error:"Error reading file '{filename}': {e}");
             }
 
-            return ToolResult::error(format!("Error reading file '{}': {}", filename, e));
+            return ToolResult::error(format!("Error reading file '{filename}': {e}"));
         }
     };
 
@@ -66,12 +66,11 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Some(pos) => pos,
         None => {
             if !silent_mode {
-                bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_BEFORE);
+                bprintln !(error:"Missing '{PATCH_DELIMITER_BEFORE}' delimiter in patch");
             }
 
             return ToolResult::error(format!(
-                "Missing '{}' delimiter in patch",
-                PATCH_DELIMITER_BEFORE
+                "Missing '{PATCH_DELIMITER_BEFORE}' delimiter in patch"
             ));
         }
     };
@@ -82,12 +81,11 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Some(pos) => before_delimiter + pos,
         None => {
             if !silent_mode {
-                bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_AFTER);
+                bprintln !(error:"Missing '{PATCH_DELIMITER_AFTER}' delimiter in patch");
             }
 
             return ToolResult::error(format!(
-                "Missing '{}' delimiter in patch",
-                PATCH_DELIMITER_AFTER
+                "Missing '{PATCH_DELIMITER_AFTER}' delimiter in patch"
             ));
         }
     };
@@ -96,12 +94,11 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Some(pos) => after_delimiter + pos,
         None => {
             if !silent_mode {
-                bprintln !(error:"Missing '{}' delimiter in patch", PATCH_DELIMITER_END);
+                bprintln !(error:"Missing '{PATCH_DELIMITER_END}' delimiter in patch");
             }
 
             return ToolResult::error(format!(
-                "Missing '{}' delimiter in patch",
-                PATCH_DELIMITER_END
+                "Missing '{PATCH_DELIMITER_END}' delimiter in patch"
             ));
         }
     };
@@ -126,7 +123,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
         if !silent_mode {
             // Use buffer-based printing
-            bprintln !(error:"{} {:?}", error_msg, patch_content);
+            bprintln !(error:"{error_msg} {patch_content:?}");
         }
 
         return ToolResult::error(error_msg);
@@ -151,12 +148,11 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     if count == 0 {
         if !silent_mode {
             // Use buffer-based printing directly
-            bprintln !(error:"Text to replace not found in the file: '{}'", before_text);
+            bprintln !(error:"Text to replace not found in the file: '{before_text}'");
         }
 
         return ToolResult::error(format!(
-            "Text to replace not found in the file: '{}'",
-            before_text
+            "Text to replace not found in the file: '{before_text}'"
         ));
     }
 
@@ -164,12 +160,11 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
     if count > 1 {
         if !silent_mode {
             // Use buffer-based printing directly
-            bprintln !(error:"Patch failed: Text to replace occurs multiple times ({} occurrences) in the file. Please provide more context to make the patch unique.", count);
+            bprintln !(error:"Patch failed: Text to replace occurs multiple times ({count} occurrences) in the file. Please provide more context to make the patch unique.");
         }
 
         return ToolResult::error(format!(
-            "Ambiguous patch: Text to replace occurs multiple times ({} occurrences) in the file. Please provide more context to make the patch unique.",
-            count
+            "Ambiguous patch: Text to replace occurs multiple times ({count} occurrences) in the file. Please provide more context to make the patch unique."
         ));
     }
 
@@ -194,11 +189,7 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
             let end_line_number = start_line_number + before_text_lines - 1;
 
             let agent_output = format!(
-                "Successfully patched file '{}' at lines {}-{} (replaced {} lines with {} lines)",
-                safe_display_path,
-                start_line_number,
-                end_line_number,
-                before_text_lines,
+                "Successfully patched file '{safe_display_path}' at lines {start_line_number}-{end_line_number} (replaced {before_text_lines} lines with {} lines)",
                 after_text.lines().count()
             );
 
@@ -232,7 +223,8 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                         && lcs.contains(&(i, j))
                     {
                         // Line is unchanged
-                        unchanged_buffer.push(format!("  {}", before_lines[i]));
+                        let line = before_lines[i];
+                        unchanged_buffer.push(format!("  {line}"));
 
                         // If we're not already showing unchanged lines and buffer is too large, trim it
                         if !showing_unchanged && unchanged_buffer.len() > context_lines * 2 {
@@ -263,8 +255,8 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                             || (i < before_lines.len() && !lcs.contains(&(i, j)))
                         {
                             unified_diff.push(format!(
-                                "{}- {}{}",
-                                FORMAT_DIFF_DELETED, before_lines[i], FORMAT_RESET
+                                "{FORMAT_DIFF_DELETED}- {}{FORMAT_RESET}",
+                                before_lines[i]
                             ));
                             i += 1;
                         }
@@ -273,8 +265,8 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
                             || (j < after_lines.len() && !lcs.contains(&(i, j)))
                         {
                             unified_diff.push(format!(
-                                "{}+ {}{}",
-                                FORMAT_DIFF_ADDED, after_lines[j], FORMAT_RESET
+                                "{FORMAT_DIFF_ADDED}+ {}{FORMAT_RESET}",
+                                after_lines[j]
                             ));
                             j += 1;
                         }
@@ -306,18 +298,13 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
 
                 // Create a header for the diff summary
                 let diff_header = format!(
-                    "{}🔄 Patch: {} (-{} lines, +{} lines){}",
-                    FORMAT_BOLD, safe_display_path, removed_lines, added_lines, FORMAT_RESET
+                    "{FORMAT_BOLD}🔄 Patch: {safe_display_path} (-{removed_lines} lines, +{added_lines} lines){FORMAT_RESET}"
                 );
 
                 // Add line information to the diff header
                 let line_info = format!(
-                    "{}@@ Lines {}-{} modified (file has {} lines total) @@{}",
-                    FORMAT_BOLD,
-                    start_line_number,
-                    end_line_number,
-                    file_content.lines().count(),
-                    FORMAT_RESET
+                    "{FORMAT_BOLD}@@ Lines {start_line_number}-{end_line_number} modified (file has {} lines total) @@{FORMAT_RESET}",
+                    file_content.lines().count()
                 );
 
                 // Combine all diff lines into a string
@@ -332,10 +319,10 @@ pub async fn execute_patch(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Err(e) => {
             if !silent_mode {
                 // Use buffer-based printing directly
-                bprintln !(error:"Error writing patched file '{}': {}", filename, e);
+                bprintln !(error:"Error writing patched file '{filename}': {e}");
             }
 
-            ToolResult::error(format!("Error writing patched file '{}': {}", filename, e))
+            ToolResult::error(format!("Error writing patched file '{filename}': {e}"))
         }
     }
 }

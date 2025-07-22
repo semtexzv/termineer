@@ -164,21 +164,17 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
                 site_name,
             )))
         }
-        Provider::OpenAI => Err(LlmError::ConfigError(
-            "OpenAI provider is not implemented in this version".into(),
-        )),
         Provider::Unknown(provider) => {
             let provider_msg = if provider.is_empty() {
-                format!("Unknown model '{}'. Cannot determine provider.", model_str)
+                format!("Unknown model '{model_str}'. Cannot determine provider.")
             } else {
                 format!(
-                    "Unknown provider '{}' specified in '{}'",
-                    provider, model_str
+                    "Unknown provider '{provider}' specified in '{model_str}'"
                 )
             };
 
             Err(LlmError::ConfigError(format!(
-                "{}. Currently supporting these providers:\n\
+                "{provider_msg}. Currently supporting these providers:\n\
                  - Anthropic models: 'claude-3-opus', 'claude-3-sonnet', etc.\n\
                  - Google models: 'gemini-1.5-pro', 'gemini-1.0-pro', etc.\n\
                  - OpenAI models: 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', etc.\n\
@@ -186,8 +182,7 @@ fn infer_backend_from_model(model_str: &str) -> Result<Box<dyn Backend>, LlmErro
                  - Cohere models: 'command-r', 'command-r-plus', 'command-light', etc.\n\
                  - Grok models: 'grok-2-1212', 'grok-beta'\n\
                  - OpenRouter: 'openrouter/openai/gpt-4o', 'openrouter/anthropic/claude-3-opus', etc.\n\
-                 - Explicit provider format: 'openai/gpt-4o', 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'grok/grok-2-1212'",
-                provider_msg
+                 - Explicit provider format: 'openai/gpt-4o', 'anthropic/claude-3-opus', 'google/gemini-1.5-pro', 'grok/grok-2-1212'"
             )))
         }
     }

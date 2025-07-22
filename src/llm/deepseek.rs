@@ -182,14 +182,14 @@ impl DeepSeekBackend {
         };
 
         // Construct the API URL
-        let api_url = format!("{}{}", API_BASE_URL, endpoint);
+        let api_url = format!("{API_BASE_URL}{endpoint}");
 
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
             self.client
                 .post(&api_url)
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Authorization", format!("Bearer {}", &self.api_key))
                 .json(&request_json)
         };
 

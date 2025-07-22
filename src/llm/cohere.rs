@@ -198,14 +198,14 @@ impl CohereBackend {
         };
 
         // Construct the API URL
-        let url = format!("{}{}", API_BASE_URL, path);
+        let url = format!("{API_BASE_URL}{path}");
 
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
             self.client
                 .post(&url)
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Authorization", format!("Bearer {api_key}", api_key = self.api_key))
                 .json(&request_json)
         };
 

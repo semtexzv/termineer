@@ -11,7 +11,6 @@ use crate::workflow::context::WorkflowError;
 use crate::workflow::loader::list_workflows;
 
 /// Handle the workflow command from the CLI
-
 /// List all available workflows
 #[allow(dead_code)]
 async fn list_available_workflows() -> anyhow::Result<()> {

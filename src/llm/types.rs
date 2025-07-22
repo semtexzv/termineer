@@ -5,8 +5,8 @@
 
 use crate::serde::element_array;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue; // Import JsonValue
-use std::collections::HashMap; // Import HashMap
+ // Import JsonValue
+ // Import HashMap
 
 /// Response from an LLM provider
 #[derive(Debug, Clone, PartialEq)] // Added Clone and PartialEq

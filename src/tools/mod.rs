@@ -440,7 +440,8 @@ pub fn truncate_utf8_content(
         )
     } else {
         // Just use the start and placeholder
-        format!("{}{}", &content[..prefix_boundary], placeholder)
+        let prefix = &content[..prefix_boundary];
+        format!("{prefix}{placeholder}")
     }
 }
 
@@ -475,7 +476,10 @@ mod tests {
         assert!(std::str::from_utf8(truncated_emoji.as_bytes()).is_ok());
 
         // Test mixed content
-        let mixed = format!("{}{}{}", "A".repeat(100), "😀".repeat(100), "Z".repeat(100));
+        let a_part = "A".repeat(100);
+        let emoji_part = "😀".repeat(100);
+        let z_part = "Z".repeat(100);
+        let mixed = format!("{a_part}{emoji_part}{z_part}");
         let truncated_mixed =
             truncate_utf8_content(&mixed, Some(200), Some(50), Some(50), Some("[...]"));
 

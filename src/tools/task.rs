@@ -16,7 +16,7 @@ pub async fn execute_task(
     args: &str,
     body: &str,
     silent_mode: bool,
-    parent_agent_id: Option<AgentId>,
+    _parent_agent_id: Option<AgentId>,
 ) -> ToolResult {
     // Parse arguments to extract task name, kind, and includes
     let (task_name, kind_name, includes) = parse_task_arguments(args);
@@ -49,7 +49,8 @@ pub async fn execute_task(
             task_instructions,
             FORMAT_RESET,
             if !includes.is_empty() {
-                format!("\n{}Including files: {}{}", FORMAT_GRAY, includes.join(", "), FORMAT_RESET)
+                let included_files = includes.join(", ");
+                format!("\n{FORMAT_GRAY}Including files: {included_files}{FORMAT_RESET}")
             } else {
                 String::new()
             }
@@ -84,7 +85,7 @@ pub async fn execute_task(
     config.kind = kind_name;
 
     // Create the subtask agent with a unique name
-    let agent_name = format!("task_{}", task_name);
+    let agent_name = format!("task_{task_name}");
 
     // Make a note of disabled tools for clarity in output
     if !config.disabled_tools.is_empty() && !silent_mode {
@@ -100,7 +101,7 @@ pub async fn execute_task(
     let subtask_agent_id = match crate::agent::create_agent(agent_name, config) {
         Ok(id) => id,
         Err(e) => {
-            let error_msg = format!("Failed to create task agent: {}", e);
+            let error_msg = format!("Failed to create task agent: {e}");
             if !silent_mode {
                 bprintln!(error:"{}", error_msg);
             }
@@ -129,7 +130,7 @@ pub async fn execute_task(
         subtask_agent_id,
         AgentMessage::UserInput(combined_instructions),
     ) {
-        let error_msg = format!("Failed to send task to agent: {}", e);
+        let error_msg = format!("Failed to send task to agent: {e}");
         if !silent_mode {
             bprintln!(error:"{}", error_msg);
         }

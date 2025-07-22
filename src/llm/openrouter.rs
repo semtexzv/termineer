@@ -228,7 +228,7 @@ impl OpenRouterBackend {
                     // Support for image sources
                     match source {
                         crate::llm::ImageSource::Base64 { data, media_type } => {
-                            let base64_url = format!("data:{};base64,{}", media_type, data);
+                            let base64_url = format!("data:{media_type};base64,{data}");
                             let parts = vec![OpenRouterContentPart::ImageUrl {
                                 image_url: OpenRouterImageUrl {
                                     url: base64_url,
@@ -280,7 +280,7 @@ impl OpenRouterBackend {
         };
 
         // Construct the API URL
-        let api_url = format!("{}{}", API_BASE_URL, endpoint);
+        let api_url = format!("{API_BASE_URL}{endpoint}");
 
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
@@ -289,7 +289,7 @@ impl OpenRouterBackend {
                 .client
                 .post(&api_url)
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", self.api_key));
+                .header("Authorization", format!("Bearer {}", &self.api_key));
 
             // Add optional discovery headers if provided
             if let Some(url) = &self.site_url {

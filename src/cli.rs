@@ -106,8 +106,7 @@ fn parse_grammar_type(arg: &str) -> Result<GrammarType, String> {
         "markdown" | "md" => Ok(GrammarType::MarkdownBlocks),
         "auto" | "default" => Err("Use no argument for auto grammar selection".to_string()),
         _ => Err(format!(
-            "Unknown grammar type: {}. Valid options: xml, markdown",
-            arg
+            "Unknown grammar type: {arg}. Valid options: xml, markdown"
         )),
     }
 }

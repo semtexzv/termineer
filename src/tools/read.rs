@@ -70,63 +70,7 @@ pub async fn execute_read(args: &str, _body: &str, silent_mode: bool) -> ToolRes
 
 /// Parse the command arguments into a structured format, handling parameters anywhere.
 fn parse_arguments(args: &str) -> ReadArgs {
-    let mut offset: Option<usize> = None;
-    let mut limit: Option<usize> = None;
-    let mut lines_specified = false;
-    let mut paths = Vec::new();
-
-    let parts: Vec<&str> = args.trim().split_whitespace().collect();
-
-    for part in parts {
-        if part.starts_with("offset=") {
-            if let Some(val_str) = part.strip_prefix("offset=") {
-                if let Ok(val) = val_str.parse::<usize>() {
-                    offset = Some(val);
-                } else {
-                    bprintln!(warn: "Invalid offset value: {}", val_str);
-                }
-            }
-        } else if part.starts_with("limit=") {
-            if let Some(val_str) = part.strip_prefix("limit=") {
-                if let Ok(val) = val_str.parse::<usize>() {
-                    limit = Some(val);
-                } else {
-                    bprintln!(warn: "Invalid limit value: {}", val_str);
-                }
-            }
-        } else if part.starts_with("lines=") {
-            if let Some(range_str) = part.strip_prefix("lines=") {
-                let range_parts: Vec<&str> = range_str.splitn(2, '-').collect();
-                if range_parts.len() == 2 {
-                    if let (Ok(start), Ok(end)) = (range_parts[0].parse::<usize>(), range_parts[1].parse::<usize>()) {
-                        if start >= 1 && end >= start {
-                            // Convert 1-based lines to 0-based offset and limit
-                            offset = Some(start - 1);
-                            limit = Some(end - start + 1);
-                            lines_specified = true;
-                        } else {
-                            bprintln!(warn: "Invalid line range in lines={}: start must be >= 1 and end >= start", range_str);
-                        }
-                    } else {
-                        bprintln!(warn: "Invalid number format in lines={}", range_str);
-                    }
-                } else {
-                    bprintln!(warn: "Invalid format for lines parameter. Use lines=START-END. Got: {}", range_str);
-                }
-            }
-        } else {
-            // Assume it's a path
-            paths.push(part.to_string());
-        }
-    }
-
-    // If lines= was specified, it overrides offset= and limit=
-    // We already set offset and limit based on lines= if it was valid.
-    // No need for explicit override logic here, as the last parsed value wins.
-    // However, if lines_specified is true, we should probably clear offset/limit if they were set *before* lines=
-    // Let's refine: parse lines= first, then offset/limit, but ignore offset/limit if lines_specified is true.
-
-    // Re-parse to prioritize lines=
+    // Parse arguments to prioritize lines= over offset/limit
     let mut final_offset: Option<usize> = None;
     let mut final_limit: Option<usize> = None;
     let mut final_lines_specified = false;
@@ -143,13 +87,13 @@ fn parse_arguments(args: &str) -> ReadArgs {
                             final_limit = Some(end - start + 1);
                             final_lines_specified = true;
                         } else {
-                             bprintln!(warn: "Invalid line range in lines={}: start must be >= 1 and end >= start. Ignoring.", range_str);
+                             bprintln!(warn: "Invalid line range in lines={range_str}: start must be >= 1 and end >= start. Ignoring.");
                         }
                     } else {
-                         bprintln!(warn: "Invalid number format in lines={}. Ignoring.", range_str);
+                         bprintln!(warn: "Invalid number format in lines={range_str}. Ignoring.");
                     }
                 } else {
-                     bprintln!(warn: "Invalid format for lines parameter. Use lines=START-END. Got: {}. Ignoring.", range_str);
+                     bprintln!(warn: "Invalid format for lines parameter. Use lines=START-END. Got: {range_str}. Ignoring.");
                 }
             }
         } else if part.starts_with("offset=") {
@@ -158,7 +102,7 @@ fn parse_arguments(args: &str) -> ReadArgs {
                     if let Ok(val) = val_str.parse::<usize>() {
                         final_offset = Some(val);
                     } else {
-                        bprintln!(warn: "Invalid offset value: {}. Ignoring.", val_str);
+                        bprintln!(warn: "Invalid offset value: {val_str}. Ignoring.");
                     }
                 }
             }
@@ -168,7 +112,7 @@ fn parse_arguments(args: &str) -> ReadArgs {
                     if let Ok(val) = val_str.parse::<usize>() {
                         final_limit = Some(val);
                     } else {
-                        bprintln!(warn: "Invalid limit value: {}. Ignoring.", val_str);
+                        bprintln!(warn: "Invalid limit value: {val_str}. Ignoring.");
                     }
                 }
             }
@@ -208,10 +152,8 @@ async fn read_multiple_files(filepaths: &[String], silent_mode: bool) -> ToolRes
     if !silent_mode {
         // Use buffer-based printing
         bprintln !(tool: "read",
-            "{}📚 Read {} files:{}",
-            FORMAT_BOLD,
-            filepaths.len(),
-            FORMAT_RESET
+            "{FORMAT_BOLD}📚 Read {} files:{FORMAT_RESET}",
+            filepaths.len()
         );
 
         // Optionally, we could print more details about each file here
@@ -237,7 +179,7 @@ async fn read_single_file(
     let validated_path = match crate::tools::path_utils::validate_path(filepath) {
         Ok(path) => path,
         Err(e) => {
-            let error_msg = format!("Security error: '{}': {}", filepath, e);
+            let error_msg = format!("Security error: '{filepath}': {e}");
 
             if !silent_mode {
                 // Use output buffer for error messages
@@ -253,7 +195,7 @@ async fn read_single_file(
 
     // Check if path exists
     if !fs::try_exists(path).await.unwrap_or(false) {
-        let error_msg = format!("Error: Path does not exist: '{}'", filepath);
+        let error_msg = format!("Error: Path does not exist: '{filepath}'");
 
         if !silent_mode {
             // Use output buffer for error messages
@@ -296,7 +238,7 @@ async fn read_file_content(
     let validated_path = match crate::tools::path_utils::validate_path(filepath) {
         Ok(path) => path,
         Err(e) => {
-            let error_msg = format!("Security error for file '{}': {}", filepath, e);
+            let error_msg = format!("Security error for file '{filepath}': {e}");
 
             if !silent_mode {
                 // Use output buffer for error messages
@@ -361,30 +303,21 @@ async fn read_file_content(
             let truncation_notice = if was_truncated {
                 // Suggest the next offset using 1-based line numbers for user clarity
                 let next_offset_suggestion = start_line + MAX_READABLE_LINES; // 0-based offset for the next chunk
-                format!("\n\n{} TRUNCATION NOTICE {}\nFile content was truncated to {} lines maximum.\nTo read additional content, use offset parameter:\n  read offset={} limit=1000 {}\nOr use lines=START-END:\n  read lines={}-{} {}\n", 
+                format!("\n\n{} TRUNCATION NOTICE {}\nFile content was truncated to {MAX_READABLE_LINES} lines maximum.\nTo read additional content, use offset parameter:\n  read offset={next_offset_suggestion} limit=1000 {safe_display_path}\nOr use lines=START-END:\n  read lines={}-{} {safe_display_path}\n", 
                     "=".repeat(15), 
                     "=".repeat(15),
-                    MAX_READABLE_LINES,
-                    next_offset_suggestion, // Use 0-based offset for the parameter
-                    safe_display_path,
                     next_offset_suggestion + 1, // Start line (1-based)
-                    next_offset_suggestion + 1 + MAX_READABLE_LINES.saturating_sub(1), // End line (1-based)
-                    safe_display_path
+                    next_offset_suggestion + 1 + MAX_READABLE_LINES.saturating_sub(1) // End line (1-based)
                 )
             } else {
                 String::new()
             };
 
             let agent_output = format!(
-                "File: {} (lines {}-{} of {}, {} lines read{})\n\n{}\n{}",
-                safe_display_path,
+                "File: {safe_display_path} (lines {}-{} of {total_lines}, {lines_read} lines read{})\n\n{selected_lines}\n{truncation_notice}",
                 start_line + 1,
                 end_line,
-                total_lines,
-                lines_read,
-                if was_truncated { ", truncated" } else { "" },
-                selected_lines,
-                truncation_notice
+                if was_truncated { ", truncated" } else { "" }
             );
 
             // Direct output to console if not in silent mode
@@ -398,73 +331,51 @@ async fn read_file_content(
                         "+ {} lines",
                         end_line.saturating_sub(start_line).saturating_sub(2)
                     )))
-                    .map(|line| format!("{}{}{}", FORMAT_GRAY, line, FORMAT_RESET))
+                    .map(|line| format!("{FORMAT_GRAY}{line}{FORMAT_RESET}"))
                     .collect::<Vec<String>>()
                     .join("\n");
 
                 // Use output buffer for read tool output
                 if !preview_lines.is_empty() {
                     let truncated_mark = if was_truncated {
-                        format!(" {}{}{}", FORMAT_YELLOW, "⚠️ TRUNCATED", FORMAT_RESET)
+                        format!(" {FORMAT_YELLOW}⚠️ TRUNCATED{FORMAT_RESET}")
                     } else {
                         String::new()
                     };
 
                     bprintln !(tool: "read",
-                        "{}📄 Read: {} (lines {}-{} of {} total){}{}{}{}",
-                        FORMAT_BOLD,
-                        safe_display_path,
+                        "{FORMAT_BOLD}📄 Read: {safe_display_path} (lines {}-{} of {total_lines} total){truncated_mark}{FORMAT_RESET}\n{preview_lines}",
                         start_line + 1,
-                        end_line,
-                        total_lines,
-                        truncated_mark,
-                        FORMAT_RESET,
-                        "\n",
-                        preview_lines
+                        end_line
                     );
                 } else {
                     let truncated_mark = if was_truncated {
-                        format!(" {}{}{}", FORMAT_YELLOW, "⚠️ TRUNCATED", FORMAT_RESET)
+                        format!(" {FORMAT_YELLOW}⚠️ TRUNCATED{FORMAT_RESET}")
                     } else {
                         String::new()
                     };
 
                     bprintln !(tool: "read",
-                        "{}📄 Read: {} (lines {}-{} of {} total){}{}",
-                        FORMAT_BOLD,
-                        safe_display_path,
+                        "{FORMAT_BOLD}📄 Read: {safe_display_path} (lines {}-{} of {total_lines} total){truncated_mark}{FORMAT_RESET}",
                         start_line + 1,
-                        end_line,
-                        total_lines,
-                        truncated_mark,
-                        FORMAT_RESET
+                        end_line
                     );
                 }
 
                 // Add detailed truncation notice to console output if needed
                 if was_truncated {
                     bprintln !(tool: "read",
-                        "{}⚠️  File too large: content truncated to {} lines maximum.{}",
-                        FORMAT_YELLOW,
-                        MAX_READABLE_LINES,
-                        FORMAT_RESET
+                        "{FORMAT_YELLOW}⚠️  File too large: content truncated to {MAX_READABLE_LINES} lines maximum.{FORMAT_RESET}"
                     );
                     // Suggest both offset and lines syntax for the next chunk
                     let next_offset_suggestion = start_line + MAX_READABLE_LINES; // 0-based offset
                     bprintln !(tool: "read",
-                        "{}   To read more, use: read offset={} limit=1000 {}{}",
-                        FORMAT_YELLOW,
-                        next_offset_suggestion,
-                        safe_display_path,
-                        FORMAT_RESET
+                        "{FORMAT_YELLOW}   To read more, use: read offset={next_offset_suggestion} limit=1000 {safe_display_path}{FORMAT_RESET}"
                     );
                     bprintln !(tool: "read",
-                        "{}   Or use: read lines={}-{} {}{}",
-                        FORMAT_YELLOW,
+                        "{FORMAT_YELLOW}   Or use: read lines={}-{} {safe_display_path}{FORMAT_RESET}",
                         next_offset_suggestion + 1, // Start line (1-based)
-                        next_offset_suggestion + 1 + MAX_READABLE_LINES.saturating_sub(1), // End line (1-based)
-                        safe_display_path,
-                        FORMAT_RESET
+                        next_offset_suggestion + 1 + MAX_READABLE_LINES.saturating_sub(1) // End line (1-based)
                     );
                 }
             }
@@ -472,7 +383,7 @@ async fn read_file_content(
             ToolResult::success(agent_output)
         }
         Err(e) => {
-            let error_msg = format!("Error reading file '{}': {}", filepath, e);
+            let error_msg = format!("Error reading file '{filepath}': {e}");
 
             if !silent_mode {
                 // Use buffer-based printing
@@ -498,7 +409,7 @@ async fn read_image_file(
     let file_bytes = match fs::read(validated_path).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            let error_msg = format!("Error reading image file '{}': {}", safe_display_path, e);
+            let error_msg = format!("Error reading image file '{safe_display_path}': {e}");
             if !silent_mode {
                 bprintln!(error:"{}", error_msg);
             }
@@ -510,8 +421,7 @@ async fn read_image_file(
     const MAX_IMAGE_SIZE: usize = 1_048_576; // 1MB in bytes
     if file_bytes.len() > MAX_IMAGE_SIZE {
         let error_msg = format!(
-            "Image file '{}' is too large ({} MB). Maximum size is 1MB. Try using a smaller image.",
-            safe_display_path,
+            "Image file '{safe_display_path}' is too large ({} MB). Maximum size is 1MB. Try using a smaller image.",
             file_bytes.len() / 1_048_576
         );
         if !silent_mode {
@@ -535,8 +445,7 @@ async fn read_image_file(
         _ => {
             // If we don't recognize the format, return an error
             let error_msg = format!(
-                "Unsupported image format for file '{}'. Currently only JPEG and PNG formats are supported.",
-                safe_display_path
+                "Unsupported image format for file '{safe_display_path}'. Currently only JPEG and PNG formats are supported."
             );
             if !silent_mode {
                 bprintln!(error:"{}", error_msg);
@@ -564,8 +473,7 @@ async fn read_image_file(
 
             if !silent_mode {
                 bprintln!(tool: "read",
-                    "Resizing image from {}x{} to {}x{}",
-                    width, height, new_width, new_height
+                    "Resizing image from {width}x{height} to {new_width}x{new_height}"
                 );
             }
 
@@ -609,20 +517,14 @@ async fn read_image_file(
 
     // Create agent output with image details
     let agent_output = format!(
-        "Image: {} ({}x{}, {} bytes)",
-        safe_display_path, width, height, file_size
+        "Image: {safe_display_path} ({width}x{height}, {file_size} bytes)"
     );
 
     // Log output for UI
     if !silent_mode {
         bprintln!(tool: "read",
-            "{}🖼️ Read image: {} ({}x{}, {} KB){}",
-            FORMAT_BOLD,
-            safe_display_path,
-            width,
-            height,
-            file_size / 1024,
-            FORMAT_RESET
+            "{FORMAT_BOLD}🖼️ Read image: {safe_display_path} ({width}x{height}, {} KB){FORMAT_RESET}",
+            file_size / 1024
         );
     }
 
@@ -650,7 +552,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
     let validated_path = match crate::tools::path_utils::validate_directory(dirpath) {
         Ok(path) => path,
         Err(e) => {
-            let error_msg = format!("Security error for directory '{}': {}", dirpath, e);
+            let error_msg = format!("Security error for directory '{dirpath}': {e}");
 
             if !silent_mode {
                 // Use output buffer for error messages
@@ -693,30 +595,27 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
 
             // Format output for agent, using safe display path
             let agent_output = format!(
-                "Directory: {} ({} entries)\n\n{}",
-                safe_display_path, entry_count, content
+                "Directory: {safe_display_path} ({entry_count} entries)\n\n{content}"
             );
 
             // Direct output to console if not in silent mode
             if !silent_mode {
                 // Build directory output string directly
                 let mut output = format!(
-                    "{}📁 Directory: {} ({} items){}\n",
-                    FORMAT_BOLD, safe_display_path, entry_count, FORMAT_RESET
+                    "{FORMAT_BOLD}📁 Directory: {safe_display_path} ({entry_count} items){FORMAT_RESET}\n"
                 );
 
                 // Add directories with trailing slash and bold formatting
                 for dir in &dirs {
                     let dir_name = dir.trim_end_matches('/');
                     output.push_str(&format!(
-                        "{}{}{}/{}\n",
-                        FORMAT_BOLD, FORMAT_GRAY, dir_name, FORMAT_RESET
+                        "{FORMAT_BOLD}{FORMAT_GRAY}{dir_name}/{FORMAT_RESET}\n"
                     ));
                 }
 
                 // Add files
                 for file in &files {
-                    output.push_str(&format!("{}{}{}\n", FORMAT_GRAY, file, FORMAT_RESET));
+                    output.push_str(&format!("{FORMAT_GRAY}{file}{FORMAT_RESET}\n"));
                 }
 
                 // Use buffer-based printing
@@ -730,7 +629,7 @@ async fn read_directory(dirpath: &str, silent_mode: bool) -> ToolResult {
             }
         }
         Err(e) => {
-            let error_msg = format!("Error reading directory '{}': {}", safe_display_path, e);
+            let error_msg = format!("Error reading directory '{safe_display_path}': {e}");
 
             if !silent_mode {
                 // Use buffer-based printing

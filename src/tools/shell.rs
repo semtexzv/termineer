@@ -71,7 +71,7 @@ pub async fn execute_shell(
     let command_str = if !body.is_empty() {
         if !command_to_run.is_empty() {
             // Both args and body are provided, combine them
-            format!("{}\n{}", command_to_run, body)
+            format!("{command_to_run}\n{body}")
         } else {
             // Only body is provided
             body.to_string()
@@ -268,8 +268,7 @@ pub async fn execute_shell(
                                 // Process might have already exited
                                 if !main_silent_mode {
                                     bprintln !(tool: "shell",
-                                        "Note: Could not kill process (it may have already exited): {}",
-                                        e
+                                        "Note: Could not kill process (it may have already exited): {e}"
                                     );
                                 }
                             }
@@ -299,7 +298,7 @@ pub async fn execute_shell(
                     let _ = main_sender
                         .send(ShellOutput::Complete(ToolResult::default(
                             false,
-                            format!("Error monitoring process status: {}", e),
+                            format!("Error monitoring process status: {e}"),
                         )))
                         .await;
                     return;
@@ -324,13 +323,12 @@ pub async fn execute_shell(
         // Combined output
         let agent_output = if was_interrupted {
             format!(
-                "Command '{}' was interrupted: {}.",
-                main_command_str, interrupt_reason,
+                "Command '{main_command_str}' was interrupted: {interrupt_reason}.",
             )
         } else if success {
-            format!("Command '{}' finished with success", main_command_str)
+            format!("Command '{main_command_str}' finished with success")
         } else {
-            format!("Command '{}' finished with error", main_command_str)
+            format!("Command '{main_command_str}' finished with error")
         };
 
         // Log execution time

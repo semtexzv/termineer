@@ -128,7 +128,7 @@ pub async fn execute_dynamic_mcp_tool(
     match provider.get_tool_content(tool_name, arguments).await {
         Ok(contents) => {
             // Create a preview of the content
-            let preview = if !contents.is_empty() {
+            let _preview = if !contents.is_empty() {
                 let mut preview_text = format!("Received {} content objects", contents.len());
                 let mut items_previewed = 0;
 
@@ -141,14 +141,15 @@ pub async fn execute_dynamic_mcp_tool(
                         // Preview first few lines of text
                         let lines: Vec<&str> = text.text.lines().take(5).collect();
                         if !lines.is_empty() {
-                            preview_text.push_str(&format!("\n{}", lines.join("\n")));
+                            let joined_lines = lines.join("\n");
+                            preview_text.push_str(&format!("\n{joined_lines}"));
 
                             // Indicate if we truncated
                             let line_count = text.text.lines().count();
                             if line_count > 5 {
+                                let remaining_lines = line_count - 5;
                                 preview_text.push_str(&format!(
-                                    "\n[...truncated, {} more lines]",
-                                    line_count - 5
+                                    "\n[...truncated, {remaining_lines} more lines]"
                                 ));
                             }
                             items_previewed += 1;

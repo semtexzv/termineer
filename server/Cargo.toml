@@ -4,6 +4,9 @@ version = "0.2.12"
 edition = "2021"
 description = "Simple server for Termineer"
 
+[lints]
+workspace = true
+
 [dependencies]
 # Web framework
 axum = { version = "0.7.4", features = ["macros"] }

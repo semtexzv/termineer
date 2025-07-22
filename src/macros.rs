@@ -44,7 +44,7 @@ macro_rules! bprintln {
                               $crate::constants::FORMAT_RESET,
                               format!($($arg)*));
         let _ = CURRENT_BUFFER.with(|buffer| {
-            buffer.stdout(format!("{}\n", message))
+            buffer.stdout(format!("{message}\n"))
         });
     }};
 
@@ -56,7 +56,7 @@ macro_rules! bprintln {
                               $crate::constants::FORMAT_RESET,
                               format!($($arg)*));
         let _ = CURRENT_BUFFER.with(|buffer| {
-            buffer.stdout(format!("{}\n", message))
+            buffer.stdout(format!("{message}\n"))
         });
     }};
 
@@ -68,7 +68,7 @@ macro_rules! bprintln {
                               $crate::constants::FORMAT_RESET,
                               format!($($arg)*));
         let _ = CURRENT_BUFFER.with(|buffer| {
-            buffer.stderr(format!("{}\n", message))
+            buffer.stderr(format!("{message}\n"))
         });
     }};
 
@@ -82,7 +82,7 @@ macro_rules! bprintln {
                                 $crate::constants::FORMAT_RESET,
                                 format!($($arg)*));
             let _ = CURRENT_BUFFER.with(|buffer| {
-                buffer.stdout(format!("{}\n", message))
+                buffer.stdout(format!("{message}\n"))
             });
         }
         // In release builds, this is a no-op
@@ -102,7 +102,7 @@ macro_rules! bprintln {
                                 $crate::constants::FORMAT_RESET,
                                 format!($($arg)*));
             let _ = CURRENT_BUFFER.with(|buffer| {
-                buffer.stdout(format!("{}\n", message))
+                buffer.stdout(format!("{message}\n"))
             });
         }
         // In release builds, this is a no-op
@@ -127,7 +127,7 @@ macro_rules! bprintln {
         use $crate::output::CURRENT_BUFFER;
         let message = format!($($arg)*);
         let _ = CURRENT_BUFFER.with(|buffer| {
-            buffer.stdout(format!("{}\n", message))
+            buffer.stdout(format!("{message}\n"))
         });
     }};
 }

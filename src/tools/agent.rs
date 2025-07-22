@@ -125,7 +125,7 @@ async fn execute_create_subcommand(args: &str, body: &str, silent_mode: bool) ->
     let agent_id = match crate::agent::create_agent(agent_name.clone(), config) {
         Ok(id) => id,
         Err(e) => {
-            let error_msg = format!("Failed to create agent: {}", e);
+            let error_msg = format!("Failed to create agent: {e}");
             if !silent_mode {
                 bprintln !(error:"{}", error_msg);
             }
@@ -150,7 +150,7 @@ async fn execute_create_subcommand(args: &str, body: &str, silent_mode: bool) ->
             }
         }
         Err(e) => {
-            let error_msg = format!("Failed to send instructions to new agent: {}", e);
+            let error_msg = format!("Failed to send instructions to new agent: {e}");
             if !silent_mode {
                 bprintln !(error:"{}", error_msg);
             }
@@ -238,7 +238,7 @@ async fn execute_send_subcommand(
                 .iter()
                 .find(|(agent_id, _)| *agent_id == id)
                 .map(|(_, name)| name.clone())
-                .unwrap_or_else(|| format!("agent-{}", id));
+                .unwrap_or_else(|| format!("agent-{id}"));
             (name, id.to_string())
         }
         None => ("unknown_agent".to_string(), "unknown".to_string()),
@@ -263,7 +263,7 @@ async fn execute_send_subcommand(
             }
         }
         Err(e) => {
-            let error_msg = format!("Failed to send message to agent: {}", e);
+            let error_msg = format!("Failed to send message to agent: {e}");
             if !silent_mode {
                 bprintln !(error:"{}", error_msg);
             }

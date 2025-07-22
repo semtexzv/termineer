@@ -40,7 +40,7 @@ pub async fn execute_macos_screendump(args: &str, _body: &str, silent_mode: bool
                 crate::bprintln!("🔍 Listing all windows in XML format...");
             }
             ScreendumpCommand::WindowDetails(id) => {
-                crate::bprintln!("🔍 Capturing XML details for window '{}'...", id);
+                crate::bprintln!("🔍 Capturing XML details for window '{id}'...");
             }
         }
     }
@@ -91,7 +91,7 @@ pub async fn execute_macos_screendump(args: &str, _body: &str, silent_mode: bool
 
                     ToolResult::success(xml_output)
                 }
-                Err(e) => ToolResult::error(format!("Failed to list windows: {}", e)),
+                Err(e) => ToolResult::error(format!("Failed to list windows: {e}")),
             }
         }
         ScreendumpCommand::WindowDetails(id) => {
@@ -106,23 +106,22 @@ pub async fn execute_macos_screendump(args: &str, _body: &str, silent_mode: bool
                 match get_window_by_app_and_index(app_name, window_index) {
                     Ok(Some(window)) => match get_window_details_xml(&window) {
                         Ok(xml) => ToolResult::success(xml),
-                        Err(e) => ToolResult::error(format!("Failed to get window details: {}", e)),
+                        Err(e) => ToolResult::error(format!("Failed to get window details: {e}")),
                     },
-                    Ok(None) => ToolResult::error(format!("Window with ID '{}' not found", id)),
-                    Err(e) => ToolResult::error(format!("Error finding window: {}", e)),
+                    Ok(None) => ToolResult::error(format!("Window with ID '{id}' not found")),
+                    Err(e) => ToolResult::error(format!("Error finding window: {e}")),
                 }
             } else {
                 // Search by window title
                 match find_window_by_title(&id) {
                     Ok(Some(window)) => match get_window_details_xml(&window) {
                         Ok(xml) => ToolResult::success(xml),
-                        Err(e) => ToolResult::error(format!("Failed to get window details: {}", e)),
+                        Err(e) => ToolResult::error(format!("Failed to get window details: {e}")),
                     },
                     Ok(None) => ToolResult::error(format!(
-                        "Window with title containing '{}' not found",
-                        id
+                        "Window with title containing '{id}' not found"
                     )),
-                    Err(e) => ToolResult::error(format!("Error finding window: {}", e)),
+                    Err(e) => ToolResult::error(format!("Error finding window: {e}")),
                 }
             }
         }
@@ -166,7 +165,7 @@ fn get_window_details_xml(window: &MacOSWindow) -> Result<String, String> {
 fn list_all_windows() -> Result<Vec<MacOSWindow>, String> {
     // Get running application PIDs
     let running_pids = get_running_application_pids()
-        .map_err(|e| format!("Failed to get running applications: {}", e))?;
+        .map_err(|e| format!("Failed to get running applications: {e}"))?;
 
     let mut windows = Vec::new();
 
@@ -175,7 +174,10 @@ fn list_all_windows() -> Result<Vec<MacOSWindow>, String> {
         // Create an accessibility element for this application
         let app = AXUIElement::application(*pid);
         let app_name =
-            get_application_name(*pid).unwrap_or_else(|_| format!("App {}", app_idx + 1));
+            get_application_name(*pid).unwrap_or_else(|_| {
+                let idx = app_idx + 1;
+                format!("App {idx}")
+            });
 
         // Try to get the application's windows using the windows() method
         match app.windows() {
@@ -186,7 +188,10 @@ fn list_all_windows() -> Result<Vec<MacOSWindow>, String> {
                     let window_title = window
                         .title()
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|_| format!("Window {}", window_idx + 1));
+                        .unwrap_or_else(|_| {
+                        let idx = window_idx + 1;
+                        format!("Window {idx}")
+                    });
 
                     // Get position
                     let position = get_window_position(&window).unwrap_or((0, 0));
@@ -260,7 +265,7 @@ fn get_application_name(pid: pid_t) -> Result<String, String> {
             }
         }
 
-        Err(format!("Could not find application name for PID {}", pid))
+        Err(format!("Could not find application name for PID {pid}"))
     }
 }
 
@@ -280,7 +285,7 @@ fn get_window_position(window: &AXUIElement) -> Result<(i32, i32), String> {
             Ok((point.x as i32, point.y as i32))
         }
         Err(e) => {
-            let error = format!("Failed to get window position: {}", e);
+            let error = format!("Failed to get window position: {e}");
             crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
             Err(error)
         }
@@ -304,7 +309,7 @@ fn get_window_size(window: &AXUIElement) -> Result<(i32, i32), String> {
             Ok((size.width as i32, size.height as i32))
         }
         Err(e) => {
-            let error = format!("Failed to get window size: {}", e);
+            let error = format!("Failed to get window size: {e}");
             crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
             Err(error)
         }
@@ -378,7 +383,7 @@ pub fn get_macos_window_rect(
                 ))
             }
             None => {
-                let error = format!("Window with ID '{}' not found", window_id);
+                let error = format!("Window with ID '{window_id}' not found");
                 crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
                 Err(error)
             }
@@ -410,7 +415,7 @@ pub fn get_macos_window_rect(
                 ))
             }
             None => {
-                let error = format!("Window with title containing '{}' not found", window_id);
+                let error = format!("Window with title containing '{window_id}' not found");
                 crate::bprintln!(error: "🖥️ SCREENDUMP: {}", error);
                 Err(error)
             }

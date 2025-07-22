@@ -15,9 +15,11 @@ use tokio::time::sleep;
 /// Standard timeout and retry constants for LLM APIs
 pub mod constants {
     /// Minimum recommended timeout for LLM API calls (100 seconds)
+    #[allow(dead_code)]
     pub const MIN_RECOMMENDED_TIMEOUT_SECS: u64 = 100;
 
     /// Maximum recommended timeout for LLM API calls (200 seconds)
+    #[allow(dead_code)]
     pub const MAX_RECOMMENDED_TIMEOUT_SECS: u64 = 200;
 
     /// Default timeout for LLM API calls (180 seconds)
@@ -144,6 +146,7 @@ pub fn create_standard_retry_config() -> RetryConfig {
 /// # Returns
 ///
 /// A `RetryConfig` with the specified settings
+#[allow(dead_code)]
 pub fn create_custom_retry_config(
     max_attempts: u32,
     base_delay_ms: u64,
@@ -184,6 +187,7 @@ pub fn create_custom_retry_config(
 /// # Returns
 ///
 /// A `RetryConfig` with linear backoff strategy
+#[allow(dead_code)]
 pub fn create_linear_backoff_config(
     max_attempts: Option<u32>,
     base_delay_ms: Option<u64>,
@@ -245,8 +249,7 @@ where
                         Err(e) => {
                             // Error reading the response body itself
                             return Err(LlmError::ApiError(format!(
-                                "Failed to read {} response body: {}",
-                                provider_name, e
+                                "Failed to read {provider_name} response body: {e}"
                             )));
                         }
                     };
@@ -256,15 +259,13 @@ where
                         // Log the raw body along with the parsing error
                         bprintln!(error: "Failed to parse {} response. Error: {}. Body:\n{}", provider_name, e, response_body);
                         LlmError::ApiError(format!(
-                            "Failed to parse {} response: {}",
-                            provider_name, e
+                            "Failed to parse {provider_name} response: {e}"
                         ))
                         // Consider including a truncated body in the error message itself if needed,
                         // but logging it might be sufficient. Example:
                         // let truncated_body = response_body.chars().take(500).collect::<String>();
                         // LlmError::ApiError(format!(
-                        //     "Failed to parse {} response: {}. Body (truncated): {}",
-                        //     provider_name, e, truncated_body
+                        //     "Failed to parse {provider_name} response: {e}. Body (truncated): {truncated_body}"
                         // ))
                     });
                 } else if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -314,8 +315,7 @@ where
                             .unwrap_or_else(|_| "Unknown server error".to_string());
 
                         return Err(LlmError::ApiError(format!(
-                            "Max retries reached. {} server error {}: {}",
-                            provider_name, status, error_text
+                            "Max retries reached. {provider_name} server error {status}: {error_text}"
                         )));
                     }
 
@@ -336,8 +336,7 @@ where
                         .unwrap_or_else(|_| "Unknown error".to_string());
 
                     return Err(LlmError::ApiError(format!(
-                        "{} HTTP error {}: {}",
-                        provider_name, status, error_text
+                        "{provider_name} HTTP error {status}: {error_text}"
                     )));
                 }
             }
@@ -348,13 +347,12 @@ where
                 if attempts >= config.max_attempts {
                     if err.is_timeout() {
                         return Err(LlmError::ApiError(format!(
-                            "{} request timed out after {} seconds and {} retry attempts",
-                            provider_name, config.timeout_secs, config.max_attempts
+                            "{provider_name} request timed out after {} seconds and {} retry attempts",
+                            config.timeout_secs, config.max_attempts
                         )));
                     } else {
                         return Err(LlmError::ApiError(format!(
-                            "Max retries reached. Network error: {}",
-                            err
+                            "Max retries reached. Network error: {err}"
                         )));
                     }
                 }

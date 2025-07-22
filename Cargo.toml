@@ -2,6 +2,9 @@
 members = [".", "server"]
 resolver = "2"
 
+[workspace.lints.clippy]
+uninlined_format_args = "allow"
+
 # Shared dependencies across workspace
 [workspace.dependencies]
 anyhow = "1.0"
@@ -37,6 +40,9 @@ license = "MIT"
 
 [features]
 default = []
+
+[lints]
+workspace = true
 
 [profile.test]
 opt-level = 0

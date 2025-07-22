@@ -1,8 +1,8 @@
 use crate::constants::{FORMAT_BOLD, FORMAT_GRAY, FORMAT_RESET};
 use crate::tools::ToolResult;
-use reqwest::Client; // Already present, but good to ensure
+ // Already present, but good to ensure
 use scraper::{Html, Selector}; // Import scraper types
-use std::time::Instant; // For timing if needed later
+ // For timing if needed later
 
 /// Extracts text content from HTML using the scraper library.
 /// It attempts to preserve some structure by adding newlines around block elements.
@@ -60,7 +60,7 @@ fn extract_text_with_scraper(html: &str) -> String {
                             if !result.is_empty() && !result.ends_with(|c: char| c.is_whitespace() || c == '\n') {
                                 result.push(' ');
                             }
-                            result.push_str(&format!("{} [{}]", link_text, href));
+                            result.push_str(&format!("{link_text} [{href}]"));
                             // REMOVED: result.push(' '); // Let subsequent processing handle spacing/newlines
                         } else if !link_text.is_empty() {
                             // If no href, just add the text
@@ -94,7 +94,7 @@ fn extract_text_with_scraper(html: &str) -> String {
 
     // Final cleanup: Consolidate multiple newlines into single newlines
     let mut cleaned = String::new();
-    let mut last_char_was_newline = true; // Start as true to prevent leading newline
+    let _last_char_was_newline = true; // Start as true to prevent leading newline
 
     for line in result.lines() {
         let processed_line: String = line.split_whitespace().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
@@ -221,7 +221,7 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         let error_msg = "Error: No URL provided. Usage: fetch https://example.com".to_string();
 
         if !silent_mode {
-            bprintln !(error:"{}", error_msg);
+            bprintln !(error:"{error_msg}");
         }
 
         return ToolResult::error(error_msg);
@@ -233,10 +233,10 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         Ok(response) => response,
         Err(err) => {
             if !silent_mode {
-                bprintln !(error:"Error fetching URL: {}", err);
+                bprintln !(error:"Error fetching URL: {err}");
             }
 
-            return ToolResult::error(format!("Error fetching URL: {}", err));
+            return ToolResult::error(format!("Error fetching URL: {err}"));
         }
     };
 
@@ -265,10 +265,10 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
         Ok(text) => text,
         Err(err) => {
             if !silent_mode {
-                bprintln !(error:"Error reading response: {}", err);
+                bprintln !(error:"Error reading response: {err}");
             }
 
-            return ToolResult::error(format!("Error reading response: {}", err));
+            return ToolResult::error(format!("Error reading response: {err}"));
         }
     };
 
@@ -287,13 +287,10 @@ pub async fn execute_fetch(args: &str, _body: &str, silent_mode: bool) -> ToolRe
     // Return the fetched content
     if !silent_mode {
         bprintln !(tool: "fetch",
-            "{}🌐 Fetch:{} {} - Content fetched successfully",
-            FORMAT_BOLD,
-            FORMAT_RESET,
-            url
+            "{FORMAT_BOLD}🌐 Fetch:{FORMAT_RESET} {url} - Content fetched successfully"
         );
-        bprintln !(dev: "{}{}{}", FORMAT_GRAY, user_text, FORMAT_RESET);
+        bprintln !(dev: "{FORMAT_GRAY}{user_text}{FORMAT_RESET}");
     }
 
-    ToolResult::success(format!("Fetched from {}:\n\n{}", url, processed_text))
+    ToolResult::success(format!("Fetched from {url}:\n\n{processed_text}"))
 }

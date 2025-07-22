@@ -6,7 +6,7 @@
 use crate::tools::ui::input::{InputAction, InputCommand, MouseButtonType};
 use crate::tools::ui::screendump;
 use crate::tools::ToolResult;
-use enigo::{Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
+use enigo::{Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -168,7 +168,7 @@ async fn get_window_position(window_id: &str) -> Result<(i32, i32), String> {
         }
     }
 
-    let (_, _, x, y, _, _) = result.map_err(|e| format!("Failed to get window position: {}", e))?;
+    let (_, _, x, y, _, _) = result.map_err(|e| format!("Failed to get window position: {e}"))?;
 
     Ok((x, y))
 }
@@ -181,7 +181,7 @@ async fn activate_window(window_id: &str) -> Result<(), String> {
     match screendump::get_window_rect(window_id) {
         Ok(_) => crate::bprintln!(dev: "💻 INPUT: Window '{}' found, will activate", window_id),
         Err(e) => {
-            let error = format!("Failed to find window: {}", e);
+            let error = format!("Failed to find window: {e}");
             crate::bprintln!(error: "💻 INPUT: ⚠️ {}", error);
             return Err(error);
         }
@@ -198,20 +198,20 @@ async fn activate_window(window_id: &str) -> Result<(), String> {
     crate::bprintln!(dev: "💻 INPUT: Using osascript to activate application '{}'", app_name);
 
     // Use AppleScript to activate the application
-    let script = format!("tell application \"{}\" to activate", app_name);
+    let script = format!("tell application \"{app_name}\" to activate");
     let output = std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
         .output()
         .map_err(|e| {
-            let error = format!("Failed to execute osascript: {}", e);
+            let error = format!("Failed to execute osascript: {e}");
             crate::bprintln!(error: "💻 INPUT: ⚠️ {}", error);
             error
         })?;
 
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
-        let error_msg = format!("Failed to activate window: {}", error);
+        let error_msg = format!("Failed to activate window: {error}");
         crate::bprintln!(error: "💻 INPUT: ⚠️ {}", error_msg);
         return Err(error_msg);
     }
@@ -281,8 +281,7 @@ async fn send_mouse_click(
     result?;
 
     Ok(format!(
-        "Clicked at coordinates ({}, {}) in window '{}'",
-        x, y, window_id
+        "Clicked at coordinates ({x}, {y}) in window '{window_id}'"
     ))
 }
 
@@ -321,7 +320,7 @@ async fn send_keyboard_text(text: &str, window_id: &str) -> Result<String, Strin
 
     result?;
 
-    Ok(format!("Typed text into window '{}'", window_id))
+    Ok(format!("Typed text into window '{window_id}'"))
 }
 
 /// Send a keyboard shortcut to a window
@@ -386,7 +385,7 @@ async fn send_keyboard_shortcut(
 
     result?;
 
-    Ok(format!("Sent keyboard shortcut to window '{}'", window_id))
+    Ok(format!("Sent keyboard shortcut to window '{window_id}'"))
 }
 
 /// Execute a sequence of actions with the given window ID
@@ -408,17 +407,19 @@ async fn execute_action_sequence(actions: &[InputAction], window_id: &str) -> To
             }
             InputAction::Wait { ms } => {
                 sleep(Duration::from_millis(*ms)).await;
-                Ok(format!("Waited for {}ms", ms))
+                Ok(format!("Waited for {ms}ms"))
             }
         };
 
         // Process the result
         match result {
             Ok(msg) => {
-                results.push(format!("Action {}: {}", index + 1, msg));
+                let idx = index + 1;
+                results.push(format!("Action {idx}: {msg}"));
             }
             Err(err) => {
-                results.push(format!("⚠️ Action {} failed: {}", index + 1, err));
+                let idx = index + 1;
+                results.push(format!("⚠️ Action {idx} failed: {err}"));
                 // Continue with remaining actions even if one fails
             }
         }

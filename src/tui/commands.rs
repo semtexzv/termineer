@@ -148,8 +148,7 @@ pub async fn process_command(state: &mut TuiState, input: &str) -> anyhow::Resul
             state
                 .agent_buffer
                 .stdout(&format!(
-                    "Unknown command: '{}'. Type /help for available commands.",
-                    input
+                    "Unknown command: '{input}'. Type /help for available commands."
                 ))
                 .unwrap();
         }
@@ -161,7 +160,7 @@ pub async fn process_command(state: &mut TuiState, input: &str) -> anyhow::Resul
 /// Handle pound command for agent switching
 pub async fn handle_pound_command(state: &mut TuiState, cmd: &str) -> anyhow::Result<()> {
     // Create popup for command result
-    let command_title = format!("Agent Selection: {}", cmd);
+    let command_title = format!("Agent Selection: {cmd}");
     let mut result = String::new();
 
     // Parse the agent number from the command
@@ -190,12 +189,12 @@ pub async fn handle_pound_command(state: &mut TuiState, cmd: &str) -> anyhow::Re
                     .map(|(_, name)| name.clone())
                     .unwrap_or_else(|| "Unknown".to_string());
 
-                result.push_str(&format!("Switched to agent {} [{}]", agent_name, agent_id));
+                result.push_str(&format!("Switched to agent {agent_name} [{agent_id}]"));
             } else {
-                result.push_str(&format!("Failed to get buffer for agent {}", agent_id));
+                result.push_str(&format!("Failed to get buffer for agent {agent_id}"));
             }
         } else {
-            result.push_str(&format!("Agent with ID {} not found", agent_id));
+            result.push_str(&format!("Agent with ID {agent_id} not found"));
         }
     } else {
         // Try to find agent by name
@@ -206,12 +205,12 @@ pub async fn handle_pound_command(state: &mut TuiState, cmd: &str) -> anyhow::Re
             // Update buffer to show the selected agent's output
             if let Ok(buffer) = crate::agent::get_agent_buffer(agent_id) {
                 state.agent_buffer = buffer;
-                result.push_str(&format!("Switched to agent {} [{}]", agent_str, agent_id));
+                result.push_str(&format!("Switched to agent {agent_str} [{agent_id}]"));
             } else {
-                result.push_str(&format!("Failed to get buffer for agent {}", agent_str));
+                result.push_str(&format!("Failed to get buffer for agent {agent_str}"));
             }
         } else {
-            result.push_str(&format!("Agent '{}' not found", agent_str));
+            result.push_str(&format!("Agent '{agent_str}' not found"));
         }
     }
 

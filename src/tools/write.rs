@@ -22,7 +22,7 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
     let validated_path = match crate::tools::path_utils::validate_path(filename) {
         Ok(path) => path,
         Err(e) => {
-            let error_msg = format!("Security error for file '{}': {}", filename, e);
+            let error_msg = format!("Security error for file '{filename}': {e}");
 
             if !silent_mode {
                 // Use buffer-based printing
@@ -53,30 +53,18 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
                 // Use buffer-based printing
                 if !preview_lines.is_empty() {
                     bprintln !(tool: "write",
-                        "{}✍️ Write: {} ({} lines){}\n{}{}{}",
-                        FORMAT_BOLD,
-                        safe_display_path,
-                        line_count,
-                        FORMAT_RESET,
-                        FORMAT_GRAY,
-                        preview_lines,
-                        FORMAT_RESET
+                        "{FORMAT_BOLD}✍️ Write: {safe_display_path} ({line_count} lines){FORMAT_RESET}\n{FORMAT_GRAY}{preview_lines}{FORMAT_RESET}"
                     );
                 } else {
                     bprintln !(tool: "write",
-                        "{}✍️ Write: {} ({} lines){}",
-                        FORMAT_BOLD,
-                        safe_display_path,
-                        line_count,
-                        FORMAT_RESET
+                        "{FORMAT_BOLD}✍️ Write: {safe_display_path} ({line_count} lines){FORMAT_RESET}"
                     );
                 }
             }
 
             // More detailed output for the agent including line count
             let agent_output = format!(
-                "Successfully wrote to file '{}' ({} lines, line range: 1-{})",
-                safe_display_path, line_count, line_count
+                "Successfully wrote to file '{safe_display_path}' ({line_count} lines, line range: 1-{line_count})"
             );
 
             ToolResult::success(agent_output)
@@ -84,10 +72,10 @@ pub async fn execute_write(args: &str, body: &str, silent_mode: bool) -> ToolRes
         Err(e) => {
             if !silent_mode {
                 // Use buffer-based printing with direct error message
-                bprintln !(error:"Error writing to file '{}': {}", safe_display_path, e);
+                bprintln !(error:"Error writing to file '{safe_display_path}': {e}");
             }
 
-            let error_msg = format!("Error writing to file '{}': {}", safe_display_path, e);
+            let error_msg = format!("Error writing to file '{safe_display_path}': {e}");
 
             ToolResult::error(error_msg)
         }

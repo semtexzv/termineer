@@ -425,7 +425,7 @@ impl HelperDef for McpToolsHelper {
 
                 if let Some(tools) = tools {
                     if !tools.is_empty() {
-                        output.push_str(&format!("### Server: {}\n\n", server_name));
+                        output.push_str(&format!("### Server: {server_name}\n\n"));
 
                         for tool_value in tools {
                             if let Some(tool) = tool_value.as_object() {
@@ -438,7 +438,7 @@ impl HelperDef for McpToolsHelper {
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("No description");
 
-                                output.push_str(&format!("- **{}**: {}\n", name, description));
+                                output.push_str(&format!("- **{name}**: {description}\n"));
                             }
                         }
 

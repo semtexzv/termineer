@@ -311,11 +311,11 @@ impl GeminiBackend {
         contents_to_cache: Vec<GeminiContent>,
         system_instruction_to_cache: Option<GeminiContent>,
     ) -> Result<(String, usize, TokenUsage), LlmError> { // Returns (cache_name, num_messages_cached, creation_token_usage)
-        let model_for_cache = format!("models/{}", self.model_name); // Use the full model path
+        let _model_for_cache = format!("models/{model_name}", model_name = self.model_name); // Use the full model path
         let num_messages_cached = contents_to_cache.len(); // Count messages being cached
-        bprintln!(dev: "Gemini Cache: Attempting to create cache for {} messages with model '{}'", num_messages_cached, self.model_name);
+        bprintln!(dev: "Gemini Cache: Attempting to create cache for {num_messages_cached} messages with model '{model_name}'", model_name = self.model_name);
 
-        let model_for_cache = format!("models/{}", self.model_name); // Use the full model path
+        let model_for_cache = format!("models/{model_name}", model_name = self.model_name); // Use the full model path
 
         let cache_input = GeminiCachedContentInput {
             model: model_for_cache.clone(),
@@ -323,17 +323,18 @@ impl GeminiBackend {
             system_instruction: system_instruction_to_cache,
         };
 
-        let api_url = format!("{}/cachedContents?key={}", API_BASE_URL, self.api_key);
-        let request_json = serde_json::to_value(cache_input).map_err(|e| LlmError::ConfigError(format!("Failed to serialize cache request: {}", e)))?;
+        let api_url = format!("{API_BASE_URL}/cachedContents?key={api_key}", api_key = self.api_key);
+        let request_json = serde_json::to_value(cache_input).map_err(|e| LlmError::ConfigError(format!("Failed to serialize cache request: {e}")))?;
 
         // Log the request payload (truncated if large)
         let request_str = request_json.to_string();
         let request_preview = if request_str.len() > 500 {
-            format!("{}...", &request_str[..500])
+            let substr = &request_str[..500];
+            format!("{substr}...")
         } else {
             request_str
         };
-        bprintln!(dev: "Gemini Cache: Sending create cache request to {}: {}", api_url, request_preview);
+        bprintln!(dev: "Gemini Cache: Sending create cache request to {api_url}: {request_preview}");
 
         // Send the request and handle potential errors
         let response_result = self
@@ -344,7 +345,7 @@ impl GeminiBackend {
             Ok(resp) => resp,
             Err(e) => {
                 // Log the specific error during cache creation
-                bprintln!(error: "Gemini Cache: Error creating CachedContent: {}", e);
+                bprintln!(error: "Gemini Cache: Error creating CachedContent: {e}");
                 // Propagate the error
                 return Err(e);
             }
@@ -359,8 +360,8 @@ impl GeminiBackend {
              cache_creation_input_tokens: response.usage_metadata.total_token_count.unwrap_or(0) as usize,
         };
 
-        bprintln!(dev: "Gemini Cache: Created CachedContent '{}' with {} messages. Tokens written to cache: {}",
-                 response.name, num_messages_cached, creation_token_usage.cache_creation_input_tokens);
+        bprintln!(dev: "Gemini Cache: Created CachedContent '{name}' with {num_messages_cached} messages. Tokens written to cache: {tokens}",
+                 name = response.name, tokens = creation_token_usage.cache_creation_input_tokens);
 
         // Store the new cache info (name and count)
         {
@@ -427,8 +428,8 @@ impl Backend for GeminiBackend {
 
         // Construct the API endpoint URL
         let api_url = format!(
-            "{}/models/{}:generateContent?key={}",
-            API_BASE_URL, self.model_name, self.api_key
+            "{API_BASE_URL}/models/{model_name}:generateContent?key={api_key}",
+            model_name = self.model_name, api_key = self.api_key
         );
 
         // Use the common send_api_request method
@@ -441,10 +442,9 @@ impl Backend for GeminiBackend {
             if let Some(reason) = &feedback.block_reason {
                 // Prompt or response was blocked
                 let error_msg = format!(
-                    "Gemini API request blocked. Reason: {}. No candidates generated.",
-                    reason
+                    "Gemini API request blocked. Reason: {reason}. No candidates generated."
                 );
-                bprintln!(error: "{}", error_msg); // Log the block reason
+                bprintln!(error: "{error_msg}"); // Log the block reason
                 // Return an API error is clearest.
                 return Err(LlmError::ApiError(error_msg));
             }
@@ -459,10 +459,9 @@ impl Backend for GeminiBackend {
                 .unwrap_or("unknown_reason_empty_candidates");
 
             let error_msg = format!(
-                "No candidates returned from Gemini API (reason: {}). This might be due to safety filters, recitation blocks, or an issue with the prompt.",
-                finish_reason
+                "No candidates returned from Gemini API (reason: {finish_reason}). This might be due to safety filters, recitation blocks, or an issue with the prompt."
             );
-            bprintln!(warn:"{}", error_msg); // Log as warning
+            bprintln!(warn:"{error_msg}"); // Log as warning
 
             // Return an API error, as no content was generated
             return Err(LlmError::ApiError(error_msg));

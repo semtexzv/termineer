@@ -46,7 +46,7 @@ pub async fn execute_linux_screenshot(args: &str, _body: &str, silent_mode: bool
                 .flat_map(|(i, base64_image)| {
                     vec![
                         Content::Text {
-                            text: format!("Screenshot: {}", i),
+                            text: format!("Screenshot: {i}"),
                         },
                         Content::Image {
                             source: ImageSource::Base64 {
@@ -65,7 +65,7 @@ pub async fn execute_linux_screenshot(args: &str, _body: &str, silent_mode: bool
             ToolResult::success_with_content(content)
         }
         Err(e) => {
-            let error_message = format!("Failed to capture screenshot: {}", e);
+            let error_message = format!("Failed to capture screenshot: {e}");
 
             crate::bprintln!(dev: "ERROR: Screenshot capture failed: {}", e);
 
@@ -299,7 +299,7 @@ fn capture_window(window_id: &str) -> Result<String, Box<dyn std::error::Error>>
         }
     }
 
-    Err(format!("Window not found: {}", window_id).into())
+    Err(format!("Window not found: {window_id}").into())
 }
 
 /// Process the image (resize if needed, convert to JPEG)

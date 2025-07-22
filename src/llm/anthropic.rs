@@ -235,17 +235,17 @@ impl Backend for Anthropic {
 
         // Convert to JSON and prepare for the API
         let mut json = serde_json::to_value(request.clone())
-            .map_err(|e| LlmError::ApiError(format!("Failed to serialize request: {}", e)))?;
+            .map_err(|e| LlmError::ApiError(format!("Failed to serialize request: {e}")))?;
 
         // Remove info field which is not part of the API schema
         jsonpath::remove(&mut json, "/messages[..]/info")
-            .map_err(|e| LlmError::ApiError(format!("Failed to process request: {}", e)))?;
+            .map_err(|e| LlmError::ApiError(format!("Failed to process request: {e}")))?;
 
         // Add cache annotation to cached conversation points
         for point in cache_points.iter().flat_map(|v| v.iter()) {
-            let path = format!("/messages[{}]/content[-1]/cache_control", point);
+            let path = format!("/messages[{point}]/content[-1]/cache_control");
             jsonpath::insert(&mut json, &path, json!({"type": "ephemeral"}))
-                .map_err(|e| LlmError::ApiError(format!("Failed to process request: {}", e)))?;
+                .map_err(|e| LlmError::ApiError(format!("Failed to process request: {e}")))?;
         }
 
         // Send the request with appropriate URL and timeout

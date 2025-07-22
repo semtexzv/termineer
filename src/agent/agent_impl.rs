@@ -9,7 +9,7 @@ use super::types::{
 };
 use crate::ansi_converter::strip_ansi_sequences;
 use crate::config::Config;
-use crate::conversation::{sanitize_conversation, truncate_conversation, TruncationConfig};
+use crate::conversation::{sanitize_conversation, TruncationConfig};
 use crate::llm::{Backend, Content, Message, MessageInfo, TokenUsage};
 use crate::prompts::Grammar;
 use crate::tools::shell::{execute_shell, ShellOutput};
@@ -67,6 +67,7 @@ pub struct Agent {
     pub cache_points: BTreeSet<usize>,
 
     /// Configuration for conversation truncation
+    #[allow(dead_code)]
     truncation_config: TruncationConfig,
 
     /// Sender of state updates
@@ -705,7 +706,7 @@ impl Agent {
             let reason = interruption_reason_str
                 .as_ref()
                 .map_or("Sufficient information gathered".to_string(), |r| r.clone());
-            format!("\n\n[COMMAND INTERRUPTED: {}]", reason)
+            format!("\n\n[COMMAND INTERRUPTED: {reason}]")
             // When interrupted by LLM or user, this is NOT an error, it's a successful interruption
             // Set success to true for interruptions
         } else {
@@ -805,13 +806,13 @@ impl Agent {
         // Format the elapsed time in a human-readable format
         let elapsed_seconds = elapsed_duration.as_secs();
         let elapsed_time_str = if elapsed_seconds < 60 {
-            format!("{} seconds", elapsed_seconds)
+            format!("{elapsed_seconds} seconds")
         } else if elapsed_seconds < 3600 {
-            format!(
-                "{} minutes {} seconds",
-                elapsed_seconds / 60,
-                elapsed_seconds % 60
-            )
+            {
+                let minutes = elapsed_seconds / 60;
+                let seconds = elapsed_seconds % 60;
+                format!("{minutes} minutes {seconds} seconds")
+            }
         } else {
             format!(
                 "{} hours {} minutes",
@@ -902,7 +903,7 @@ impl Agent {
                     // Remove the temporary message before returning
                     self.conversation.pop();
 
-                    return Err(format!("Interruption check failed: {}", e).into());
+                    return Err(format!("Interruption check failed: {e}").into());
                 }
             },
             Err(_) => {
@@ -1053,7 +1054,7 @@ impl Agent {
     /// * `Err(...)` if an error occurred while processing
     async fn load_autoinclude_files(
         &mut self,
-        force: bool,
+        _force: bool,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         // Path to autoinclude file
         let autoinclude_path = ".termineer/autoinclude";
@@ -1084,7 +1085,7 @@ impl Agent {
             let matches = glob::glob(pattern).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    format!("Invalid glob pattern '{}': {}", pattern, e),
+                    format!("Invalid glob pattern '{pattern}': {e}"),
                 )
             })?;
 
@@ -1192,10 +1193,10 @@ impl Agent {
             // Also add a message directly to the conversation context
             self.conversation.push(Message::text(
                 "user",
-                format!("📚 *Automatically included {} files (total size: {} KB) from patterns in .termineer/autoinclude*",
-                        included_count,
-                        total_content_size / 1024
-                ),
+                {
+                        let size_kb = total_content_size / 1024;
+                        format!("📚 *Automatically included {included_count} files (total size: {size_kb} KB) from patterns in .termineer/autoinclude*")
+                },
                 MessageInfo::System,
             ));
         }
@@ -1249,7 +1250,7 @@ impl Agent {
             Ok(response) => response,
             Err(e) => {
                 // Convert the error to a Send + Sync error by using the string representation
-                return Err(format!("LLM request failed: {}", e).into());
+                return Err(format!("LLM request failed: {e}").into());
             }
         };
 

@@ -15,6 +15,8 @@
 //! 5. Replaces lengthy tool outputs with short placeholders
 //! 6. Maintains overall conversation structure and flow
 
+#![allow(dead_code)]
+
 use crate::llm::{Content, Message, MessageInfo, TokenUsage};
 use std::collections::BTreeSet;
 

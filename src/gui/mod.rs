@@ -3,7 +3,7 @@
 //! This module provides a graphical frontend for Termineer using egui.
 
 use eframe::egui;
-use eframe::egui::{Color32, RichText, Rounding, Vec2};
+use eframe::egui::{Color32, RichText, Vec2};
 
 /// Main application state
 struct TermineerApp {
@@ -25,12 +25,12 @@ impl TermineerApp {
 }
 
 impl eframe::App for TermineerApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         catppuccin_egui::set_theme(ctx, catppuccin_egui::MACCHIATO);
 
         // Custom titlebar (draggable)
         egui::TopBottomPanel::top("titlebar")
-            .frame(egui::Frame::none().fill(catppuccin_egui::MOCHA.base))
+            .frame(egui::Frame::default().fill(catppuccin_egui::MOCHA.base))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
@@ -44,7 +44,7 @@ impl eframe::App for TermineerApp {
 
         // Central panel with main content
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(catppuccin_egui::MOCHA.base))
+            .frame(egui::Frame::default().fill(catppuccin_egui::MOCHA.base))
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     // Title and version

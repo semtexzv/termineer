@@ -145,7 +145,7 @@ impl OpenAIBackend {
 
         // Add system message first if provided
         if let Some(system_content) = system {
-            prompt_parts.push(format!("System: {}", system_content));
+            prompt_parts.push(format!("System: {system_content}"));
         }
 
         // Process the rest of the messages
@@ -171,12 +171,18 @@ impl OpenAIBackend {
                     // Convert to text description
                     "[Image content - not supported in completions API]".to_string()
                 }
-                Content::Thinking { thinking, .. } => format!("[Thinking]: {}", thinking.clone().unwrap_or_default()),
-                Content::RedactedThinking { data } => format!("[Redacted Thinking]: {}", data.clone().unwrap_or_default()),
-                Content::Document { source } => format!("[Document Source]: {}", source.clone()),
+                Content::Thinking { thinking, .. } => {
+                    let thinking_text = thinking.clone().unwrap_or_default();
+                    format!("[Thinking]: {thinking_text}")
+                }
+                Content::RedactedThinking { data } => {
+                    let data_text = data.clone().unwrap_or_default();
+                    format!("[Redacted Thinking]: {data_text}")
+                }
+                Content::Document { source } => format!("[Document Source]: {source}"),
             };
 
-            prompt_parts.push(format!("{}: {}", role_prefix, content_text));
+            prompt_parts.push(format!("{role_prefix}: {content_text}"));
         }
 
         // Join all parts with newlines and add a final prompt for the assistant
@@ -198,14 +204,14 @@ impl OpenAIBackend {
         let config = retry_utils::create_standard_retry_config();
 
         // Construct the API URL
-        let api_url = format!("{}{}", API_BASE_URL, endpoint);
+        let api_url = format!("{API_BASE_URL}{endpoint}");
 
         // Create a request builder closure that includes all necessary headers
         let prepare_request = || {
             self.client
                 .post(&api_url)
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Authorization", format!("Bearer {api_key}", api_key = self.api_key))
                 .json(&request_json)
         };
 

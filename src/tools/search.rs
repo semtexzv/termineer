@@ -56,7 +56,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
 
     // URL encode the query
     let encoded_query = urlencoding::encode(query);
-    let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
+    let url = format!("https://html.duckduckgo.com/html/?q={encoded_query}");
 
     // Send the request
     let client = Client::new();
@@ -68,7 +68,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
             Ok(response) => {
                 if !response.status().is_success() {
                     let status = response.status();
-                    let error_msg = format!("Error: DuckDuckGo search returned status code {}", status);
+                    let error_msg = format!("Error: DuckDuckGo search returned status code {status}");
                     
                     if !silent_mode {
                         eprintln!("{}", error_msg);
@@ -79,7 +79,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
                 response
             },
             Err(err) => {
-                let error_msg = format!("Error connecting to DuckDuckGo: {}", err);
+                let error_msg = format!("Error connecting to DuckDuckGo: {err}");
                 
                 if !silent_mode {
                     eprintln!("{}", error_msg);
@@ -93,7 +93,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
     let html = match response.text().await {
         Ok(text) => text,
         Err(err) => {
-            let error_msg = format!("Error reading DuckDuckGo response: {}", err);
+            let error_msg = format!("Error reading DuckDuckGo response: {err}");
 
             if !silent_mode {
                 eprintln!("{}", error_msg);
@@ -110,7 +110,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
     let results_selector = match Selector::parse(".result") {
         Ok(selector) => selector,
         Err(err) => {
-            let error_msg = format!("Error creating DuckDuckGo results selector: {}", err);
+            let error_msg = format!("Error creating DuckDuckGo results selector: {err}");
 
             if !silent_mode {
                 eprintln!("{}", error_msg);
@@ -123,7 +123,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
     let title_selector = match Selector::parse(".result__title a") {
         Ok(selector) => selector,
         Err(err) => {
-            let error_msg = format!("Error creating DuckDuckGo title selector: {}", err);
+            let error_msg = format!("Error creating DuckDuckGo title selector: {err}");
 
             if !silent_mode {
                 eprintln!("{}", error_msg);
@@ -136,7 +136,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
     let snippet_selector = match Selector::parse(".result__snippet") {
         Ok(selector) => selector,
         Err(err) => {
-            let error_msg = format!("Error creating DuckDuckGo snippet selector: {}", err);
+            let error_msg = format!("Error creating DuckDuckGo snippet selector: {err}");
 
             if !silent_mode {
                 eprintln!("{}", error_msg);
@@ -147,7 +147,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
     };
 
     // Format the results for output
-    let mut formatted_results = format!("Search results for \"{}\" (via DuckDuckGo):\n\n", query);
+    let mut formatted_results = format!("Search results for \"{query}\" (via DuckDuckGo):\n\n");
 
     // Extract search results
     let mut result_count = 0;
@@ -192,7 +192,7 @@ async fn execute_duckduckgo_search(query: &str, silent_mode: bool) -> ToolResult
                 url.to_string()
             }
         } else if url.starts_with("/") {
-            format!("https://duckduckgo.com{}", url)
+            format!("https://duckduckgo.com{url}")
         } else {
             url.to_string()
         };
@@ -299,7 +299,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
         Ok(response) => {
             if !response.status().is_success() {
                 let status = response.status();
-                let error_msg = format!("Error: Google Search API returned status code {}", status);
+                let error_msg = format!("Error: Google Search API returned status code {status}");
 
                 if !silent_mode {
                     bprintln !(error:"{}", error_msg);
@@ -310,7 +310,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
             response
         }
         Err(err) => {
-            let error_msg = format!("Error connecting to Google Search API: {}", err);
+            let error_msg = format!("Error connecting to Google Search API: {err}");
 
             if !silent_mode {
                 bprintln !(error:"{}", error_msg);
@@ -324,7 +324,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
     let search_results: GoogleSearchResponse = match response.json().await {
         Ok(json) => json,
         Err(err) => {
-            let error_msg = format!("Error parsing Google Search API response: {}", err);
+            let error_msg = format!("Error parsing Google Search API response: {err}");
 
             if !silent_mode {
                 bprintln !(error:"{}", error_msg);
@@ -335,7 +335,7 @@ pub async fn execute_search(args: &str, _body: &str, silent_mode: bool) -> ToolR
     };
 
     // Format the results for output
-    let mut formatted_results = format!("Search results for \"{}\":\n\n", query);
+    let mut formatted_results = format!("Search results for \"{query}\":\n\n");
 
     // Process the main search results
     if let Some(items) = &search_results.items {
